@@ -1,4 +1,4 @@
-import { runAgent } from '@vite-hub/agent'
+import { runScheduledAgent } from '@vite-hub/agent'
 import { kv } from '@vite-hub/kv'
 import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
 import { defineSchedule } from '@vite-hub/schedule'
@@ -19,7 +19,6 @@ export default defineSchedule({
       let owner: Promise<void>
       owner = Promise.resolve()
         .then(async () => {
-          const memo = new Map<string, unknown>()
           const context = {
             pullRequestHead: job.headRefOid,
             pullRequestNumber: job.number,
@@ -28,15 +27,10 @@ export default defineSchedule({
             pullRequestTitle: job.title,
             pullRequestUrl: job.url,
           }
-          await runAgent(babysitter, {
-            memo(key, create) {
-              if (!memo.has(key)) memo.set(key, create())
-              return memo.get(key) as never
-            },
-            run: { runId: `${schedule.runId || schedule.id}:pr-${job.number}:${job.fingerprint}` },
-            runtime: 'unknown',
-            waitUntil() {},
-          }, {
+          await runScheduledAgent(babysitter, {
+            ...schedule,
+            runId: `${schedule.runId || schedule.id}:pr-${job.number}:${job.fingerprint}`,
+          }, {}, {
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
             options: { worktreePath: job.worktreePath },
