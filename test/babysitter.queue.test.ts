@@ -27,7 +27,7 @@ function pullRequest(number: number): PullRequest {
 
 test('uses the singular repository when the plural setting is empty', () => {
   assert.deepEqual(resolveRepositories('', 'vite-hub/vitehub'), ['vite-hub/vitehub'])
-  assert.deepEqual(resolveRepositories('vite-hub/brief, vite-hub/nuxt-agent', 'vite-hub/vitehub'), [
+  assert.deepEqual(resolveRepositories('Vite-Hub/Brief, vite-hub/brief vite-hub/nuxt-agent', 'vite-hub/vitehub'), [
     'vite-hub/brief',
     'vite-hub/nuxt-agent',
   ])
@@ -63,5 +63,19 @@ test('keeps completion state qualified by repository', async () => {
 
   assert.equal(completionKey('vite-hub/brief', 1), 'babysitter/vite-hub/brief/pull-requests/1')
   assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', completed), pullRequestFingerprint('vite-hub/brief', completed))
+  assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
+})
+
+test('keeps healthy repositories when one listing fails', async (t) => {
+  t.mock.method(console, 'error', () => {})
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/missing', 'vite-hub/brief'],
+    6,
+    async repository => {
+      if (repository === 'vite-hub/missing') throw new Error('Not found')
+      return [pullRequest(1)]
+    },
+    async () => null,
+  )
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
 })

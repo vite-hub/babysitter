@@ -24,7 +24,7 @@ export type PullRequestJob = {
 
 export function resolveRepositories(repositories: string, repository: string) {
   const configured = repositories.trim() || repository
-  const resolved = [...new Set(configured.split(/[\s,]+/).filter(Boolean))]
+  const resolved = [...new Set(configured.split(/[\s,]+/).filter(Boolean).map(value => value.toLowerCase()))]
   if (resolved.length === 0) throw new Error('At least one Babysitter repository is required.')
   for (const value of resolved) {
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value)) throw new Error(`Invalid GitHub repository: ${value}`)
@@ -44,9 +44,15 @@ export async function selectPullRequestJobs(
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   readCompletion: (key: string) => Promise<string | null>,
 ) {
-  const candidates = (await Promise.all(repositories.map(async repository =>
-    (await listPullRequests(repository)).map(pullRequest => ({ pullRequest, repository })),
-  ))).flat()
+  const candidates = (await Promise.all(repositories.map(async (repository) => {
+    try {
+      return (await listPullRequests(repository)).map(pullRequest => ({ pullRequest, repository }))
+    }
+    catch (error) {
+      console.error(new Error(`Failed to list pull requests for ${repository}.`, { cause: error }))
+      return []
+    }
+  }))).flat()
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
     const fingerprint = pullRequestFingerprint(repository, pullRequest)
