@@ -25,7 +25,6 @@ export default defineAgent({
       files: {
         '.codex/auth.json': { contents: () => readFile(join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')) },
         '.codex/config.toml': { contents: 'cli_auth_credentials_store = "file"\n' },
-        '.config/gh/hosts.yml': { contents: () => readFile(join(homedir(), '.config/gh/hosts.yml')) },
         '.gitconfig': { contents: () => readFile(join(homedir(), '.gitconfig')) },
       },
     },

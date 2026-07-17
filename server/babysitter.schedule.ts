@@ -81,12 +81,10 @@ async function readPullRequest(repository: string, number: number) {
 async function prepareCheckout(repository: string, pullRequest: PullRequest) {
   const checkout = await mkdtemp(join(tmpdir(), `babysitter-${repository.replace('/', '-')}-pr-${pullRequest.number}-`))
   try {
-    await exec('git', ['init', checkout])
-    await exec('git', ['-C', checkout, 'remote', 'add', 'origin', `https://github.com/${repository}.git`])
-    await exec('git', ['-C', checkout, 'fetch', '--depth=100', 'origin', `refs/pull/${pullRequest.number}/head`])
-    const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'FETCH_HEAD'])).stdout.trim()
+    await exec('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
+    await exec('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
+    const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
-    await exec('git', ['-C', checkout, 'checkout', '--detach', fetched])
     const installArgs = ['pnpm', 'install', '--frozen-lockfile']
     if (!await access(join(checkout, 'pnpm-workspace.yaml')).then(() => true, () => false)) installArgs.push('--ignore-workspace')
     await exec('corepack', installArgs, { cwd: checkout })
