@@ -52,6 +52,21 @@ test('enumerates repositories into one globally capped queue', async () => {
   ])
 })
 
+test('distributes the global cap across repositories', async () => {
+  const jobs = await selectPullRequestJobs(
+    ['vite-hub/vitehub', 'vite-hub/brief'],
+    2,
+    async repository => repository === 'vite-hub/vitehub'
+      ? [pullRequest(1), pullRequest(2), pullRequest(3)]
+      : [pullRequest(4)],
+    async () => null,
+  )
+  assert.deepEqual(jobs.map(job => [job.repository, job.pullRequest.number]), [
+    ['vite-hub/vitehub', 1],
+    ['vite-hub/brief', 4],
+  ])
+})
+
 test('keeps completion state qualified by repository', async () => {
   const completed = pullRequest(1)
   const jobs = await selectPullRequestJobs(

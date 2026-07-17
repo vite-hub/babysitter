@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,9 @@ import { defineAgent } from 'vite-hub/agent'
 import { trustedHost } from 'vite-hub/box'
 
 const exec = promisify(execFile)
+const codexHome = process.env.CODEX_HOME || join(homedir(), '.codex')
+const codexAuth = join(codexHome, 'auth.json')
+const gitConfig = join(homedir(), '.gitconfig')
 
 export default defineAgent({
   box: {
@@ -23,9 +27,11 @@ export default defineAgent({
     },
     home: {
       files: {
-        '.codex/auth.json': { contents: () => readFile(join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'auth.json')) },
-        '.codex/config.toml': { contents: 'cli_auth_credentials_store = "file"\n' },
-        '.gitconfig': { contents: () => readFile(join(homedir(), '.gitconfig')) },
+        ...(existsSync(codexAuth) ? {
+          '.codex/auth.json': { contents: () => readFile(codexAuth) },
+          '.codex/config.toml': { contents: 'cli_auth_credentials_store = "file"\n' },
+        } : {}),
+        ...(existsSync(gitConfig) ? { '.gitconfig': { contents: () => readFile(gitConfig) } } : {}),
       },
     },
     requires: ['git', { command: 'gh', args: ['auth', 'status'] }, 'pnpm'],

@@ -44,7 +44,7 @@ export async function selectPullRequestJobs(
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   readCompletion: (key: string) => Promise<string | null>,
 ) {
-  const candidates = (await Promise.all(repositories.map(async (repository) => {
+  const byRepository = await Promise.all(repositories.map(async (repository) => {
     try {
       return (await listPullRequests(repository)).map(pullRequest => ({ pullRequest, repository }))
     }
@@ -52,7 +52,10 @@ export async function selectPullRequestJobs(
       console.error(new Error(`Failed to list pull requests for ${repository}.`, { cause: error }))
       return []
     }
-  }))).flat()
+  }))
+  const candidates = Array.from({ length: Math.max(0, ...byRepository.map(pullRequests => pullRequests.length)) }, (_, index) =>
+    byRepository.flatMap(pullRequests => pullRequests[index] || []),
+  ).flat()
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
     const fingerprint = pullRequestFingerprint(repository, pullRequest)
