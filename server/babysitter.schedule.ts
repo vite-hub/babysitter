@@ -83,6 +83,7 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
   try {
     await exec('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
     await exec('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
+    await exec('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${repository}.git`])
     await exec('git', ['-C', checkout, 'remote', 'set-url', '--push', 'origin', `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`])
     const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
