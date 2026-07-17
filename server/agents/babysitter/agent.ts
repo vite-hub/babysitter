@@ -39,8 +39,6 @@ export default defineAgent({
     },
     requires: [
       'git',
-      { command: 'git', args: ['config', '--get', 'user.name'] },
-      { command: 'git', args: ['config', '--get', 'user.email'] },
       { command: 'gh', args: ['auth', 'status'] },
       'pnpm',
     ],
@@ -49,5 +47,11 @@ export default defineAgent({
 })
 
 async function readGitConfig(key: string) {
-  return (await exec('git', ['config', '--get', key])).stdout.trim()
+  try {
+    return (await exec('git', ['config', '--get', key])).stdout.trim()
+  }
+  catch {
+    const login = (await exec('gh', ['api', 'user', '--jq', '.login'])).stdout.trim()
+    return key === 'user.name' ? login : `${login}@users.noreply.github.com`
+  }
 }
