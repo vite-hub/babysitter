@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -87,7 +87,9 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
     const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'FETCH_HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
     await exec('git', ['-C', checkout, 'checkout', '--detach', fetched])
-    await exec('corepack', ['pnpm', 'install', '--ignore-workspace', '--frozen-lockfile'], { cwd: checkout })
+    const installArgs = ['pnpm', 'install', '--frozen-lockfile']
+    if (!await access(join(checkout, 'pnpm-workspace.yaml')).then(() => true, () => false)) installArgs.push('--ignore-workspace')
+    await exec('corepack', installArgs, { cwd: checkout })
     return checkout
   }
   catch (error) {
