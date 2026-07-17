@@ -49,7 +49,7 @@ export async function selectPullRequestJobs(
   ))).flat()
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
-    const fingerprint = pullRequestFingerprint(pullRequest)
+    const fingerprint = pullRequestFingerprint(repository, pullRequest)
     const key = completionKey(repository, pullRequest.number)
     return await readCompletion(key) === fingerprint
       ? undefined
@@ -63,6 +63,6 @@ export function completionKey(repository: string, pullRequestNumber: number) {
   return `babysitter/${repository}/pull-requests/${pullRequestNumber}`
 }
 
-export function pullRequestFingerprint(pullRequest: PullRequest) {
-  return createHash('sha256').update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
+export function pullRequestFingerprint(repository: string, pullRequest: PullRequest) {
+  return createHash('sha256').update(repository).update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
 }

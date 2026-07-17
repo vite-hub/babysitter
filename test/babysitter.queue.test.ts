@@ -58,9 +58,10 @@ test('keeps completion state qualified by repository', async () => {
     ['vite-hub/vitehub', 'vite-hub/brief'],
     6,
     async () => [completed],
-    async key => key === completionKey('vite-hub/vitehub', 1) ? pullRequestFingerprint(completed) : null,
+    async key => key === completionKey('vite-hub/vitehub', 1) ? pullRequestFingerprint('vite-hub/vitehub', completed) : null,
   )
 
   assert.equal(completionKey('vite-hub/brief', 1), 'babysitter/vite-hub/brief/pull-requests/1')
+  assert.notEqual(pullRequestFingerprint('vite-hub/vitehub', completed), pullRequestFingerprint('vite-hub/brief', completed))
   assert.deepEqual(jobs.map(job => job.repository), ['vite-hub/brief'])
 })

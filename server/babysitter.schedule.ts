@@ -58,7 +58,7 @@ export default defineSchedule({
 
         const current = await readPullRequest(repository, pullRequest.number)
         if (current.state === 'OPEN' && blockerPattern.test(current.body)) {
-          await kv.set(job.completionKey, pullRequestFingerprint(current))
+          await kv.set(job.completionKey, pullRequestFingerprint(repository, current))
         }
       }
       catch (error) {
@@ -79,7 +79,7 @@ async function readPullRequest(repository: string, number: number) {
 }
 
 async function prepareCheckout(repository: string, pullRequest: PullRequest) {
-  const checkout = await mkdtemp(join(tmpdir(), `babysitter-pr-${pullRequest.number}-`))
+  const checkout = await mkdtemp(join(tmpdir(), `babysitter-${repository.replace('/', '-')}-pr-${pullRequest.number}-`))
   try {
     await exec('git', ['init', checkout])
     await exec('git', ['-C', checkout, 'remote', 'add', 'origin', `https://github.com/${repository}.git`])
