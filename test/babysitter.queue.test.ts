@@ -13,6 +13,7 @@ function pullRequest(number: number): PullRequest {
     body: '',
     headRefName: `branch-${number}`,
     headRefOid: `head-${number}`,
+    headRepository: { nameWithOwner: 'example/repo' },
     isDraft: true,
     mergeStateStatus: 'CLEAN',
     number,

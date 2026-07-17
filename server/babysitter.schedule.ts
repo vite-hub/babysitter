@@ -19,7 +19,7 @@ import {
 } from './babysitter.queue.ts'
 
 const exec = promisify(execFile)
-const pullRequestFields = 'body,headRefName,headRefOid,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
+const pullRequestFields = 'body,headRefName,headRefOid,headRepository,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 const blockerPattern = /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:blocker:v1 -->/
 
 export default defineSchedule({
@@ -82,8 +82,8 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
   const checkout = await mkdtemp(join(tmpdir(), `babysitter-${repository.replace('/', '-')}-pr-${pullRequest.number}-`))
   try {
     await exec('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
-    await exec('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${repository}.git`])
     await exec('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
+    await exec('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`])
     const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
     const installArgs = ['pnpm', 'install', '--frozen-lockfile']
