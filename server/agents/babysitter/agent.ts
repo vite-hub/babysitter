@@ -34,6 +34,7 @@ export default defineAgent({
           '.codex/auth.json': { contents: () => readFile(codexAuth) },
           '.codex/config.toml': { contents: 'cli_auth_credentials_store = "file"\n' },
         } : {}),
+        '.gitconfig': { contents: '[credential "https://github.com"]\n\thelper = !gh auth git-credential\n' },
       },
     },
     requires: [
