@@ -87,7 +87,7 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
     const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'FETCH_HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
     await exec('git', ['-C', checkout, 'checkout', '--detach', fetched])
-    await exec('corepack', ['pnpm', 'install', '--frozen-lockfile'], { cwd: checkout })
+    await exec('corepack', ['pnpm', 'install', '--ignore-workspace', '--frozen-lockfile'], { cwd: checkout })
     return checkout
   }
   catch (error) {
