@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,41 +10,27 @@ import { useServerEnv } from '#vitehub/env/server'
 import babysitter from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
+import {
+  type PullRequest,
+  pullRequestFingerprint,
+  resolveMaxOwners,
+  resolveRepositories,
+  selectPullRequestJobs,
+} from './babysitter.queue.ts'
 
 const exec = promisify(execFile)
 const pullRequestFields = 'body,headRefName,headRefOid,isDraft,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 const blockerPattern = /<!-- babysitter:blocker:v1 -->[\s\S]*?<!-- \/babysitter:blocker:v1 -->/
 
-type PullRequest = {
-  body: string
-  headRefName: string
-  headRefOid: string
-  isDraft: boolean
-  mergeStateStatus: string
-  number: number
-  reviewDecision: string | null
-  state: string
-  statusCheckRollup: unknown
-  title: string
-  updatedAt: string
-  url: string
-}
-
 export default defineSchedule({
   cron: '*/5 * * * *',
   async handler(schedule) {
-    const repository = useServerEnv().babysitter.repository
-    const pullRequests = await listPullRequests(repository)
-    const jobs = (await Promise.all(pullRequests.map(async pullRequest => {
-      const fingerprint = pullRequestFingerprint(pullRequest)
-      const completionKey = `babysitter/${repository}/pull-requests/${pullRequest.number}`
-      return await kv.get(completionKey) === fingerprint
-        ? undefined
-        : { completionKey, fingerprint, pullRequest }
-    }))).filter(job => job !== undefined).slice(0, 6)
+    const config = useServerEnv().babysitter
+    const repositories = resolveRepositories(config.repositories, config.repository)
+    const jobs = await selectPullRequestJobs(repositories, resolveMaxOwners(config.maxOwners), listPullRequests, key => kv.get<string>(key))
 
     await Promise.all(jobs.map(async job => {
-      const { pullRequest } = job
+      const { pullRequest, repository } = job
       try {
         const checkout = await prepareCheckout(repository, pullRequest)
         try {
@@ -59,7 +44,7 @@ export default defineSchedule({
           }
           await runScheduledAgent(babysitter, {
             ...schedule,
-            runId: `${schedule.runId || schedule.id}:pr-${pullRequest.number}:${job.fingerprint}`,
+            runId: `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`,
           }, {}, {
             abortSignal: AbortSignal.timeout(60 * 60 * 1000),
             context,
@@ -77,7 +62,7 @@ export default defineSchedule({
         }
       }
       catch (error) {
-        console.error(new Error(`Babysitter failed for PR #${pullRequest.number}.`, { cause: error }))
+        console.error(new Error(`Babysitter failed for ${repository} PR #${pullRequest.number}.`, { cause: error }))
       }
     }))
   },
@@ -94,7 +79,6 @@ async function readPullRequest(repository: string, number: number) {
 }
 
 async function prepareCheckout(repository: string, pullRequest: PullRequest) {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error(`Invalid GitHub repository: ${repository}`)
   const checkout = await mkdtemp(join(tmpdir(), `babysitter-pr-${pullRequest.number}-`))
   try {
     await exec('git', ['init', checkout])
@@ -110,8 +94,4 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
     await rm(checkout, { force: true, recursive: true })
     throw error
   }
-}
-
-function pullRequestFingerprint(pullRequest: PullRequest) {
-  return createHash('sha256').update(JSON.stringify(pullRequest)).digest('hex').slice(0, 16)
 }

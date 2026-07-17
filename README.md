@@ -1,6 +1,6 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that owns open pull requests in a GitHub repository until each one is merged, closed, or blocked. Every five minutes, it runs up to six coding agents in parallel.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that owns open pull requests across configured GitHub repositories until each one is merged, closed, or blocked. Every five minutes, it runs one globally bounded batch of coding agents.
 
 ## How it works
 
@@ -11,7 +11,7 @@ flowchart TD
     unchanged -- Yes --> skip
     skip --> schedule
     unchanged -- No --> checkout["Create a disposable exact-head checkout"]
-    checkout --> agent["Start a coding agent, up to six concurrently"]
+    checkout --> agent["Start a coding agent, up to the configured global limit"]
     agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
     work --> outcome{"Outcome"}
     outcome -- Ready --> merge["Merge and delete the source branch"]
@@ -22,8 +22,8 @@ flowchart TD
     close --> schedule
 ```
 
-1. **Prepare pull requests.** The [schedule](server/babysitter.schedule.ts), built with ViteHub's [Schedule primitive](https://vitehub.dev/docs/server-primitives/schedule), reads up to 100 open pull requests from GitHub. Each selected pull request gets a disposable checkout verified against the observed head SHA, so one run cannot inspect one revision while editing another.
-2. **Run pull requests in parallel.** One awaited batch owns up to six pull requests concurrently. ViteHub's process schedule runtime serializes schedule occurrences, so a later five-minute occurrence cannot overlap the active batch. Each agent also receives a private [Box](https://vitehub.dev/docs/agents/boxes) Home containing only the declared GitHub and coding-agent credentials.
+1. **Prepare pull requests.** The [schedule](server/babysitter.schedule.ts), built with ViteHub's [Schedule primitive](https://vitehub.dev/docs/server-primitives/schedule), reads up to 100 open pull requests from each configured GitHub repository. Each selected pull request gets a disposable checkout verified against the observed head SHA, so one run cannot inspect one revision while editing another.
+2. **Run pull requests in parallel.** One awaited batch applies a single concurrency limit across every repository. ViteHub's process schedule runtime serializes schedule occurrences, so a later five-minute occurrence cannot overlap the active batch. Each agent also receives a private [Box](https://vitehub.dev/docs/agents/boxes) Home containing only the declared GitHub and coding-agent credentials.
 3. **Work toward a terminal outcome.** The [agent prompt](server/agents/babysitter/prompt.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to validate the requested direction, bring the branch up to date with its base, address checks and review feedback, verify the exact head, and then merge or close the pull request. The agent may stop only for a real external blocker, such as a missing credential, unavailable service, or unresolved product decision.
 4. **Retry only when useful.** A blocked pull request gets a completion fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later schedules skip it while its observed GitHub state is unchanged; a new commit, comment, check result, review, or metadata change updates the fingerprint and makes it eligible again. Failed, timed-out, or otherwise unfinished runs do not get that completion marker, so a later schedule retries them.
 
@@ -42,12 +42,13 @@ flowchart TD
 
 1. Read and adapt the [agent prompt](server/agents/babysitter/prompt.md) so its permissions, review policy, and merge rules match your repository.
 
-2. Install the dependencies and start Babysitter with the repository name. [ViteHub Env](https://vitehub.dev/docs/server-primitives/env) validates this server-only value from `BABYSITTER_REPO` as declared in [`vite.config.ts`](vite.config.ts).
+2. Install the dependencies and start Babysitter with repository names. `BABYSITTER_REPOS` accepts comma- or space-separated `OWNER/REPOSITORY` values, and `BABYSITTER_MAX_OWNERS` caps the global batch. The singular `BABYSITTER_REPO` remains supported and defaults to `vite-hub/vitehub` when the plural setting is empty.
 
    ```sh
    corepack enable
    pnpm install
-   BABYSITTER_REPO=OWNER/REPOSITORY \
+   BABYSITTER_REPOS=OWNER/REPOSITORY,OWNER/ANOTHER_REPOSITORY \
+   BABYSITTER_MAX_OWNERS=2 \
    pnpm dev
    ```
 

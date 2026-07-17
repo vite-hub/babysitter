@@ -7,6 +7,8 @@ export default defineConfig({
   env: {
     server: {
       babysitter: {
+        maxOwners: env({ default: '6', source: env.source('BABYSITTER_MAX_OWNERS') }),
+        repositories: env({ default: '', source: env.source('BABYSITTER_REPOS') }),
         repository: env({ default: 'vite-hub/vitehub', source: env.source('BABYSITTER_REPO') }),
       },
     },
