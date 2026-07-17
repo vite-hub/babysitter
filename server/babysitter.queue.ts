@@ -4,7 +4,7 @@ export type PullRequest = {
   body: string
   headRefName: string
   headRefOid: string
-  headRepository: { nameWithOwner: string }
+  headRepository: { nameWithOwner: string } | null
   isDraft: boolean
   mergeStateStatus: string
   number: number

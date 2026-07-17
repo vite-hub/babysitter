@@ -39,6 +39,7 @@ export default defineSchedule({
             pullRequestNumber: pullRequest.number,
             pullRequestRepository: repository,
             pullRequestSourceBranch: pullRequest.headRefName,
+            pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
             pullRequestTitle: pullRequest.title,
             pullRequestUrl: pullRequest.url,
           }
@@ -84,7 +85,10 @@ async function prepareCheckout(repository: string, pullRequest: PullRequest) {
     await exec('gh', ['repo', 'clone', repository, checkout, '--', '--filter=blob:none', '--no-checkout'])
     await exec('gh', ['pr', 'checkout', String(pullRequest.number), '--repo', repository, '--detach'], { cwd: checkout })
     await exec('git', ['-C', checkout, 'remote', 'set-url', 'origin', `https://github.com/${repository}.git`])
-    await exec('git', ['-C', checkout, 'remote', 'set-url', '--push', 'origin', `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`])
+    const pushUrl = pullRequest.headRepository
+      ? `https://github.com/${pullRequest.headRepository.nameWithOwner}.git`
+      : 'disabled://pull-request-head-repository-unavailable'
+    await exec('git', ['-C', checkout, 'remote', 'set-url', '--push', 'origin', pushUrl])
     const fetched = (await exec('git', ['-C', checkout, 'rev-parse', 'HEAD'])).stdout.trim()
     if (fetched !== pullRequest.headRefOid) throw new Error(`PR head changed from ${pullRequest.headRefOid} to ${fetched}`)
     const installArgs = ['pnpm', 'install', '--frozen-lockfile']
