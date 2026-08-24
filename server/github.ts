@@ -28,7 +28,7 @@ type GitHubCommandOptions = {
 const exec = promisify(execFile)
 
 export const githubBotLogin = 'vitehub-bot[bot]'
-export const githubBotEmail = 'vitehub-bot[bot]@users.noreply.github.com'
+export const githubBotEmail = '320448255+vitehub-bot[bot]@users.noreply.github.com'
 
 export function createGitHubTokenProvider({
   createAuth = createAppAuth,

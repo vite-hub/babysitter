@@ -58,8 +58,8 @@ flowchart TD
    A long-running Babysitter should use GitHub App credentials. The server mints renewable installation tokens and projects only the active token plus the `vitehub-bot[bot]` commit identity into each agent process:
 
    ```sh
-   GITHUB_APP_ID=12345 \
-   GITHUB_APP_INSTALLATION_ID=67890 \
+   GITHUB_APP_ID=4698907 \
+   GITHUB_APP_INSTALLATION_ID=156121915 \
    GITHUB_APP_PRIVATE_KEY='-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----' \
    pnpm dev
    ```

@@ -58,9 +58,9 @@ test('projects the bot token and commit identity into the agent environment', ()
   assert.deepEqual(githubAgentEnvironment('installation-token'), {
     BABYSITTER_GITHUB_LOGIN: 'vitehub-bot[bot]',
     GH_TOKEN: 'installation-token',
-    GIT_AUTHOR_EMAIL: 'vitehub-bot[bot]@users.noreply.github.com',
+    GIT_AUTHOR_EMAIL: '320448255+vitehub-bot[bot]@users.noreply.github.com',
     GIT_AUTHOR_NAME: 'vitehub-bot[bot]',
-    GIT_COMMITTER_EMAIL: 'vitehub-bot[bot]@users.noreply.github.com',
+    GIT_COMMITTER_EMAIL: '320448255+vitehub-bot[bot]@users.noreply.github.com',
     GIT_COMMITTER_NAME: 'vitehub-bot[bot]',
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_TERMINAL_PROMPT: '0',
