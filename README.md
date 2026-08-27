@@ -105,7 +105,7 @@ Have systemd send the non-terminating `SIGUSR2` drain signal before stopping the
 ```ini
 [Service]
 WorkingDirectory=/srv/babysitter/current
-ExecStop=/bin/sh .output/server/babysitter-drain $MAINPID http://127.0.0.1:3028/api/drain
+ExecStop=/bin/sh .output/server/babysitter-drain $MAINPID http://127.0.0.1:3000/api/drain
 TimeoutStopSec=70min
 KillMode=control-group
 ```

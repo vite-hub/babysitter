@@ -3,7 +3,7 @@
 set -u
 
 main_pid=${1-}
-status_url=${2-http://127.0.0.1:3028/api/drain}
+status_url=${2-http://127.0.0.1:3000/api/drain}
 poll_seconds=${BABYSITTER_DRAIN_POLL_SECONDS-1}
 
 case "$main_pid" in
