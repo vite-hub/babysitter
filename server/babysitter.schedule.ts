@@ -43,6 +43,7 @@ const policyFingerprint = createPolicyFingerprint(promptTemplate, blocker, compl
 const githubLifecycleGroup = 'github-lifecycle'
 const pullRequestFields = 'baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
 const runningJobs = new Set<string>()
+const runningBatches = new Set<Promise<void>>()
 let wakeReconciler = () => {}
 
 export function setBabysitterReconcilerWake(wake: () => void) {
@@ -51,6 +52,10 @@ export function setBabysitterReconcilerWake(wake: () => void) {
 
 export function babysitterWorkload() {
   return { running: runningJobs.size }
+}
+
+export async function waitForBabysitterOwners() {
+  await Promise.all([...runningBatches])
 }
 
 export async function reconcileBabysitterWork(reason: string) {
@@ -100,7 +105,7 @@ export async function reconcileBabysitterWork(reason: string) {
       })
     }
   }
-  void Promise.all(jobs.map(async job => {
+  const batch = Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
     const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
     const owner = { pullRequest: pullRequest.number, repository, runId }
@@ -316,7 +321,7 @@ export async function reconcileBabysitterWork(reason: string) {
       })
       wakeReconciler()
     }
-  })).finally(() => {
+  })).then(() => {}).finally(() => {
     logOperationalEvent('babysitter.batch.finished', {
       durationMs: Date.now() - batchStartedAt,
       jobs: jobs.length,
@@ -325,6 +330,8 @@ export async function reconcileBabysitterWork(reason: string) {
       scheduleId: schedule.runId || schedule.id,
     })
   }).catch(error => logOperationalError('babysitter.batch.failed', error, { scheduleId: schedule.runId }))
+  runningBatches.add(batch)
+  void batch.finally(() => runningBatches.delete(batch))
 }
 
 function jobKey(repository: string, number: number) {

@@ -15,6 +15,8 @@ test('uses demand reconciliation instead of a fixed schedule', async () => {
   assert.match(plugin, /wake\('owner-completed'\)/)
   assert.match(plugin, /repairIntervalMs = 30_000/)
   assert.match(plugin, /if \(running\) \{\s+rerun = true/)
+  assert.match(plugin, /await waitForBabysitterOwners\(\)/)
+  assert.match(runner, /runningBatches\.add\(batch\)/)
   assert.match(runner, /availableOwnerSlots = Math\.max\(0, ownerLimit - runningJobs\.size\)/)
   assert.match(runner, /\.slice\(0, availableOwnerSlots\)/)
   assert.match(runner, /if \(isGitHubRateLimitError\(error\)\) return \[\]/)

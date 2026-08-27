@@ -2,6 +2,7 @@ import { definePlugin } from 'nitro'
 import {
   reconcileBabysitterWork,
   setBabysitterReconcilerWake,
+  waitForBabysitterOwners,
 } from '../babysitter.schedule.ts'
 import { logOperationalError, logOperationalEvent } from '../babysitter.operations.ts'
 
@@ -70,6 +71,7 @@ export default definePlugin((nitroApp) => {
     timer = undefined
     setBabysitterReconcilerWake(() => {})
     await running
+    await waitForBabysitterOwners()
     logOperationalEvent('babysitter.reconciler.stopped', {})
   })
 })

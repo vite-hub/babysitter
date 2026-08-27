@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 export const defaultMaxOwners = '1'
 export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v3'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
+const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestFeedback = {
   comments: { count: number, latestId: string | null }
@@ -65,7 +66,6 @@ export async function selectPullRequestJobs(
       const pullRequests = await listPullRequests(repository)
       return pullRequests
         .filter(pullRequest => !hasOpenStackParent(pullRequest, pullRequests))
-        .filter(pullRequest => !hasWorkingReservation(pullRequest))
         .map(pullRequest => ({ pullRequest, repository }))
     }
     catch (error) {
@@ -91,12 +91,6 @@ export async function selectPullRequestJobs(
   }))
 
   return jobs.filter((job): job is PullRequestJob => job !== undefined)
-}
-
-function hasWorkingReservation(pullRequest: PullRequest) {
-  return Array.isArray(pullRequest.labels) && pullRequest.labels.some((label) => {
-    return label && typeof label === 'object' && (label as Record<string, unknown>).name === 'Agent: Working'
-  })
 }
 
 function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[]) {
@@ -149,6 +143,7 @@ export function successfulPassFingerprint(
   const completionState: Record<string, unknown> = {
     ...completedPullRequest,
     comments: completedPullRequest.feedback?.comments ?? feedbackCollectionState(completedPullRequest.comments),
+    labels: stableLabels(completedPullRequest.labels),
     requiredStatusCheckRollup: checkState,
     reviews: completedPullRequest.feedback?.reviews ?? feedbackCollectionState(completedPullRequest.reviews),
     statusCheckRollup: checkState,
@@ -156,6 +151,12 @@ export function successfulPassFingerprint(
   delete completionState.feedback
   delete completionState.updatedAt
   return fingerprintPullRequestState(repository, completionState, policyFingerprint)
+}
+
+function stableLabels(labels: unknown) {
+  if (!Array.isArray(labels)) return labels
+  return labels.filter(label => !label || typeof label !== 'object'
+    || !lifecycleLabels.has(String((label as Record<string, unknown>).name)))
 }
 
 export function completedPassFingerprint(
