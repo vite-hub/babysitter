@@ -203,7 +203,7 @@ function agentResultText(value: unknown, observations: readonly unknown[]) {
     if (attributes['message.role'] !== 'assistant') return []
     const delta = attributes['message.content']
     return typeof delta === 'string' ? [delta] : []
-  }).join('').trim()
+  }).join('\n').trim()
   if (content) return content
   if (typeof value === 'string') return value.trim() || undefined
   if (!value || typeof value !== 'object') return undefined
