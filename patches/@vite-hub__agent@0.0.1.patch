@@ -1,5 +1,5 @@
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index efcd66523134616f4ea7295a1cc6e02747717891..a3d0791ec035ad1d7a3a2702ae806469607877dc 100644
+index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503cede52c86 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
 @@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
@@ -95,25 +95,47 @@ index efcd66523134616f4ea7295a1cc6e02747717891..a3d0791ec035ad1d7a3a2702ae806469
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`);
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
          ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
-@@ -200,7 +239,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 		const args = [];
+@@ -196,28 +235,25 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		return row ? deserialize(row.record, row.sequence) : void 0;
+ 	};
+ 	const pruneStatements = (now = Date.now()) => {
+-		const filters = [];
+-		const args = [];
++		const statements = [];
  		const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ");
  		if (maxAgeMs !== false) {
 -			filters.push("json_extract(record, '$.updatedAt') < ?");
-+			filters.push("updated_at < ?");
- 			args.push(new Date(now - maxAgeMs).toISOString());
+-			args.push(new Date(now - maxAgeMs).toISOString());
++			statements.push({
++				args: [...terminalStatuses, new Date(now - maxAgeMs).toISOString()],
++				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND updated_at < ?`
++			});
  		}
  		if (maxRecords !== false) {
-@@ -211,9 +250,6 @@ function createLibsqlAgentInvocationStore(options = {}) {
+-			filters.push(`sequence NOT IN (
++			statements.push({
++				args: [...terminalStatuses, ...terminalStatuses, maxRecords],
++				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND sequence NOT IN (
+         SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
+-      )`);
+-			args.push(...terminalStatuses, maxRecords);
++			)`
++			});
  		}
- 		if (!filters.length) return [];
+-		if (!filters.length) return [];
++		if (!statements.length) return [];
  		return [
 -			`UPDATE ${table}
 -      SET status = json_extract(record, '$.status')
 -      WHERE status != json_extract(record, '$.status')`,
- 			{
- 				args: [...terminalStatuses, ...args],
- 				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`
+-			{
+-				args: [...terminalStatuses, ...args],
+-				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`
+-			},
++			...statements,
+ 			`DELETE FROM ${table}_claims
+       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
+ 		];
 @@ -265,9 +301,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
  							agentNameRecord(input),
  							searchableRecord(input),
