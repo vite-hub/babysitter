@@ -1,5 +1,5 @@
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1820b71af 100644
+index efcd66523134616f4ea7295a1cc6e02747717891..d31eb27426f99ed2e81dcc0d9824c8cb47db25be 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
 @@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
@@ -34,8 +34,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
 +        BEGIN
 +          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
 +        END`);
-+			await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`);
-+			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_update
++			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
 +        AFTER UPDATE OF record ON ${table}
 +        WHEN NEW.updated_at IS OLD.updated_at
 +        BEGIN
@@ -44,6 +43,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
 +            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
 +          WHERE sequence = NEW.sequence;
 +        END`);
++			await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`);
  			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
          AFTER UPDATE OF search, record ON ${table}
          WHEN NEW.search_version = OLD.search_version
@@ -72,7 +72,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
  					sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`
  				});
  				if (!missingAgentNames.rows.length) break;
-@@ -171,7 +195,31 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -171,7 +195,28 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				});
  				await client.batch(agentNameBackfill, "write");
  			}
@@ -96,9 +96,6 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
 +				});
 +				await client.batch(updatedAtBackfill, "write");
 +			}
-+			await client.execute(`UPDATE ${table}
-+        SET status = json_extract(record, '$.status')
-+        WHERE status != json_extract(record, '$.status')`);
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
 +			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`);
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`);
@@ -122,13 +119,13 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
  		}
  		if (maxRecords !== false) {
 -			filters.push(`sequence NOT IN (
+-        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
+-      )`);
+-			args.push(...terminalStatuses, maxRecords);
 +			statements.push({
 +				args: [...terminalStatuses, ...terminalStatuses, maxRecords],
 +				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND sequence <= (
--        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
 +        SELECT sequence FROM ${table} NOT INDEXED WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT 1 OFFSET ?
--      )`);
--			args.push(...terminalStatuses, maxRecords);
 +			)`
 +			});
  		}
