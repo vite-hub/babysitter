@@ -192,19 +192,27 @@ async function babysitterSessionUrl(runId: string) {
 }
 
 function agentResultText(value: unknown, observations: readonly unknown[]) {
-  for (const observation of observations.toReversed()) {
-    if (!observation || typeof observation !== 'object') continue
+  const streamFinishedAt = observations.findLastIndex(observation => observationName(observation) === 'agent.stream.finish')
+  const completedStream = streamFinishedAt < 0 ? observations : observations.slice(0, streamFinishedAt)
+  const streamStartedAt = completedStream.findLastIndex(observation => observationName(observation) === 'agent.stream.finish') + 1
+  const content = completedStream.slice(streamStartedAt).flatMap((observation) => {
+    if (!observation || typeof observation !== 'object') return []
     const record = observation as Record<string, unknown>
-    if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') continue
+    if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') return []
     const attributes = record.attributes as Record<string, unknown>
-    if (attributes['message.role'] !== 'assistant') continue
-    const content = attributes['message.content']
-    if (typeof content === 'string' && content.trim()) return content.trim()
-  }
+    if (attributes['message.role'] !== 'assistant') return []
+    const delta = attributes['message.content']
+    return typeof delta === 'string' ? [delta] : []
+  }).join('').trim()
+  if (content) return content
   if (typeof value === 'string') return value.trim() || undefined
   if (!value || typeof value !== 'object') return undefined
   const text = (value as Record<string, unknown>).text
   return typeof text === 'string' ? text.trim() || undefined : undefined
+}
+
+function observationName(observation: unknown) {
+  return observation && typeof observation === 'object' ? (observation as Record<string, unknown>).name : undefined
 }
 
 async function readCompletion(key: string) {

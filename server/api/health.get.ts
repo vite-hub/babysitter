@@ -27,8 +27,8 @@ export default defineEventHandler(async () => {
   const [githubDiagnostic, codex, invocationState] = await Promise.all([
     checkGitHub(),
     checkCodex(),
-    invocations.list({ limit: 100 })
-      .then(recent => ({ counts: summarizeAgentInvocationWorkload(recent.invocations, processStartedAt) }))
+    readInvocationWorkload(processStartedAt)
+      .then(counts => ({ counts }))
       .catch(() => ({ counts: undefined })),
   ])
   const counts = invocationState.counts ?? { active: 0, completed: 0, failed: 0, stale: 0, total: 0 }
@@ -74,6 +74,27 @@ export default defineEventHandler(async () => {
     workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0 },
   }
 })
+
+async function readInvocationWorkload(processStartedAt: number) {
+  const [recent, active] = await Promise.all([
+    invocations.list({ limit: 100 }),
+    listActiveInvocations(),
+  ])
+  const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
+  for (const invocation of active) records.set(invocation.id, invocation)
+  return summarizeAgentInvocationWorkload([...records.values()], processStartedAt)
+}
+
+async function listActiveInvocations() {
+  const active = []
+  let cursor: string | undefined
+  do {
+    const page = await invocations.list({ cursor, limit: 100, status: ['pending', 'running'] })
+    active.push(...page.invocations)
+    cursor = page.cursor
+  } while (cursor)
+  return active
+}
 
 async function checkGitHub(): Promise<Diagnostic> {
   try {
