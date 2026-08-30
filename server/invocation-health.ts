@@ -6,6 +6,13 @@ type InvocationSummaryInput = {
   status: InvocationStatus
 }
 
+type InvocationListResult = {
+  cursor?: string
+  invocations: readonly InvocationSummaryInput[]
+}
+
+type InvocationList = (options: { cursor?: string, limit: number, status?: readonly ('pending' | 'running')[] }) => Promise<InvocationListResult>
+
 export function summarizeInvocationWorkload(invocations: readonly InvocationSummaryInput[], processStartedAt: number) {
   const counts = { active: 0, completed: 0, failed: 0, stale: 0, total: invocations.length }
   for (const invocation of invocations) {
@@ -18,4 +25,20 @@ export function summarizeInvocationWorkload(invocations: readonly InvocationSumm
     else if (invocation.status === 'failed') counts.failed += 1
   }
   return counts
+}
+
+export async function loadInvocationWorkload(list: InvocationList, processStartedAt: number) {
+  const recent = await list({ limit: 100 })
+  const active: InvocationSummaryInput[] = []
+  let cursor: string | undefined
+
+  do {
+    const page = await list({ cursor, limit: 100, status: ['pending', 'running'] })
+    active.push(...page.invocations)
+    cursor = page.cursor
+  } while (cursor)
+
+  const recentCounts = summarizeInvocationWorkload(recent.invocations, processStartedAt)
+  const activeCounts = summarizeInvocationWorkload(active, processStartedAt)
+  return { ...recentCounts, active: activeCounts.active, stale: activeCounts.stale }
 }

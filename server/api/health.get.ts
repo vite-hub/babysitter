@@ -8,7 +8,7 @@ import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
 import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
-import { summarizeInvocationWorkload } from '../invocation-health.ts'
+import { loadInvocationWorkload } from '../invocation-health.ts'
 import { invocations } from '../invocations.ts'
 import { useSessionSnapshotStore } from '../session-snapshots.ts'
 
@@ -24,14 +24,17 @@ export default defineEventHandler(async () => {
   const ownerLimit = resolveMaxOwners(maxOwners)
   const capacity = createAgentInspectionMetadata(babysitterAgent).config?.driver.capacity
   const githubBudget = githubGraphQLRateLimitSnapshot()
-  const [github, codex, recent] = await Promise.all([
+  const processStartedAt = Date.now() - process.uptime() * 1_000
+  const [github, codex, invocationState] = await Promise.all([
     checkGitHub(),
     checkCodex(),
-    invocations.list({ limit: 100 }).catch(() => ({ invocations: [] })),
+    loadInvocationWorkload(options => invocations.list(options), processStartedAt)
+      .then(counts => ({ counts }))
+      .catch(() => ({ counts: undefined })),
   ])
   const snapshots = useSessionSnapshotStore().stats()
-  const counts = summarizeInvocationWorkload(recent.invocations, Date.now() - process.uptime() * 1_000)
-  const healthy = github.status === 'ok' && codex.status === 'ok' && counts.stale === 0
+  const counts = invocationState.counts ?? { active: 0, completed: 0, failed: 0, stale: 0, total: 0 }
+  const healthy = github.status === 'ok' && codex.status === 'ok' && invocationState.counts !== undefined && counts.stale === 0
   const diagnostics: Diagnostic[] = [
     github,
     {
@@ -56,9 +59,11 @@ export default defineEventHandler(async () => {
     { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup and 2m repair scan' },
     {
       label: 'Invocation state',
-      status: counts.stale ? 'warning' : 'ok',
-      value: counts.stale ? `${counts.stale} stale` : 'Reconciled',
-      detail: counts.stale ? 'Active records predate this service process' : 'No active record predates this service process',
+      status: invocationState.counts === undefined || counts.stale ? 'warning' : 'ok',
+      value: invocationState.counts === undefined ? 'Unavailable' : counts.stale ? `${counts.stale} stale` : 'Reconciled',
+      detail: invocationState.counts === undefined
+        ? 'Invocation records could not be read'
+        : counts.stale ? 'Active records predate this service process' : 'No active record predates this service process',
     },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
     { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
