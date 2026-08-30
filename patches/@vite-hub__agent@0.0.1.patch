@@ -412,3 +412,10 @@ index 276984a78596e7698e6a24f2894164512e718cb5..482dba56d650bfd5249b20bfef2c1b89
 +//#endregion
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createGitHubHost, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, parseGraphQLRateLimit, summarizeAgentInvocationWorkload };
 +
+diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
+index efcd66523134616f4ea7295a1cc6e02747717891..ed69e53c24bc3ee41e360cd560ede26dbdb2bd62 100644
+--- a/dist/invocations/sqlite.js
++++ b/dist/invocations/sqlite.js
+@@ -319 +319 @@ function createLibsqlAgentInvocationStore(options = {}) {
+-				sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
++				sql: `SELECT sequence, json_remove(record, '$.observations') AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
