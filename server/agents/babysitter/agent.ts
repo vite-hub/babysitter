@@ -48,6 +48,7 @@ const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
     ...(checkout ? { GIT_DIR: `${checkout}/.git`, GIT_WORK_TREE: '.' } : {}),
   },
   model: 'gpt-5.6-sol',
+  permissions: 'allow-all',
 })
 const driver = createDriver(capabilityAccess)
 
