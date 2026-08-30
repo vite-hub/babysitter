@@ -1,3 +1,28 @@
+diff --git a/dist/channels-CHVpVlfr.js b/dist/channels-CHVpVlfr.js
+index 88b353f117d389e5f6a9fee2a5da7ec63a331bd3..2b3e4b0a3f9be162d32a9ee9bf82fed0563160b4 100644
+--- a/dist/channels-CHVpVlfr.js
++++ b/dist/channels-CHVpVlfr.js
+@@ -920 +920 @@ const githubActivityUpdates = /* @__PURE__ */ new Map();
+-async function githubActivityIdentity(fetcher, apiBaseUrl, headers) {
++async function githubActivityIdentity(fetcher, apiBaseUrl, headers, app, context) {
+@@ -938,0 +939,14 @@ async function githubActivityIdentity(fetcher, apiBaseUrl, headers) {
++	if (app) {
++		const options = githubAppOptions(app) || {};
++		const env = await githubEnv(context);
++		const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId");
++		const appResponse = await fetcher(`${apiBaseUrl}/app`, {
++			headers: githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent),
++			method: "GET"
++		});
++		if (appResponse.ok) {
++			const authenticatedApp = await appResponse.json().catch(() => void 0);
++			const slug = isRecord(authenticatedApp) ? maybeString(authenticatedApp.slug) : void 0;
++			if (slug) return { app: slug };
++		}
++	}
+@@ -1055 +1069 @@ function githubAgentActivity(app) {
+-		const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers);
++		const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, app, context);
 diff --git a/dist/server.d.ts b/dist/server.d.ts
 index 30c72fcabad7265d0b50cd63ad0e3d707beeec9a..0feb8450558ec35674b5c2292d1d906899b3f23d 100644
 --- a/dist/server.d.ts
