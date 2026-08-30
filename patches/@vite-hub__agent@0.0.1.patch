@@ -1,31 +1,77 @@
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index efcd6652..ce0d9e94 100644
+index efcd66523134616f4ea7295a1cc6e02747717891..a3d0791ec035ad1d7a3a2702ae806469607877dc 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
-@@ -7 +7 @@ const maximumDateMs = 864e13;
+@@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
+ const defaultMaxAgeMs = 720 * 60 * 60 * 1e3;
+ const defaultMaxRecords = 1e4;
+ const maximumDateMs = 864e13;
 -const searchBackfillPageSize = 100;
 +const backfillPageSize = 100;
-@@ -107 +107,2 @@ function createLibsqlAgentInvocationStore(options = {}) {
--        record TEXT NOT NULL
+ const searchVersion = 2;
+ const terminalStatuses = [
+ 	"completed",
+@@ -104,6 +104,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+         agent_name TEXT NOT NULL DEFAULT '',
+         search TEXT,
+         search_version INTEGER NOT NULL DEFAULT 0,
 +        updated_at TEXT NOT NULL DEFAULT '',
-+        record TEXT NOT NULL
-@@ -124 +125,6 @@ function createLibsqlAgentInvocationStore(options = {}) {
--			}
-+			}
+         record TEXT NOT NULL
+       )`);
+ 			const columns = await client.execute(`PRAGMA table_info(${table})`);
+@@ -122,19 +123,38 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			} catch (error) {
+ 				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "search_version")) throw error;
+ 			}
 +			if (!columns.rows.some((row) => row.name === "updated_at")) try {
 +				await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`);
 +			} catch (error) {
 +				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "updated_at")) throw error;
 +			}
-@@ -137 +143 @@ function createLibsqlAgentInvocationStore(options = {}) {
++			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
++        AFTER INSERT ON ${table}
++        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
++        BEGIN
++          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
++        END`);
++			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_update
++        AFTER UPDATE OF record ON ${table}
++        WHEN NEW.updated_at IS OLD.updated_at
++        BEGIN
++          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
++        END`);
+ 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
+         AFTER UPDATE OF search, record ON ${table}
+         WHEN NEW.search_version = OLD.search_version
+         BEGIN
+           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
+         END`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
++        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`);
+ 			let backfillSequence = 0;
+ 			while (true) {
+ 				const missingSearch = await client.execute({
+ 					args: [
+ 						searchVersion,
+ 						backfillSequence,
 -						searchBackfillPageSize
 +						backfillPageSize
-@@ -160 +166 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 					],
+ 					sql: `SELECT sequence, record FROM ${table}
+             WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`
+@@ -157,7 +177,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			backfillSequence = 0;
+ 			while (true) {
+ 				const missingAgentNames = await client.execute({
 -					args: [backfillSequence, searchBackfillPageSize],
 +					args: [backfillSequence, backfillPageSize],
-@@ -173 +179,19 @@ function createLibsqlAgentInvocationStore(options = {}) {
--			}
-+			}
+ 					sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`
+ 				});
+ 				if (!missingAgentNames.rows.length) break;
+@@ -171,7 +191,26 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				});
+ 				await client.batch(agentNameBackfill, "write");
+ 			}
 +			backfillSequence = 0;
 +			while (true) {
 +				const missingUpdatedAt = await client.execute({
@@ -44,34 +90,64 @@ index efcd6652..ce0d9e94 100644
 +				});
 +				await client.batch(updatedAtBackfill, "write");
 +			}
-@@ -174 +198,2 @@ function createLibsqlAgentInvocationStore(options = {}) {
--			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
-+			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
 +			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`);
-@@ -203 +228 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+         ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
+@@ -200,7 +239,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		const args = [];
+ 		const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ");
+ 		if (maxAgeMs !== false) {
 -			filters.push("json_extract(record, '$.updatedAt') < ?");
 +			filters.push("updated_at < ?");
-@@ -214,3 +238,0 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			args.push(new Date(now - maxAgeMs).toISOString());
+ 		}
+ 		if (maxRecords !== false) {
+@@ -211,9 +250,6 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		}
+ 		if (!filters.length) return [];
+ 		return [
 -			`UPDATE ${table}
 -      SET status = json_extract(record, '$.status')
 -      WHERE status != json_extract(record, '$.status')`,
-@@ -267 +289,2 @@ function createLibsqlAgentInvocationStore(options = {}) {
--							searchVersion,
-+							searchVersion,
+ 			{
+ 				args: [...terminalStatuses, ...args],
+ 				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`
+@@ -265,9 +301,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 							agentNameRecord(input),
+ 							searchableRecord(input),
+ 							searchVersion,
 +							input.updatedAt,
-@@ -270 +293 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 							serialize(input)
+ 						],
 -						sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`
 +						sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`
-@@ -319 +342 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 					}];
+ 					if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") statements.push(...pruneStatements(retentionNow));
+ 					statements.push({
+@@ -316,7 +353,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			args.push(limit + 1);
+ 			const records = (await client.execute({
+ 				args,
 -				sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
 +				sql: `SELECT sequence, json_set(record, '$.observations', json('[]')) AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
-@@ -369 +392,2 @@ function createLibsqlAgentInvocationStore(options = {}) {
--								searchVersion,
-+								searchVersion,
+ 			})).rows.map((row) => deserialize(row.record, row.sequence)).filter((record) => Boolean(record));
+ 			const page = records.slice(0, limit);
+ 			return {
+@@ -367,10 +404,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 								agentNameRecord(stored),
+ 								searchableRecord(stored),
+ 								searchVersion,
 +								updated.updatedAt,
-@@ -373 +397 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 								serialize(stored),
+ 								id
+ 							],
 -							sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`
 +							sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`
+ 						});
+ 						if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") await prune(transaction);
+ 						await transaction.commit();
 diff --git a/dist/server.d.ts b/dist/server.d.ts
 index 55f0b6e02b22cdf747443f6847b9dd5806ecc7f0..24f9fcc5f89fa2303b3e1b04d377a119a8a184ac 100644
 --- a/dist/server.d.ts
