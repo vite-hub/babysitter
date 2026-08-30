@@ -3,13 +3,12 @@ import { promisify } from 'node:util'
 import { useServerEnv } from '#vitehub/env/server'
 import { defineEventHandler } from 'h3'
 import { createAgentInspectionMetadata } from 'vite-hub/agent'
-import { summarizeAgentInvocationWorkload } from 'vite-hub/agent/server'
 import babysitterAgent from '../agents/babysitter/agent.ts'
 import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
 import { github } from '../github.ts'
-import { invocations } from '../invocations.ts'
+import { readInvocationWorkload } from '../invocations.ts'
 
 const exec = promisify(execFile)
 
@@ -74,27 +73,6 @@ export default defineEventHandler(async () => {
     workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0 },
   }
 })
-
-async function readInvocationWorkload(processStartedAt: number) {
-  const [recent, active] = await Promise.all([
-    invocations.list({ limit: 100 }),
-    listActiveInvocations(),
-  ])
-  const records = new Map(recent.invocations.map(invocation => [invocation.id, invocation]))
-  for (const invocation of active) records.set(invocation.id, invocation)
-  return summarizeAgentInvocationWorkload([...records.values()], processStartedAt)
-}
-
-async function listActiveInvocations() {
-  const active = []
-  let cursor: string | undefined
-  do {
-    const page = await invocations.list({ cursor, limit: 100, status: ['pending', 'running'] })
-    active.push(...page.invocations)
-    cursor = page.cursor
-  } while (cursor)
-  return active
-}
 
 async function checkGitHub(): Promise<Diagnostic> {
   try {

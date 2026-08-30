@@ -16,6 +16,9 @@ importers:
 
   .:
     dependencies:
+      '@libsql/client':
+        specifier: 0.17.4
+        version: 0.17.4
       '@t3tools/provider-runtime':
         specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41(ioredis@5.11.1)
