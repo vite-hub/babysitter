@@ -64,14 +64,14 @@ index 55f0b6e02b22cdf747443f6847b9dd5806ecc7f0..24f9fcc5f89fa2303b3e1b04d377a119
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteResumableContext, type AgentChannelChatRouteResumableOptions, type AgentChannelChatRouteResumableRequestBody, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentDiscordGatewayRouteOptions, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents , type GitHubGraphQLRateLimit, type GitHubHost, type GitHubHostAccess, type GitHubHostCheckoutOptions, type GitHubHostCredentials, type GitHubHostOptions, type GitHubHostPullRequest, type GitHubHostSecret, createGitHubHost, failInterruptedAgentInvocations, parseGraphQLRateLimit, summarizeAgentInvocationWorkload };
 +
 diff --git a/dist/server.js b/dist/server.js
-index ab23a0f3a4a5e719123377b4fcbbf1300ce8c7aa..a50cf77d9f2d5471a4a1e4b5e71afb0e84ea7e30 100644
+index 276984a78596e7698e6a24f2894164512e718cb5..482dba56d650bfd5249b20bfef2c1b89adc87e65 100644
 --- a/dist/server.js
 +++ b/dist/server.js
 @@ -1,4 +1,343 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-CH4AeJW4.js";
- import { A as defineAgentRunEvents } from "./src-Bks2DeBA.js";
+ import { A as defineAgentRunEvents } from "./src-D9bDU3eD.js";
  import { a as createMemoryAgentInvocationStore, o as defineAgentInvocations, r as applyAgentInvocationStoreUpdate, t as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./invocations-CG8BWlD-.js";
- import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-CdzNgVxG.js";
+ import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-D9bKWPSX.js";
 -export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents };
 +import { createSign } from "node:crypto";
 +import { mkdtemp, rm } from "node:fs/promises";
