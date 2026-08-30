@@ -1,5 +1,5 @@
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503cede52c86 100644
+index efcd66523134616f4ea7295a1cc6e02747717891..17c055989397f86df26d6ebb48f425792548c582 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
 @@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
@@ -19,7 +19,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
          record TEXT NOT NULL
        )`);
  			const columns = await client.execute(`PRAGMA table_info(${table})`);
-@@ -122,19 +123,38 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -122,19 +123,41 @@ function createLibsqlAgentInvocationStore(options = {}) {
  			} catch (error) {
  				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "search_version")) throw error;
  			}
@@ -38,7 +38,10 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
 +        AFTER UPDATE OF record ON ${table}
 +        WHEN NEW.updated_at IS OLD.updated_at
 +        BEGIN
-+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
++          UPDATE ${table} SET
++            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
++            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
++          WHERE sequence = NEW.sequence;
 +        END`);
  			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
          AFTER UPDATE OF search, record ON ${table}
@@ -59,7 +62,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  					],
  					sql: `SELECT sequence, record FROM ${table}
              WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`
-@@ -157,7 +177,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -157,7 +180,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
  			backfillSequence = 0;
  			while (true) {
  				const missingAgentNames = await client.execute({
@@ -68,7 +71,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  					sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`
  				});
  				if (!missingAgentNames.rows.length) break;
-@@ -171,7 +191,26 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -171,7 +194,26 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				});
  				await client.batch(agentNameBackfill, "write");
  			}
@@ -95,7 +98,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`);
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
          ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
-@@ -196,28 +235,25 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -196,28 +238,25 @@ function createLibsqlAgentInvocationStore(options = {}) {
  		return row ? deserialize(row.record, row.sequence) : void 0;
  	};
  	const pruneStatements = (now = Date.now()) => {
@@ -136,7 +139,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  			`DELETE FROM ${table}_claims
        WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
  		];
-@@ -265,9 +301,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -265,9 +304,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
  							agentNameRecord(input),
  							searchableRecord(input),
  							searchVersion,
@@ -148,7 +151,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  					}];
  					if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") statements.push(...pruneStatements(retentionNow));
  					statements.push({
-@@ -316,7 +353,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -316,7 +356,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
  			args.push(limit + 1);
  			const records = (await client.execute({
  				args,
@@ -157,7 +160,7 @@ index efcd66523134616f4ea7295a1cc6e02747717891..efbb75f7ecd4cd929471d2be837f503c
  			})).rows.map((row) => deserialize(row.record, row.sequence)).filter((record) => Boolean(record));
  			const page = records.slice(0, limit);
  			return {
-@@ -367,10 +404,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -367,10 +407,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
  								agentNameRecord(stored),
  								searchableRecord(stored),
  								searchVersion,
