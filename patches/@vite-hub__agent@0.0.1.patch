@@ -31,7 +31,7 @@ index efcd6652..ce0d9e94 100644
 +				const missingUpdatedAt = await client.execute({
 +					args: [backfillSequence, backfillPageSize],
 +					sql: `SELECT sequence FROM ${table}
-+            WHERE updated_at = '' AND sequence > ? ORDER BY sequence LIMIT ?`
++            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`
 +				});
 +				if (!missingUpdatedAt.rows.length) break;
 +				const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
@@ -39,7 +39,7 @@ index efcd6652..ce0d9e94 100644
 +					return {
 +						args: [numberValue(row.sequence)],
 +						sql: `UPDATE ${table} SET updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
-+              WHERE sequence = ? AND updated_at = ''`
++              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`
 +					};
 +				});
 +				await client.batch(updatedAtBackfill, "write");
