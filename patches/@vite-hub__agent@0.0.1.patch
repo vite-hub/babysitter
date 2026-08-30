@@ -124,8 +124,9 @@ index efcd66523134616f4ea7295a1cc6e02747717891..8dceb1fb44deea6bd0786207714817b1
 -			filters.push(`sequence NOT IN (
 +			statements.push({
 +				args: [...terminalStatuses, ...terminalStatuses, maxRecords],
-+				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND sequence NOT IN (
-         SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
++				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND sequence <= (
+-        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
++        SELECT sequence FROM ${table} NOT INDEXED WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT 1 OFFSET ?
 -      )`);
 -			args.push(...terminalStatuses, maxRecords);
 +			)`
