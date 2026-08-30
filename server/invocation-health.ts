@@ -40,5 +40,11 @@ export async function loadInvocationWorkload(list: InvocationList, processStarte
 
   const recentCounts = summarizeInvocationWorkload(recent.invocations, processStartedAt)
   const activeCounts = summarizeInvocationWorkload(active, processStartedAt)
-  return { ...recentCounts, active: activeCounts.active, stale: activeCounts.stale }
+  const sampledActive = recentCounts.active + recentCounts.stale
+  return {
+    ...recentCounts,
+    active: activeCounts.active,
+    stale: activeCounts.stale,
+    total: recentCounts.total - sampledActive + activeCounts.total,
+  }
 }
