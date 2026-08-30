@@ -7,10 +7,8 @@ import babysitterAgent from '../agents/babysitter/agent.ts'
 import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
-import { githubGraphQLRateLimitSnapshot, githubToken } from '../github.ts'
-import { loadInvocationWorkload } from '../invocation-health.ts'
-import { invocations } from '../invocations.ts'
-import { useSessionSnapshotStore } from '../session-snapshots.ts'
+import { github } from '../github.ts'
+import { readInvocationWorkload } from '../invocations.ts'
 
 const exec = promisify(execFile)
 
@@ -23,20 +21,19 @@ export default defineEventHandler(async () => {
   const repositories = resolveRepositories(configuredRepositories, repository)
   const ownerLimit = resolveMaxOwners(maxOwners)
   const capacity = createAgentInspectionMetadata(babysitterAgent).config?.driver.capacity
-  const githubBudget = githubGraphQLRateLimitSnapshot()
+  const githubBudget = github.budget()
   const processStartedAt = Date.now() - process.uptime() * 1_000
-  const [github, codex, invocationState] = await Promise.all([
+  const [githubDiagnostic, codex, invocationState] = await Promise.all([
     checkGitHub(),
     checkCodex(),
-    loadInvocationWorkload(options => invocations.list(options), processStartedAt)
+    readInvocationWorkload(processStartedAt)
       .then(counts => ({ counts }))
       .catch(() => ({ counts: undefined })),
   ])
-  const snapshots = useSessionSnapshotStore().stats()
   const counts = invocationState.counts ?? { active: 0, completed: 0, failed: 0, stale: 0, total: 0 }
-  const healthy = github.status === 'ok' && codex.status === 'ok' && invocationState.counts !== undefined && counts.stale === 0
+  const healthy = githubDiagnostic.status === 'ok' && codex.status === 'ok' && invocationState.counts !== undefined && counts.stale === 0
   const diagnostics: Diagnostic[] = [
-    github,
+    githubDiagnostic,
     {
       label: 'GitHub budget',
       status: githubBudget.limited ? 'warning' : 'ok',
@@ -56,7 +53,7 @@ export default defineEventHandler(async () => {
       value: `Adaptive · ${capacity?.active ?? 0} active · ${capacity?.effectiveConcurrency ?? ownerLimit} admitted`,
       detail: `${capacity?.pending ?? 0} queued · hard max ${ownerLimit}${capacity?.reason ? ` · ${capacity.reason}` : ''}`,
     },
-    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup and 2m repair scan' },
+    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 30s repair scan' },
     {
       label: 'Invocation state',
       status: invocationState.counts === undefined || counts.stale ? 'warning' : 'ok',
@@ -66,7 +63,6 @@ export default defineEventHandler(async () => {
         : counts.stale ? 'Active records predate this service process' : 'No active record predates this service process',
     },
     { label: 'Console delivery', status: consoleClient ? 'ok' : 'neutral', value: consoleClient ? 'Connected' : 'Optional · not configured' },
-    { label: 'State', status: 'ok', value: 'SQLite', detail: `${snapshots.count} immutable workspace snapshot${snapshots.count === 1 ? '' : 's'}` },
   ]
 
   return {
@@ -74,13 +70,13 @@ export default defineEventHandler(async () => {
     diagnostics,
     status: healthy ? 'healthy' : 'degraded',
     summary: healthy ? 'Babysitter is operational' : 'Babysitter needs attention',
-    workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0, snapshots: snapshots.count },
+    workload: { ...counts, ...babysitterWorkload(), queued: capacity?.pending ?? 0 },
   }
 })
 
 async function checkGitHub(): Promise<Diagnostic> {
   try {
-    await githubToken({ fallback: true })
+    await github.access({ fallback: true })
     return { label: 'GitHub', status: 'ok', value: 'Connected', detail: 'Credentials available' }
   }
   catch {

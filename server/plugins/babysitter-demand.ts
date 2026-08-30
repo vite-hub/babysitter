@@ -1,42 +1,38 @@
 import { definePlugin } from 'nitro'
+import { createProcessReconciler, type ProcessReconcilerStatus } from 'vite-hub/runtime/node'
 import {
   reconcileBabysitterWork,
-  waitForBabysitterOwners,
+  setBabysitterReconcilerWake,
 } from '../babysitter.schedule.ts'
 import { logOperationalError, logOperationalEvent } from '../babysitter.operations.ts'
-import {
-  createBabysitterReconciler,
-  listenForBabysitterDrainSignal,
-  registerBabysitterDrainStatus,
-} from '../babysitter.reconciler.ts'
 
-const repairIntervalMs = 2 * 60_000
+const repairIntervalMs = 30_000
+let readDrainStatus: (() => ProcessReconcilerStatus) | undefined
+
+export function getBabysitterDrainStatus() {
+  return readDrainStatus?.() || 'starting'
+}
 
 export default definePlugin((nitroApp) => {
-  const reconciler = createBabysitterReconciler({
+  let accepting = true
+  const reconciler = createProcessReconciler({
+    intervalMs: repairIntervalMs,
     onDrained: () => logOperationalEvent('babysitter.reconciler.stopped', {}),
     onError: (error, reason) => logOperationalError('babysitter.reconcile.failed', error, { reason }),
-    onQuiesce: () => {},
-    reconcile: reconcileBabysitterWork,
-    repairIntervalMs,
-    waitForOwners: waitForBabysitterOwners,
+    onQuiesce: () => {
+      accepting = false
+      setBabysitterReconcilerWake(() => {})
+    },
+    run: (reason, context) => reconcileBabysitterWork(reason, context, () => accepting),
+    signal: 'SIGUSR2',
   })
 
-  const removeDrainSignalListener = listenForBabysitterDrainSignal(
-    process,
-    reconciler.drain,
-    error => logOperationalError('babysitter.reconciler.drain.failed', error, { signal: 'SIGUSR2' }),
-  )
-  registerBabysitterDrainStatus(reconciler.status)
+  readDrainStatus = reconciler.status
+  setBabysitterReconcilerWake(() => reconciler.wake('owner-completed'))
   logOperationalEvent('babysitter.reconciler.started', { repairIntervalMs })
   reconciler.wake('startup')
 
   nitroApp.hooks.hook('close', async () => {
-    try {
-      await reconciler.drain()
-    }
-    finally {
-      removeDrainSignalListener()
-    }
+    await reconciler.close()
   })
 })

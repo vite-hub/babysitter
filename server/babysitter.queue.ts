@@ -129,17 +129,6 @@ function hasOpenStackParent(pullRequest: PullRequest, pullRequests: PullRequest[
     && parent.headRefName === pullRequest.baseRefName)
 }
 
-export async function runPullRequestJobs(
-  jobs: PullRequestJob[],
-  maxOwners: number,
-  run: (job: PullRequestJob) => Promise<void>,
-) {
-  let next = 0
-  await Promise.all(Array.from({ length: Math.min(maxOwners, jobs.length) }, async () => {
-    while (next < jobs.length) await run(jobs[next++]!)
-  }))
-}
-
 export function createPolicyFingerprint(...policy: string[]) {
   return createHash('sha256').update(JSON.stringify(policy)).digest('hex').slice(0, 16)
 }

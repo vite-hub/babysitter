@@ -1,12 +1,12 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup and through a two-minute repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup, after an owner finishes, and through a 30-second repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    wake["Startup or repair scan"] --> discover["Read open pull requests from GitHub"]
+    wake["Startup, owner completion, or repair scan"] --> discover["Read open pull requests from GitHub"]
     discover --> unchanged{"Observed state unchanged?"}
     unchanged -- Yes --> wait["Wait for the next wake"]
     unchanged -- No --> checkout["Create a disposable exact-head checkout"]
@@ -16,8 +16,8 @@ flowchart TD
     capacity -- Yes --> agent["Start one coding agent"]
     agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
     work --> outcome{"Outcome"}
-    outcome -- Repaired --> pushed["Push one commit"]
-    pushed --> park["Record the observed pull request fingerprint"]
+    outcome -- Repaired --> review["Push one commit and request review"]
+    review --> park["Record the observed pull request fingerprint"]
     outcome -- Waiting --> park
     outcome -- Ready --> merge["Merge and delete the source branch"]
     outcome -- Obsolete --> close["Close the pull request"]
@@ -31,7 +31,7 @@ flowchart TD
 1. **Discover changed pull requests.** The [demand reconciler](server/plugins/babysitter-demand.ts) reads up to 100 open pull requests from each configured GitHub repository. Wakeups coalesce while a scan is active. The 30-second scan repairs missed wakeups and new process startup always performs a fresh scan.
 2. **Queue before admission.** Each selected pull request gets a disposable checkout verified against the observed head SHA, then creates a pending ViteHub Agent Invocation. One shared capacity object covers every repository and every checkout-specific Agent Definition. The queue is FIFO and bounded at 100 pending invocations.
 3. **Adapt to the host.** `BABYSITTER_MAX_OWNERS` is the hard ceiling. On Linux, the process adapter reads cgroup memory limits, `memory.high` events, and 10-second CPU and memory PSI. It preserves 1 GiB of memory, estimates 1 GiB per additional owner, pauses admission above the pressure thresholds, resumes through lower thresholds, and adds at most one slot per sample. Hosts without readable cgroup signals use process-available memory. If sampling fails, admission falls back to one owner. Running owners are never preempted when pressure rises.
-4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once and exits. Repository automation owns review initiation; Babysitter consumes any actionable findings it delivers. Durable findings from earlier passes are injected from KV as append-only PR memory. The Agent can append detailed, sourced findings through one scoped Capability tool.
+4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, requests review once, and exits without polling for that review. The ViteHub GitHub Channel owns one Agent activity comment per pull request, including current status, harness tasks, recent session history, and links into ViteHub Console.
 5. **Wake only when useful.** Every successful pass on an open pull request records its observed fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later reconciliations skip it until a commit, comment, check result, review, or metadata change updates that fingerprint. Failed, timed-out, or otherwise unfinished runs remain eligible for retry.
 
 ## Requirements
@@ -97,28 +97,12 @@ Before discovery, Babysitter checks the authenticated GitHub GraphQL budget and 
 
 The health response also reports stale active invocation records. Any pending or running record older than the current service process degrades health because startup recovery should have marked it failed.
 
-Each session snapshots its current PR memory as `PRMemory.md`. Open it from the Console Workspace inspector to review the reasoning, affected behavior, provenance, and source URLs recorded across passes. The file is generated from KV and is never committed to the pull request branch.
-
-Before deploying a systemd release, build and test the exact commit, then run the service's pre-start verification against the unit and drop-in paths systemd will load. Keep one canonical release override so a stale drop-in cannot shadow the intended build.
+Before deploying a systemd release, build the exact commit, then run the service's pre-start verification against the unit and drop-in paths systemd will load. Keep one canonical release override so a stale drop-in cannot shadow the intended build.
 
 On a systemd host, follow the events with:
 
 ```sh
 journalctl -u babysitter.service -f -o cat | rg '^\[babysitter\]'
 ```
-
-Have systemd send the non-terminating `SIGUSR2` drain signal before stopping the Node server, then poll the read-only drain status.
-
-```ini
-[Service]
-WorkingDirectory=/srv/babysitter/current
-ExecStop=/bin/sh .output/server/babysitter-drain $MAINPID http://127.0.0.1:3000/api/drain
-TimeoutStopSec=70min
-KillMode=control-group
-```
-
-`SIGUSR2` closes reconciliation admission before the signal handler returns. Repeated signals reuse the same drain. `GET /api/drain` reports `starting`, `accepting`, `draining`, `drained`, or `failed`. HTTP requests cannot start a drain, including requests forwarded by a local reverse proxy.
-
-The production build copies the helper to `.output/server/babysitter-drain`, so deploy it with the rest of the immutable `.output` directory. The helper waits until the signal listener reports `accepting`, sends `SIGUSR2`, and blocks until both running and capacity-queued owner invocations finish. It fails immediately if the drain reports `failed` or the main process exits. Systemd then stops the server and clears any remaining processes in the service cgroup. Keep `KillMode=control-group`; `process` can leave owner children outside the service lifecycle. `TimeoutStopSec` bounds the agents' 60-minute invocation timeout plus queue and cleanup overhead.
 
 Keep `BABYSITTER_MAX_OWNERS=1` until representative runs finish without OOM events, sustained swap growth, or low available memory. Raise the hard ceiling one owner at a time. The adaptive gate reduces admission under pressure; it does not prove that a higher ceiling is safe.
