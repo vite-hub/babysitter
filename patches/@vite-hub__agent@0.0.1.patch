@@ -418,4 +418,4 @@ index efcd66523134616f4ea7295a1cc6e02747717891..ed69e53c24bc3ee41e360cd560ede26d
 +++ b/dist/invocations/sqlite.js
 @@ -319 +319 @@ function createLibsqlAgentInvocationStore(options = {}) {
 -				sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
-+				sql: `SELECT sequence, json_remove(record, '$.observations') AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
++				sql: `SELECT sequence, json_set(record, '$.observations', json('[]')) AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
