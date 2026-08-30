@@ -15,12 +15,12 @@
   "dependencies": {
     "@libsql/client": "0.17.4",
     "@t3tools/provider-runtime": "https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@72bf93e63efec0b95fef3880265d68ab6569ac41",
-    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@f17f20bee93acf68e2256ca581a9abac19c391f6",
+    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@c790b2eab29c578f362fadf35cf50e8de5571eee",
     "ai": "7.0.38",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
     "vite": "^8.0.11",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@f17f20bee93acf68e2256ca581a9abac19c391f6"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@c790b2eab29c578f362fadf35cf50e8de5571eee"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
