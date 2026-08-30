@@ -14,12 +14,16 @@ export function getBabysitterDrainStatus() {
 }
 
 export default definePlugin((nitroApp) => {
+  let accepting = true
   const reconciler = createProcessReconciler({
     intervalMs: repairIntervalMs,
     onDrained: () => logOperationalEvent('babysitter.reconciler.stopped', {}),
     onError: (error, reason) => logOperationalError('babysitter.reconcile.failed', error, { reason }),
-    onQuiesce: () => setBabysitterReconcilerWake(() => {}),
-    run: reconcileBabysitterWork,
+    onQuiesce: () => {
+      accepting = false
+      setBabysitterReconcilerWake(() => {})
+    },
+    run: (reason, context) => reconcileBabysitterWork(reason, context, () => accepting),
     signal: 'SIGUSR2',
   })
 

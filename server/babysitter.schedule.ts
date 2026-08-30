@@ -40,7 +40,11 @@ export function babysitterWorkload() {
   return { running: runningJobs.size }
 }
 
-export async function reconcileBabysitterWork(reason: string, { track }: ProcessReconcilerRunContext) {
+export async function reconcileBabysitterWork(
+  reason: string,
+  { track }: ProcessReconcilerRunContext,
+  isAccepting: () => boolean = () => true,
+) {
   const startedAt = new Date()
   const schedule = {
     id: 'babysitter-demand',
@@ -50,6 +54,7 @@ export async function reconcileBabysitterWork(reason: string, { track }: Process
   const { maxOwners, repositories: configuredRepositories, repository } = useServerEnv().babysitter
   const repositories = resolveRepositories(configuredRepositories, repository)
   const discovered = await selectPullRequestJobs(repositories, listPullRequests, readCompletion, policyFingerprint)
+  if (!isAccepting()) return
   const ownerLimit = resolveMaxOwners(maxOwners)
   const availableOwnerSlots = Math.max(0, ownerLimit - runningJobs.size)
   const eligible = discovered
