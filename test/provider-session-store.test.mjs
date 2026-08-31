@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createSqliteProviderRuntimeSessionStore } from '@t3tools/provider-runtime'
 
-test('persists provider cursors and retains the latest 1,000 threads', async () => {
+test('persists provider cursors without silently dropping older threads', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'babysitter-provider-sessions-'))
   const path = join(directory, 'sessions.sqlite')
   const store = await createSqliteProviderRuntimeSessionStore(path)
@@ -17,12 +17,12 @@ test('persists provider cursors and retains the latest 1,000 threads', async () 
       await store.set(`thread-${value}`, { threadId: `cursor-${value}` })
     }
 
-    assert.equal(await store.get('thread-0000'), undefined)
+    assert.deepEqual(await store.get('thread-0000'), { threadId: 'cursor-0000' })
     assert.deepEqual(await store.get('thread-1000'), { threadId: 'cursor-1000' })
 
     const database = new DatabaseSync(path, { readOnly: true })
     try {
-      assert.equal(database.prepare('SELECT count(*) AS count FROM t3_provider_runtime_sessions').get().count, 1_000)
+      assert.equal(database.prepare('SELECT count(*) AS count FROM t3_provider_runtime_sessions').get().count, 1_001)
     }
     finally {
       database.close()

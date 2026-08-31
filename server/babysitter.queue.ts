@@ -178,7 +178,7 @@ export function successfulPassFingerprint(
 }
 
 function stableMergeStateStatus(status: string) {
-  return status === 'DIRTY' || status === 'DRAFT'
+  return status === 'DIRTY' || status === 'BEHIND' || status === 'DRAFT'
     ? status
     : 'STABLE'
 }

@@ -112,6 +112,7 @@ export async function reconcileBabysitterWork(
           ...schedule,
           runId,
         }, {
+          runtime: 'vite',
           run: {
             annotations: {
               'github.head': pullRequest.headRefOid,
