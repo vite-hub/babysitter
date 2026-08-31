@@ -91,6 +91,7 @@ export async function reconcileBabysitterWork(
     })
     try {
       await github.withPullRequestCheckout({
+        headRef: pullRequest.headRefName,
         headRepository: pullRequest.headRepository?.nameWithOwner,
         headSha: pullRequest.headRefOid,
         number: pullRequest.number,
