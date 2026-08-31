@@ -6,7 +6,7 @@ import {
 } from '../babysitter.schedule.ts'
 import { logOperationalError, logOperationalEvent } from '../babysitter.operations.ts'
 
-const repairIntervalMs = 30_000
+const repairIntervalMs = 2 * 60_000
 let readDrainStatus: (() => ProcessReconcilerStatus) | undefined
 
 export function getBabysitterDrainStatus() {

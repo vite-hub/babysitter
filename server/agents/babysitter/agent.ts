@@ -15,7 +15,7 @@ const maxOwners = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultM
 export const ownerCapacity = createProcessAgentCapacity({
   concurrency: maxOwners,
   cpu: { pausePressure: 0.25, resumePressure: 0.10 },
-  fallbackConcurrency: 1,
+  fallbackConcurrency: 3,
   intervalMs: 5_000,
   memory: {
     pausePressure: 0.05,
@@ -25,6 +25,7 @@ export const ownerCapacity = createProcessAgentCapacity({
   },
   queue: { maxPending: 100 },
   rampUp: 1,
+  sampleTimeoutMs: 5_000,
 })
 const createCapabilities = () => [diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
@@ -48,6 +49,7 @@ const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
   },
   model: 'gpt-5.6-sol',
   permissions: 'allow-all',
+  reasoningEffort: 'medium',
 })
 const driver = createDriver(capabilityAccess)
 

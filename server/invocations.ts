@@ -3,7 +3,7 @@ import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sql
 import { defineAgentInvocations, failInterruptedAgentInvocations, summarizeAgentInvocationWorkload } from 'vite-hub/agent/server'
 
 const client = createClient({ url: 'file:.vitehub/invocations.sqlite' })
-const store = createLibsqlAgentInvocationStore({ client })
+const store = createLibsqlAgentInvocationStore({ client, maxRecords: 1_000 })
 
 // ponytail: Babysitter is single-host; use leases before sharing this database across owners.
 try {
