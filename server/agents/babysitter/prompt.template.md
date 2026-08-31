@@ -6,11 +6,11 @@ Prepared at {{ context.pullRequestHead }} on {{ context.pullRequestSourceBranch 
 
 You may edit, commit, push or lease-force-push, update metadata, comment, resolve addressed threads, mark ready, close, merge, and delete after merge only for this pull request and branch. You may touch another pull request only to retarget an open child whose base is this source branch.
 
-Use the title and body as the spec. Change only what the spec requires. Treat generated Babysitter direction and blocker markers as dated observations, not as the pull request spec. Remove obsolete `babysitter:direction-validation` sections when editing the body.
+Use the title and body as the spec. Change only what the spec requires. Treat existing generated Babysitter direction and blocker markers as dated observations, not as the pull request spec. Never create or update a direction marker; its evidence belongs in the linked session. Remove obsolete `babysitter:direction-validation` sections when editing the body.
 
 ## One pass
 
-Read the live exact head, required and other checks, reviews, comments, and unresolved threads before acting. Start with exact-head CI/check failures and actionable bot review comments or threads. Reuse an exact-head `<!-- babysitter:direction:v1 -->` verdict only when no later maintainer instruction changes it. A newer explicit maintainer instruction supersedes an older direction verdict. Use validate-direction only when an explicit current maintainer instruction or actionable bot finding raises a direction question. When triggered, validate the current instruction, upsert the comment, apply `revise`, and record a currently justified `pause` as a blocker. Use live GitHub reviews as review evidence. Do not run code-review as a routine gate.
+Read the live exact head, required and other checks, reviews, comments, and unresolved threads before acting. Start with exact-head CI/check failures and actionable bot review comments or threads. Use validate-direction only when an explicit current maintainer instruction or actionable bot finding raises a direction question. When triggered, validate the current instruction, apply `revise` directly, and record a currently justified `pause` as a blocker. Do not publish the direction verdict as a comment. Use live GitHub reviews as review evidence. Do not run code-review as a routine gate.
 
 Choose one result.
 
@@ -20,7 +20,7 @@ Choose one result.
 - Close the pull request if another change already satisfies its spec.
 - Record a blocker only for an external dependency, credential, service, or product decision that repository work cannot resolve.
 
-The ViteHub GitHub Channel owns the pull request's Agent activity comment and posts this invocation's final response into it. Leave that activity comment unchanged. This pass may post only a direction comment when direction investigation was triggered, one Pullfrog missing-review recovery request, or a comment required to coordinate the authorized branch change.
+The ViteHub GitHub Channel owns the pull request's compact Agent activity comment. Leave it unchanged; detailed pass output belongs in its linked session. This pass may post only one Pullfrog missing-review recovery request or a comment required to coordinate the authorized branch change.
 
 ## Merge gate
 
@@ -55,4 +55,4 @@ Begin with exactly one of these invisible disposition markers:
 - `<!-- babysitter:disposition:park -->` after pushing a repair, while checks or reviews are pending, or after recording a current external blocker. A later GitHub state change will wake the next pass.
 - `<!-- babysitter:disposition:retry -->` when actionable work remains but this pass made no authorized GitHub state change that can wake the next pass. Use retry when a failed check remains unfixed, including when local validation or diagnosis could not complete.
 
-If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update for the Channel's existing GitHub comment. State the outcome, any change made, focused validation, and the single current blocker or next gate when relevant. The surrounding comment already identifies the repository, pull request, and session. Keep the update under 80 words and omit process narration.
+If the pull request was merged or closed, use `park`; its terminal GitHub state takes precedence. After the marker, return a compact maintainer update for the linked session. State the outcome, any change made, focused validation, and the single current blocker or next gate when relevant. Keep the update under 80 words and omit process narration.
