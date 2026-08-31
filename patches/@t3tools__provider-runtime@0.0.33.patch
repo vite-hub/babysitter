@@ -1,10 +1,8 @@
 diff --git a/dist/index.d.mts b/dist/index.d.mts
-index a73956066f11e575fe0c19adb9880e00586303c8..638d8081ea28d54b44062b5254cfa1479903beea 100644
+index a7395606..638d8081 100644
 --- a/dist/index.d.mts
 +++ b/dist/index.d.mts
-@@ -1,5 +1,16 @@
- import { ApprovalRequestId, ProviderApprovalDecision, ProviderApprovalDecision as ProviderApprovalDecision$1, ProviderRuntimeEvent, ProviderRuntimeEvent as ProviderRuntimeEvent$1, ProviderSendTurnInput, ProviderSendTurnInput as ProviderSendTurnInput$1, ProviderSession, ProviderSession as ProviderSession$1, ProviderSessionStartInput, ProviderTurnStartResult, ProviderTurnStartResult as ProviderTurnStartResult$1, ProviderUserInputAnswers, ProviderUserInputAnswers as ProviderUserInputAnswers$1, RuntimeMode, RuntimeMode as RuntimeMode$1, ThreadId, ThreadId as ThreadId$1, TurnId, TurnId as TurnId$1 } from "@t3tools/contracts";
- 
+@@ -2,0 +3,11 @@ import { ApprovalRequestId, ProviderApprovalDecision, ProviderApprovalDecision a
 +//#region src/session-store.d.ts
 +interface ProviderRuntimeSessionStore {
 +  readonly delete: (threadId: ThreadId$1) => Promise<void>;
@@ -16,40 +14,21 @@ index a73956066f11e575fe0c19adb9880e00586303c8..638d8081ea28d54b44062b5254cfa147
 +}
 +declare function createSqliteProviderRuntimeSessionStore(path: string): Promise<SqliteProviderRuntimeSessionStore>;
 +//#endregion
- //#region src/index.d.ts
- type ProviderRuntimeKind = "claude-code" | "codex";
- interface ProviderRuntimeMcpServer {
-@@ -16,6 +27,7 @@ interface CreateProviderRuntimeOptions {
-   readonly cwd?: string;
-   readonly environment?: NodeJS.ProcessEnv;
-   readonly provider: ProviderRuntimeKind;
+@@ -18,0 +30 @@ interface CreateProviderRuntimeOptions {
 +  readonly sessionStore?: ProviderRuntimeSessionStore;
-   readonly stateDirectory?: string;
-   readonly settings?: Record<string, unknown>;
- }
-@@ -34,4 +46,4 @@ interface ProviderRuntime {
- }
- declare function createProviderRuntime(options: CreateProviderRuntimeOptions): Promise<ProviderRuntime>;
- //#endregion
+@@ -37 +49 @@ declare function createProviderRuntime(options: CreateProviderRuntimeOptions): P
 -export { CreateProviderRuntimeOptions, type ProviderApprovalDecision, ProviderRuntime, type ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeMcpServer, ProviderRuntimeStartInput, type ProviderSendTurnInput, type ProviderSession, type ProviderTurnStartResult, type ProviderUserInputAnswers, type RuntimeMode, type ThreadId, type TurnId, createProviderRuntime };
 \ No newline at end of file
 +export { CreateProviderRuntimeOptions, type ProviderApprovalDecision, ProviderRuntime, type ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeMcpServer, type ProviderRuntimeSessionStore, ProviderRuntimeStartInput, type ProviderSendTurnInput, type ProviderSession, type ProviderTurnStartResult, type ProviderUserInputAnswers, type RuntimeMode, type SqliteProviderRuntimeSessionStore, type ThreadId, type TurnId, createProviderRuntime, createSqliteProviderRuntimeSessionStore };
 diff --git a/dist/index.mjs b/dist/index.mjs
-index db26240ff8932e0454dafd9117938b3ce084aa48..e2c225941e3f6c7a0bd80e9f192c162d8d581ab6 100644
+index db26240f..e071dcbd 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -43,6 +43,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
- import * as Stdio from "effect/Stdio";
- import * as Sink from "effect/Sink";
- import "effect/Types";
+@@ -45,0 +46 @@ import "effect/Types";
 +import { DatabaseSync } from "node:sqlite";
- //#region \0rolldown/runtime.js
- var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports);
- var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
-@@ -33917,6 +33918,70 @@ function withRuntimeModelSelection(input, modelSelection) {
- 	};
- }
- //#endregion
+@@ -33920 +33921,65 @@ function withRuntimeModelSelection(input, modelSelection) {
+-//#endregion
++//#endregion
 +//#region src/session-store.ts
 +async function createSqliteProviderRuntimeSessionStore(path) {
 +	if (!path.trim()) throw new TypeError("Provider session store path must not be empty.");
@@ -114,22 +93,17 @@ index db26240ff8932e0454dafd9117938b3ce084aa48..e2c225941e3f6c7a0bd80e9f192c162d
 +	};
 +}
 +//#endregion
- //#region src/index.ts
- const decodeCodexSettings = Schema.decodeSync(CodexSettings);
- const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
-@@ -33998,13 +34057,25 @@ async function createProviderRuntime(options) {
- 			});
- 			const modelSelection = createRuntimeModelSelection(identity.instanceId, model, modelOptions);
- 			try {
+@@ -34000 +34065,2 @@ async function createProviderRuntime(options) {
+-			try {
++			try {
 +				const persistedResumeCursor = sessionInput.resumeCursor === void 0 ? await options.sessionStore?.get(sessionInput.threadId) : void 0;
- 				const session = await run(adapter.startSession({
- 					...sessionInput,
+@@ -34002 +34068,2 @@ async function createProviderRuntime(options) {
+-					...sessionInput,
++					...sessionInput,
 +					...persistedResumeCursor === void 0 ? {} : { resumeCursor: persistedResumeCursor },
- 					modelSelection,
- 					provider: identity.driverKind,
- 					providerInstanceId: identity.instanceId,
- 					runtimeMode: runtimeMode ?? "full-access"
- 				}));
+@@ -34007 +34074,11 @@ async function createProviderRuntime(options) {
+-				}));
++				}));
 +				if (session.resumeCursor !== void 0) try {
 +					await options.sessionStore?.set(session.threadId, session.resumeCursor);
 +				} catch (error) {
@@ -140,12 +114,6 @@ index db26240ff8932e0454dafd9117938b3ce084aa48..e2c225941e3f6c7a0bd80e9f192c162d
 +					}
 +					throw error;
 +				}
- 				sessionIds.add(sessionInput.threadId);
- 				if (modelSelection) sessionModelSelections.set(sessionInput.threadId, modelSelection);
- 				else sessionModelSelections.delete(sessionInput.threadId);
-@@ -34026,4 +34097,4 @@ async function createProviderRuntime(options) {
- 	};
- }
- //#endregion
+@@ -34029 +34106 @@ async function createProviderRuntime(options) {
 -export { createProviderRuntime };
 +export { createProviderRuntime, createSqliteProviderRuntimeSessionStore };
