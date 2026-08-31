@@ -1,0 +1,151 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index a73956066f11e575fe0c19adb9880e00586303c8..638d8081ea28d54b44062b5254cfa1479903beea 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -1,5 +1,16 @@
+ import { ApprovalRequestId, ProviderApprovalDecision, ProviderApprovalDecision as ProviderApprovalDecision$1, ProviderRuntimeEvent, ProviderRuntimeEvent as ProviderRuntimeEvent$1, ProviderSendTurnInput, ProviderSendTurnInput as ProviderSendTurnInput$1, ProviderSession, ProviderSession as ProviderSession$1, ProviderSessionStartInput, ProviderTurnStartResult, ProviderTurnStartResult as ProviderTurnStartResult$1, ProviderUserInputAnswers, ProviderUserInputAnswers as ProviderUserInputAnswers$1, RuntimeMode, RuntimeMode as RuntimeMode$1, ThreadId, ThreadId as ThreadId$1, TurnId, TurnId as TurnId$1 } from "@t3tools/contracts";
+ 
++//#region src/session-store.d.ts
++interface ProviderRuntimeSessionStore {
++  readonly delete: (threadId: ThreadId$1) => Promise<void>;
++  readonly get: (threadId: ThreadId$1) => Promise<unknown | undefined>;
++  readonly set: (threadId: ThreadId$1, resumeCursor: unknown) => Promise<void>;
++}
++interface SqliteProviderRuntimeSessionStore extends ProviderRuntimeSessionStore {
++  readonly close: () => void;
++}
++declare function createSqliteProviderRuntimeSessionStore(path: string): Promise<SqliteProviderRuntimeSessionStore>;
++//#endregion
+ //#region src/index.d.ts
+ type ProviderRuntimeKind = "claude-code" | "codex";
+ interface ProviderRuntimeMcpServer {
+@@ -16,6 +27,7 @@ interface CreateProviderRuntimeOptions {
+   readonly cwd?: string;
+   readonly environment?: NodeJS.ProcessEnv;
+   readonly provider: ProviderRuntimeKind;
++  readonly sessionStore?: ProviderRuntimeSessionStore;
+   readonly stateDirectory?: string;
+   readonly settings?: Record<string, unknown>;
+ }
+@@ -34,4 +46,4 @@ interface ProviderRuntime {
+ }
+ declare function createProviderRuntime(options: CreateProviderRuntimeOptions): Promise<ProviderRuntime>;
+ //#endregion
+-export { CreateProviderRuntimeOptions, type ProviderApprovalDecision, ProviderRuntime, type ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeMcpServer, ProviderRuntimeStartInput, type ProviderSendTurnInput, type ProviderSession, type ProviderTurnStartResult, type ProviderUserInputAnswers, type RuntimeMode, type ThreadId, type TurnId, createProviderRuntime };
+\ No newline at end of file
++export { CreateProviderRuntimeOptions, type ProviderApprovalDecision, ProviderRuntime, type ProviderRuntimeEvent, ProviderRuntimeKind, ProviderRuntimeMcpServer, type ProviderRuntimeSessionStore, ProviderRuntimeStartInput, type ProviderSendTurnInput, type ProviderSession, type ProviderTurnStartResult, type ProviderUserInputAnswers, type RuntimeMode, type SqliteProviderRuntimeSessionStore, type ThreadId, type TurnId, createProviderRuntime, createSqliteProviderRuntimeSessionStore };
+diff --git a/dist/index.mjs b/dist/index.mjs
+index db26240ff8932e0454dafd9117938b3ce084aa48..e2c225941e3f6c7a0bd80e9f192c162d8d581ab6 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -43,6 +43,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
+ import * as Stdio from "effect/Stdio";
+ import * as Sink from "effect/Sink";
+ import "effect/Types";
++import { DatabaseSync } from "node:sqlite";
+ //#region \0rolldown/runtime.js
+ var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports);
+ var __require = /* #__PURE__ */ (() => createRequire(import.meta.url))();
+@@ -33917,6 +33918,70 @@ function withRuntimeModelSelection(input, modelSelection) {
+ 	};
+ }
+ //#endregion
++//#region src/session-store.ts
++async function createSqliteProviderRuntimeSessionStore(path) {
++	if (!path.trim()) throw new TypeError("Provider session store path must not be empty.");
++	await NodeFSP.mkdir(NodePath.dirname(NodePath.resolve(path)), {
++		mode: 448,
++		recursive: true
++	});
++	const database = new DatabaseSync(path);
++	database.exec(`
++    PRAGMA busy_timeout = 5000;
++    PRAGMA journal_mode = WAL;
++    CREATE TABLE IF NOT EXISTS t3_provider_runtime_sessions (
++      thread_id TEXT PRIMARY KEY,
++      resume_cursor_json TEXT NOT NULL,
++      updated_at INTEGER NOT NULL
++    ) STRICT;
++  `);
++	await NodeFSP.chmod(path, 384);
++	const deleteSession = database.prepare("DELETE FROM t3_provider_runtime_sessions WHERE thread_id = ?");
++	const getSession = database.prepare("SELECT resume_cursor_json FROM t3_provider_runtime_sessions WHERE thread_id = ?");
++	const pruneSessions = database.prepare(`
++    DELETE FROM t3_provider_runtime_sessions WHERE thread_id IN (
++      SELECT thread_id FROM t3_provider_runtime_sessions ORDER BY updated_at DESC, thread_id DESC LIMIT -1 OFFSET 1000
++    )
++  `);
++	const setSession = database.prepare(`
++    INSERT INTO t3_provider_runtime_sessions (thread_id, resume_cursor_json, updated_at)
++    VALUES (?, ?, ?)
++    ON CONFLICT (thread_id) DO UPDATE SET
++      resume_cursor_json = excluded.resume_cursor_json,
++      updated_at = excluded.updated_at
++  `);
++	let closed = false;
++	const assertOpen = () => {
++		if (closed) throw new Error("T3 provider session store is closed.");
++	};
++	return {
++		close() {
++			if (closed) return;
++			closed = true;
++			database.close();
++		},
++		async delete(threadId) {
++			assertOpen();
++			deleteSession.run(threadId);
++		},
++		async get(threadId) {
++			assertOpen();
++			const row = getSession.get(threadId);
++			if (row === void 0) return void 0;
++			const value = row.resume_cursor_json;
++			if (typeof value !== "string") throw new TypeError(`Provider session ${JSON.stringify(threadId)} has an invalid cursor.`);
++			return JSON.parse(value);
++		},
++		async set(threadId, resumeCursor) {
++			assertOpen();
++			const value = JSON.stringify(resumeCursor);
++			if (value === void 0) throw new TypeError("Provider resume cursor must be JSON serializable.");
++			setSession.run(threadId, value, Date.now());
++			pruneSessions.run();
++		}
++	};
++}
++//#endregion
+ //#region src/index.ts
+ const decodeCodexSettings = Schema.decodeSync(CodexSettings);
+ const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
+@@ -33998,13 +34057,25 @@ async function createProviderRuntime(options) {
+ 			});
+ 			const modelSelection = createRuntimeModelSelection(identity.instanceId, model, modelOptions);
+ 			try {
++				const persistedResumeCursor = sessionInput.resumeCursor === void 0 ? await options.sessionStore?.get(sessionInput.threadId) : void 0;
+ 				const session = await run(adapter.startSession({
+ 					...sessionInput,
++					...persistedResumeCursor === void 0 ? {} : { resumeCursor: persistedResumeCursor },
+ 					modelSelection,
+ 					provider: identity.driverKind,
+ 					providerInstanceId: identity.instanceId,
+ 					runtimeMode: runtimeMode ?? "full-access"
+ 				}));
++				if (session.resumeCursor !== void 0) try {
++					await options.sessionStore?.set(session.threadId, session.resumeCursor);
++				} catch (error) {
++					try {
++						await run(adapter.stopSession(session.threadId));
++					} catch (stopError) {
++						throw new AggregateError([error, stopError], "T3 provider session cursor persistence and cleanup failed.");
++					}
++					throw error;
++				}
+ 				sessionIds.add(sessionInput.threadId);
+ 				if (modelSelection) sessionModelSelections.set(sessionInput.threadId, modelSelection);
+ 				else sessionModelSelections.delete(sessionInput.threadId);
+@@ -34026,4 +34097,4 @@ async function createProviderRuntime(options) {
+ 	};
+ }
+ //#endregion
+-export { createProviderRuntime };
++export { createProviderRuntime, createSqliteProviderRuntimeSessionStore };

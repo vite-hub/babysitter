@@ -19,6 +19,7 @@ import {
   type PullRequest,
   type PullRequestFeedback,
   prioritizePullRequestJobs,
+  pullRequestThreadId,
   pullRequestCheckState,
   retryPassFingerprint,
   resolveMaxOwners,
@@ -76,6 +77,7 @@ export async function reconcileBabysitterWork(
   const batch = Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
     const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
+    const threadId = pullRequestThreadId(repository, pullRequest.number)
     const owner = { pullRequest: pullRequest.number, repository, runId }
     const startedAt = Date.now()
     let outcome = 'completed'
@@ -119,6 +121,7 @@ export async function reconcileBabysitterWork(
             },
             channelId: 'github',
             runId,
+            threadId,
           },
         }, {
           abortSignal: AbortSignal.timeout(60 * 60 * 1000),

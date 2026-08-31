@@ -59,6 +59,10 @@ export function resolveMaxOwners(value: string) {
   return maxOwners
 }
 
+export function pullRequestThreadId(repository: string, number: number) {
+  return `github:${repository.toLowerCase()}:pull-request:${number}`
+}
+
 export async function selectPullRequestJobs(
   repositories: string[],
   listPullRequests: (repository: string) => Promise<PullRequest[]>,

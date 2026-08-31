@@ -410,3 +410,40 @@ index 9b51bc4f71d36e5e588ce75776376a519f5545a3..df89c2427d80646e05fad48357ede1a5
 +}
 +//#endregion
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createGitHubHost, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, parseGraphQLRateLimit, summarizeAgentInvocationWorkload };
+diff --git a/dist/provider-agent-Bw0a_Vlz.js b/dist/provider-agent-Bw0a_Vlz.js
+index 12a1249e..15853168 100644
+--- a/dist/provider-agent-Bw0a_Vlz.js
++++ b/dist/provider-agent-Bw0a_Vlz.js
+@@ -202 +202,14 @@ const providerRuntimeMode = {
+ };
++const providerSessionStores = new Map();
++function providerSessionStore(path, create) {
++	const resolvedPath = resolve(path);
++	let store = providerSessionStores.get(resolvedPath);
++	if (!store) {
++		store = create(resolvedPath).catch((error) => {
++			providerSessionStores.delete(resolvedPath);
++			throw error;
++		});
++		providerSessionStores.set(resolvedPath, store);
++	}
++	return store;
++}
+@@ -1596 +1609 @@ async function* runProvider(options, resumeCursors, sessionLocks, context) {
+-		const { createProviderRuntime } = await import("@t3tools/provider-runtime");
++		const { createProviderRuntime, createSqliteProviderRuntimeSessionStore } = await import("@t3tools/provider-runtime");
+@@ -1602 +1615,5 @@ async function* runProvider(options, resumeCursors, sessionLocks, context) {
+-		const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider);
++		const sessionStorePathValue = options.providerSettings?.sessionStorePath;
++		if (sessionStorePathValue !== void 0 && (typeof sessionStorePathValue !== "string" || !sessionStorePathValue.trim())) throw new TypeError("[vitehub] driver.providerSettings.sessionStorePath must be a non-empty string.");
++		const sessionStore = typeof sessionStorePathValue === "string" ? await providerSessionStore(sessionStorePathValue, createSqliteProviderRuntimeSessionStore) : void 0;
++		const { sessionStorePath: _sessionStorePath, ...configuredProviderSettings } = options.providerSettings || {};
++		const providerExecutable = configuredProviderSettings.binaryPath ?? resolveInstalledProviderExecutable(options.provider);
+@@ -1605 +1622 @@ async function* runProvider(options, resumeCursors, sessionLocks, context) {
+-			options.providerSettings?.launchArgs,
++			configuredProviderSettings.launchArgs,
+@@ -1610 +1627 @@ async function* runProvider(options, resumeCursors, sessionLocks, context) {
+-			...options.providerSettings,
++			...configuredProviderSettings,
+@@ -1621,0 +1639 @@ async function* runProvider(options, resumeCursors, sessionLocks, context) {
++			...sessionStore ? { sessionStore } : {},
