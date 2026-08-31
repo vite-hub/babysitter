@@ -221,33 +221,47 @@ async function readCompletion(key: string) {
 
 async function listPullRequests(repository: string) {
   try {
-    await github.ensureGraphQLBudget(repository)
+    return await withGraphQLBudget(repository, 256, async () => {
+      const [result, feedback] = await Promise.all([
+        github.command(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
+        readOpenPullRequestFeedback(repository),
+      ])
+      const pullRequests = JSON.parse(result.stdout) as PullRequest[]
+      return await Promise.all(pullRequests.map(pullRequest => readRequiredCheckState(repository, {
+        ...pullRequest,
+        ...feedback.has(pullRequest.number) ? { feedback: feedback.get(pullRequest.number) } : {},
+      })))
+    })
   }
   catch (error) {
     if (github.isRateLimitError(error)) return []
     throw error
   }
-  const [result, feedback] = await Promise.all([
-    github.command(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
-    readOpenPullRequestFeedback(repository),
-  ])
-  const pullRequests = JSON.parse(result.stdout) as PullRequest[]
-  return await Promise.all(pullRequests.map(pullRequest => readRequiredCheckState(repository, {
-    ...pullRequest,
-    ...feedback.has(pullRequest.number) ? { feedback: feedback.get(pullRequest.number) } : {},
-  })))
 }
 
 async function readPullRequest(repository: string, number: number) {
-  await github.ensureGraphQLBudget(repository)
-  const [result, feedback] = await Promise.all([
-    github.command(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
-    readPullRequestFeedback(repository, number),
-  ])
-  return await readRequiredCheckState(repository, {
-    ...JSON.parse(result.stdout) as PullRequest,
-    ...feedback ? { feedback } : {},
+  return await withGraphQLBudget(repository, 16, async () => {
+    const [result, feedback] = await Promise.all([
+      github.command(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
+      readPullRequestFeedback(repository, number),
+    ])
+    return await readRequiredCheckState(repository, {
+      ...JSON.parse(result.stdout) as PullRequest,
+      ...feedback ? { feedback } : {},
+    })
   })
+}
+
+async function withGraphQLBudget<T>(repository: string, cost: number, run: () => Promise<T>) {
+  const reservation = await github.ensureGraphQLBudget(repository, { cost })
+  reservation.submit()
+  try {
+    return await run()
+  }
+  finally {
+    // The gh CLI does not expose actual query cost, so settle the reserved upper bound.
+    reservation.settle(cost)
+  }
 }
 
 async function readOpenPullRequestFeedback(repository: string) {

@@ -12,6 +12,7 @@ async function recoverInterruptedInvocations() {
     await failInterruptedAgentInvocations(store, {
       before: processStartedAt,
       message: 'The Babysitter host stopped before this invocation finished.',
+      recover: () => true,
     })
   }
   catch (error) {
@@ -20,7 +21,6 @@ async function recoverInterruptedInvocations() {
 }
 
 await recoverInterruptedInvocations()
-setTimeout(recoverInterruptedInvocations, 31_000).unref()
 
 export const invocations = defineAgentInvocations({
   content: 'content',
