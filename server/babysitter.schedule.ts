@@ -1,4 +1,4 @@
-import { agentInvocationId, createMessage, runScheduledAgent } from 'vite-hub/agent'
+import { createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
@@ -110,10 +110,6 @@ export async function reconcileBabysitterWork(
           runId,
         }, {
           run: {
-            activity: {
-              links: [{ label: 'Session', url: await babysitterSessionUrl(runId) }],
-              target: { issue: pullRequest.number, repository },
-            },
             annotations: {
               'github.head': pullRequest.headRefOid,
               'github.pullRequest': pullRequest.number,
@@ -188,12 +184,6 @@ export async function reconcileBabysitterWork(
 
 function jobKey(repository: string, number: number) {
   return `${repository}#${number}`
-}
-
-async function babysitterSessionUrl(runId: string) {
-  const base = (process.env.BABYSITTER_PUBLIC_URL || 'https://babysitter.vitehub.dev').replace(/\/+$/, '')
-  const invocationId = await agentInvocationId(runId, 'babysitter')
-  return `${base}/_vitehub/agents/babysitter/invocations/${encodeURIComponent(invocationId)}`
 }
 
 function agentResultText(value: unknown, observations: readonly unknown[]) {

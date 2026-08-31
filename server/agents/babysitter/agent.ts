@@ -55,7 +55,7 @@ const driver = createDriver(capabilityAccess)
 const settings = {
   capabilities,
   channels: {
-    github: agentChannels.github({ activity: true, app: true }),
+    github: agentChannels.github({ app: true }),
   },
   driver,
   invocations,

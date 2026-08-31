@@ -1,188 +1,9 @@
-diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index efcd66523134616f4ea7295a1cc6e02747717891..d31eb27426f99ed2e81dcc0d9824c8cb47db25be 100644
---- a/dist/invocations/sqlite.js
-+++ b/dist/invocations/sqlite.js
-@@ -4,7 +4,7 @@ import { createClient } from "@libsql/client";
- const defaultMaxAgeMs = 720 * 60 * 60 * 1e3;
- const defaultMaxRecords = 1e4;
- const maximumDateMs = 864e13;
--const searchBackfillPageSize = 100;
-+const backfillPageSize = 100;
- const searchVersion = 2;
- const terminalStatuses = [
- 	"completed",
-@@ -104,6 +104,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
-         agent_name TEXT NOT NULL DEFAULT '',
-         search TEXT,
-         search_version INTEGER NOT NULL DEFAULT 0,
-+        updated_at TEXT NOT NULL DEFAULT '',
-         record TEXT NOT NULL
-       )`);
- 			const columns = await client.execute(`PRAGMA table_info(${table})`);
-@@ -122,19 +123,42 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 			} catch (error) {
- 				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "search_version")) throw error;
- 			}
-+			if (!columns.rows.some((row) => row.name === "updated_at")) try {
-+				await client.execute(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`);
-+			} catch (error) {
-+				if (!(await client.execute(`PRAGMA table_info(${table})`)).rows.some((row) => row.name === "updated_at")) throw error;
-+			}
-+			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
-+        AFTER INSERT ON ${table}
-+        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
-+        BEGIN
-+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
-+        END`);
-+			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
-+        AFTER UPDATE OF record ON ${table}
-+        WHEN NEW.updated_at IS OLD.updated_at
-+        BEGIN
-+          UPDATE ${table} SET
-+            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
-+            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
-+          WHERE sequence = NEW.sequence;
-+        END`);
-+			await client.execute(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`);
- 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update
-         AFTER UPDATE OF search, record ON ${table}
-         WHEN NEW.search_version = OLD.search_version
-         BEGIN
-           UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
-         END`);
-+			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
-+        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`);
- 			let backfillSequence = 0;
- 			while (true) {
- 				const missingSearch = await client.execute({
- 					args: [
- 						searchVersion,
- 						backfillSequence,
--						searchBackfillPageSize
-+						backfillPageSize
- 					],
- 					sql: `SELECT sequence, record FROM ${table}
-             WHERE (search IS NULL OR search_version < ?) AND sequence > ? ORDER BY sequence LIMIT ?`
-@@ -157,7 +181,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 			backfillSequence = 0;
- 			while (true) {
- 				const missingAgentNames = await client.execute({
--					args: [backfillSequence, searchBackfillPageSize],
-+					args: [backfillSequence, backfillPageSize],
- 					sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`
- 				});
- 				if (!missingAgentNames.rows.length) break;
-@@ -171,7 +195,28 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 				});
- 				await client.batch(agentNameBackfill, "write");
- 			}
-+			backfillSequence = 0;
-+			while (true) {
-+				const missingUpdatedAt = await client.execute({
-+					args: [backfillSequence, backfillPageSize],
-+					sql: `SELECT sequence FROM ${table}
-+            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`
-+				});
-+				if (!missingUpdatedAt.rows.length) break;
-+				const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
-+					backfillSequence = Math.max(backfillSequence, numberValue(row.sequence));
-+					return {
-+						args: [numberValue(row.sequence)],
-+						sql: `UPDATE ${table} SET
-+              status = COALESCE(json_extract(record, '$.status'), status),
-+              updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
-+              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`
-+					};
-+				});
-+				await client.batch(updatedAtBackfill, "write");
-+			}
- 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`);
-+			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`);
- 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`);
- 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
-         ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
-@@ -196,28 +241,25 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 		return row ? deserialize(row.record, row.sequence) : void 0;
- 	};
- 	const pruneStatements = (now = Date.now()) => {
--		const filters = [];
--		const args = [];
-+		const statements = [];
- 		const terminalPlaceholders = terminalStatuses.map(() => "?").join(", ");
- 		if (maxAgeMs !== false) {
--			filters.push("json_extract(record, '$.updatedAt') < ?");
--			args.push(new Date(now - maxAgeMs).toISOString());
-+			statements.push({
-+				args: [...terminalStatuses, new Date(now - maxAgeMs).toISOString()],
-+				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND updated_at < ?`
-+			});
- 		}
- 		if (maxRecords !== false) {
--			filters.push(`sequence NOT IN (
--        SELECT sequence FROM ${table} WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT ?
--      )`);
--			args.push(...terminalStatuses, maxRecords);
-+			statements.push({
-+				args: [...terminalStatuses, ...terminalStatuses, maxRecords],
-+				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND sequence <= (
-+        SELECT sequence FROM ${table} NOT INDEXED WHERE status IN (${terminalPlaceholders}) ORDER BY sequence DESC LIMIT 1 OFFSET ?
-+			)`
-+			});
- 		}
--		if (!filters.length) return [];
-+		if (!statements.length) return [];
- 		return [
--			`UPDATE ${table}
--      SET status = json_extract(record, '$.status')
--      WHERE status != json_extract(record, '$.status')`,
--			{
--				args: [...terminalStatuses, ...args],
--				sql: `DELETE FROM ${table} WHERE status IN (${terminalPlaceholders}) AND (${filters.join(" OR ")})`
--			},
-+			...statements,
- 			`DELETE FROM ${table}_claims
-       WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${table}.id = ${table}_claims.id)`
- 		];
-@@ -265,9 +307,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 							agentNameRecord(input),
- 							searchableRecord(input),
- 							searchVersion,
-+							input.updatedAt,
- 							serialize(input)
- 						],
--						sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, record) VALUES (?, ?, ?, ?, ?, ?)`
-+						sql: `INSERT OR IGNORE INTO ${table} (id, status, agent_name, search, search_version, updated_at, record) VALUES (?, ?, ?, ?, ?, ?, ?)`
- 					}];
- 					if (input.status === "completed" || input.status === "failed" || input.status === "cancelled") statements.push(...pruneStatements(retentionNow));
- 					statements.push({
-@@ -316,7 +359,7 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 			args.push(limit + 1);
- 			const records = (await client.execute({
- 				args,
--				sql: `SELECT sequence, record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
-+				sql: `SELECT sequence, json_set(record, '$.observations', json('[]')) AS record FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
- 			})).rows.map((row) => deserialize(row.record, row.sequence)).filter((record) => Boolean(record));
- 			const page = records.slice(0, limit);
- 			return {
-@@ -367,10 +410,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 								agentNameRecord(stored),
- 								searchableRecord(stored),
- 								searchVersion,
-+								updated.updatedAt,
- 								serialize(stored),
- 								id
- 							],
--							sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, record = ? WHERE id = ?`
-+							sql: `UPDATE ${table} SET status = ?, agent_name = ?, search = ?, search_version = ?, updated_at = ?, record = ? WHERE id = ?`
- 						});
- 						if (updated.status === "completed" || updated.status === "failed" || updated.status === "cancelled") await prune(transaction);
- 						await transaction.commit();
 diff --git a/dist/server.d.ts b/dist/server.d.ts
-index 55f0b6e02b22cdf747443f6847b9dd5806ecc7f0..24f9fcc5f89fa2303b3e1b04d377a119a8a184ac 100644
+index 5218725f0f1487980388f169a296b7241f069919..ca86992c5f0063cb367ae7a6fb63e09d6ce43e98 100644
 --- a/dist/server.d.ts
 +++ b/dist/server.d.ts
-@@ -1,2 +1,58 @@
- import { Aa as AgentChannelChatRouteResumableOptions, Ao as AgentRunEvent, Bo as defineAgentRunEvents, Ca as AgentChannelChatRouteBody, Da as AgentChannelChatRouteMapInputContext, Ea as AgentChannelChatRouteInputOptions, Fa as AgentChannelChatRouteTrustedInputField, Fo as AgentRunEventStoreResolveContext, Ha as createTelegramPollingRouteHandler, Ia as AgentChannelWebhookRouteOptions, Io as AgentRunEventStoreResolver, La as AgentDiscordGatewayRouteOptions, Lo as AgentRunEventSubscribeOptions, Ma as AgentChannelChatRouteStandardSchemaResultFailure, Mo as AgentRunEventPublisher, Na as AgentChannelChatRouteStandardSchemaResultSuccess, No as AgentRunEventReadOptions, Oa as AgentChannelChatRouteRequestOptions, Pa as AgentChannelChatRouteStandardSchemaV1, Po as AgentRunEventStore, Ra as AgentTelegramPollingRouteOptions, Ro as AgentRunEvents, Sa as AgentChannelChatRouteAdmissionOptions, Ta as AgentChannelChatRouteHandlerOptions, Va as createDiscordGatewayRouteHandler, _o as AgentInvocationsOptions, ao as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, bo as createMemoryAgentInvocationStore, co as AgentInvocationListResult, do as AgentInvocationStore, fo as AgentInvocationStoreCreateInput, go as AgentInvocations, ho as AgentInvocationSummary, ja as AgentChannelChatRouteResumableRequestBody, jo as AgentRunEventInput, ka as AgentChannelChatRouteResumableContext, lo as AgentInvocationRecord, mo as AgentInvocationStoreUpdateInput, oo as AgentInvocationAnnotationValue, po as AgentInvocationStoreCreateResult, so as AgentInvocationListOptions, uo as AgentInvocationRecordStatus, wa as AgentChannelChatRouteContext, xa as AgentChannelChatRouteAdmissionContext, xo as defineAgentInvocations, yo as applyAgentInvocationStoreUpdate, zo as AgentRunEventsOptions } from "./types-D6o4Hd6g.js";
+@@ -1,2 +1,57 @@
+ import { $a as AgentInvocationListOptions, Aa as AgentTelegramPollingRouteOptions, Ao as AgentRunEventsOptions, Ca as AgentChannelChatRouteResumableRequestBody, Co as AgentRunEventPublisher, Da as AgentChannelChatRouteTrustedInputField, Do as AgentRunEventStoreResolver, Ea as AgentChannelChatRouteStandardSchemaV1, Eo as AgentRunEventStoreResolveContext, Na as createDiscordGatewayRouteHandler, Oa as AgentChannelWebhookRouteOptions, Oo as AgentRunEventSubscribeOptions, Pa as createTelegramPollingRouteHandler, Qa as AgentInvocationAnnotationValue, Sa as AgentChannelChatRouteResumableOptions, So as AgentRunEventInput, Ta as AgentChannelChatRouteStandardSchemaResultSuccess, To as AgentRunEventStore, Za as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, _a as AgentChannelChatRouteHandlerOptions, ao as AgentInvocationStoreCreateResult, ba as AgentChannelChatRouteRequestOptions, co as AgentInvocations, do as createMemoryAgentInvocationStore, eo as AgentInvocationListResult, fo as defineAgentInvocations, ga as AgentChannelChatRouteContext, ha as AgentChannelChatRouteBody, io as AgentInvocationStoreCreateInput, jo as defineAgentRunEvents, ka as AgentDiscordGatewayRouteOptions, ko as AgentRunEvents, lo as AgentInvocationsOptions, ma as AgentChannelChatRouteAdmissionOptions, no as AgentInvocationRecordStatus, oo as AgentInvocationStoreUpdateInput, pa as AgentChannelChatRouteAdmissionContext, ro as AgentInvocationStore, so as AgentInvocationSummary, to as AgentInvocationRecord, uo as applyAgentInvocationStoreUpdate, va as AgentChannelChatRouteInputOptions, wa as AgentChannelChatRouteStandardSchemaResultFailure, wo as AgentRunEventReadOptions, xa as AgentChannelChatRouteResumableContext, xo as AgentRunEvent, ya as AgentChannelChatRouteMapInputContext } from "./types-Cpv1g6TK.js";
 -export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteResumableContext, type AgentChannelChatRouteResumableOptions, type AgentChannelChatRouteResumableRequestBody, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentDiscordGatewayRouteOptions, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents };
 \ No newline at end of file
 +
@@ -241,16 +62,15 @@ index 55f0b6e02b22cdf747443f6847b9dd5806ecc7f0..24f9fcc5f89fa2303b3e1b04d377a119
 +};
 +
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteResumableContext, type AgentChannelChatRouteResumableOptions, type AgentChannelChatRouteResumableRequestBody, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentDiscordGatewayRouteOptions, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents , type GitHubGraphQLRateLimit, type GitHubHost, type GitHubHostAccess, type GitHubHostCheckoutOptions, type GitHubHostCredentials, type GitHubHostOptions, type GitHubHostPullRequest, type GitHubHostSecret, createGitHubHost, failInterruptedAgentInvocations, parseGraphQLRateLimit, summarizeAgentInvocationWorkload };
-+
 diff --git a/dist/server.js b/dist/server.js
-index 27f6770e44189b89c077a847a5fdb1056cedb02d..f43b2cfb355bade82fffd347719d49c857b5c60f 100644
+index 9b51bc4f71d36e5e588ce75776376a519f5545a3..df89c2427d80646e05fad48357ede1a581038580 100644
 --- a/dist/server.js
 +++ b/dist/server.js
-@@ -1,4 +1,343 @@
+@@ -1,4 +1,342 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-CH4AeJW4.js";
- import { A as defineAgentRunEvents } from "./src-Cuc6RAzn.js";
- import { a as createMemoryAgentInvocationStore, o as defineAgentInvocations, r as applyAgentInvocationStoreUpdate, t as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./invocations-CG8BWlD-.js";
- import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-BRliomsf.js";
+ import { A as defineAgentRunEvents } from "./src-D_FOC5Zz.js";
+ import { a as defineAgentInvocations, i as createMemoryAgentInvocationStore, n as applyAgentInvocationStoreUpdate, t as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./invocations-4ikXphaN.js";
+ import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-ZdmM_HZj.js";
 -export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents };
 +import { createSign } from "node:crypto";
 +import { mkdtemp, rm } from "node:fs/promises";
@@ -590,4 +410,3 @@ index 27f6770e44189b89c077a847a5fdb1056cedb02d..f43b2cfb355bade82fffd347719d49c8
 +}
 +//#endregion
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createGitHubHost, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, parseGraphQLRateLimit, summarizeAgentInvocationWorkload };
-+
