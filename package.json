@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "@t3tools/provider-runtime": "https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@7f42a27ef91dac66ada2d4d18bcaf433f3535c9f",
-    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@7f42a27ef91dac66ada2d4d18bcaf433f3535c9f",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@a61d9cfb52b37e2f41ba71243f5ef25e71cdf0ca",
+    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@a61d9cfb52b37e2f41ba71243f5ef25e71cdf0ca",
     "ai": "7.0.38",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
     "vite": "^8.0.11",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@7f42a27ef91dac66ada2d4d18bcaf433f3535c9f"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@a61d9cfb52b37e2f41ba71243f5ef25e71cdf0ca"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
