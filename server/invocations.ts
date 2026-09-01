@@ -3,17 +3,24 @@ import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sql
 import { defineAgentInvocations, failInterruptedAgentInvocations, summarizeAgentInvocationWorkload } from 'vite-hub/agent/server'
 
 const client = createClient({ url: 'file:.vitehub/invocations.sqlite' })
-const store = createLibsqlAgentInvocationStore({ client })
+const store = createLibsqlAgentInvocationStore({ client, maxRecords: 5_000 })
+const processStartedAt = Date.now()
 
 // ponytail: Babysitter is single-host; use leases before sharing this database across owners.
-try {
-  await failInterruptedAgentInvocations(store, {
-    message: 'The Babysitter host stopped before this invocation finished.',
-  })
+async function recoverInterruptedInvocations() {
+  try {
+    await failInterruptedAgentInvocations(store, {
+      before: processStartedAt,
+      message: 'The Babysitter host stopped before this invocation finished.',
+      recover: () => true,
+    })
+  }
+  catch (error) {
+    console.error(new Error('Could not recover interrupted Agent Invocations.', { cause: error }))
+  }
 }
-catch (error) {
-  console.error(new Error('Could not recover interrupted Agent Invocations.', { cause: error }))
-}
+
+await recoverInterruptedInvocations()
 
 export const invocations = defineAgentInvocations({
   content: 'content',

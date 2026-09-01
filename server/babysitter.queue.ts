@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 export const defaultMaxOwners = '1'
 export const retryCooldownMs = 15 * 60 * 1000
 export const maxRetryCooldownMs = 6 * 60 * 60 * 1000
-export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v4'
+export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v6'
 const parkDisposition = '<!-- babysitter:disposition:park -->'
 const retryFingerprintPattern = /^retry:v1:(\d+):([0-9a-f]+)$/
 const retryBackoffFingerprintPattern = /^retry:v2:(\d+):(\d+):([0-9a-f]+)$/
@@ -57,6 +57,10 @@ export function resolveMaxOwners(value: string) {
   const maxOwners = Number(value)
   if (!Number.isInteger(maxOwners) || maxOwners < 1) throw new Error(`Invalid Babysitter owner limit: ${value}`)
   return maxOwners
+}
+
+export function pullRequestThreadId(repository: string, number: number) {
+  return `github:${repository.toLowerCase()}:pull-request:${number}`
 }
 
 export async function selectPullRequestJobs(
@@ -174,9 +178,9 @@ export function successfulPassFingerprint(
 }
 
 function stableMergeStateStatus(status: string) {
-  return status === 'CLEAN' || status === 'DIRTY' || status === 'BEHIND' || status === 'DRAFT'
+  return status === 'DIRTY' || status === 'BEHIND' || status === 'DRAFT'
     ? status
-    : 'BLOCKED'
+    : 'STABLE'
 }
 
 function stableLabels(labels: unknown) {

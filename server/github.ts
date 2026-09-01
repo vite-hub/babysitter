@@ -1,5 +1,5 @@
 import { useServerEnv } from '#vitehub/env/server'
-import { createGitHubHost } from 'vite-hub/agent/server'
+import { createGitHubHost } from '@vite-hub/agent/server/github'
 
 export const github = createGitHubHost({
   credentials: () => useServerEnv().github,

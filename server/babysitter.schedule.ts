@@ -1,4 +1,4 @@
-import { agentInvocationId, createMessage, runScheduledAgent } from 'vite-hub/agent'
+import { createMessage, runScheduledAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/kv'
 import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
@@ -19,6 +19,7 @@ import {
   type PullRequest,
   type PullRequestFeedback,
   prioritizePullRequestJobs,
+  pullRequestThreadId,
   pullRequestCheckState,
   retryPassFingerprint,
   resolveMaxOwners,
@@ -76,6 +77,7 @@ export async function reconcileBabysitterWork(
   const batch = Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
     const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
+    const threadId = pullRequestThreadId(repository, pullRequest.number)
     const owner = { pullRequest: pullRequest.number, repository, runId }
     const startedAt = Date.now()
     let outcome = 'completed'
@@ -89,6 +91,7 @@ export async function reconcileBabysitterWork(
     })
     try {
       await github.withPullRequestCheckout({
+        headRef: pullRequest.headRefName,
         headRepository: pullRequest.headRepository?.nameWithOwner,
         headSha: pullRequest.headRefOid,
         number: pullRequest.number,
@@ -109,11 +112,8 @@ export async function reconcileBabysitterWork(
           ...schedule,
           runId,
         }, {
+          runtime: 'vite',
           run: {
-            activity: {
-              links: [{ label: 'Session', url: await babysitterSessionUrl(runId) }],
-              target: { issue: pullRequest.number, repository },
-            },
             annotations: {
               'github.head': pullRequest.headRefOid,
               'github.pullRequest': pullRequest.number,
@@ -123,6 +123,7 @@ export async function reconcileBabysitterWork(
             },
             channelId: 'github',
             runId,
+            threadId,
           },
         }, {
           abortSignal: AbortSignal.timeout(60 * 60 * 1000),
@@ -190,12 +191,6 @@ function jobKey(repository: string, number: number) {
   return `${repository}#${number}`
 }
 
-async function babysitterSessionUrl(runId: string) {
-  const base = (process.env.BABYSITTER_PUBLIC_URL || 'https://babysitter.vitehub.dev').replace(/\/+$/, '')
-  const invocationId = await agentInvocationId(runId, 'babysitter')
-  return `${base}/_vitehub/agents/babysitter/invocations/${encodeURIComponent(invocationId)}`
-}
-
 function agentResultText(value: unknown, observations: readonly unknown[]) {
   const streamFinishedAt = observations.findLastIndex(observation => observationName(observation) === 'agent.stream.finish')
   const completedStream = streamFinishedAt < 0 ? observations : observations.slice(0, streamFinishedAt)
@@ -228,33 +223,47 @@ async function readCompletion(key: string) {
 
 async function listPullRequests(repository: string) {
   try {
-    await github.ensureGraphQLBudget(repository)
+    return await withGraphQLBudget(repository, 256, async () => {
+      const [result, feedback] = await Promise.all([
+        github.command(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
+        readOpenPullRequestFeedback(repository),
+      ])
+      const pullRequests = JSON.parse(result.stdout) as PullRequest[]
+      return await Promise.all(pullRequests.map(pullRequest => readRequiredCheckState(repository, {
+        ...pullRequest,
+        ...feedback.has(pullRequest.number) ? { feedback: feedback.get(pullRequest.number) } : {},
+      })))
+    })
   }
   catch (error) {
     if (github.isRateLimitError(error)) return []
     throw error
   }
-  const [result, feedback] = await Promise.all([
-    github.command(['pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100', '--json', pullRequestFields], { repository }),
-    readOpenPullRequestFeedback(repository),
-  ])
-  const pullRequests = JSON.parse(result.stdout) as PullRequest[]
-  return await Promise.all(pullRequests.map(pullRequest => readRequiredCheckState(repository, {
-    ...pullRequest,
-    ...feedback.has(pullRequest.number) ? { feedback: feedback.get(pullRequest.number) } : {},
-  })))
 }
 
 async function readPullRequest(repository: string, number: number) {
-  await github.ensureGraphQLBudget(repository)
-  const [result, feedback] = await Promise.all([
-    github.command(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
-    readPullRequestFeedback(repository, number),
-  ])
-  return await readRequiredCheckState(repository, {
-    ...JSON.parse(result.stdout) as PullRequest,
-    ...feedback ? { feedback } : {},
+  return await withGraphQLBudget(repository, 16, async () => {
+    const [result, feedback] = await Promise.all([
+      github.command(['pr', 'view', String(number), '--repo', repository, '--json', pullRequestFields], { repository }),
+      readPullRequestFeedback(repository, number),
+    ])
+    return await readRequiredCheckState(repository, {
+      ...JSON.parse(result.stdout) as PullRequest,
+      ...feedback ? { feedback } : {},
+    })
   })
+}
+
+async function withGraphQLBudget<T>(repository: string, cost: number, run: () => Promise<T>) {
+  const reservation = await github.ensureGraphQLBudget(repository, { cost })
+  reservation.submit()
+  try {
+    return await run()
+  }
+  finally {
+    // The gh CLI does not expose actual query cost, so settle the reserved upper bound.
+    reservation.settle(cost)
+  }
 }
 
 async function readOpenPullRequestFeedback(repository: string) {

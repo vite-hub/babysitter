@@ -43,7 +43,7 @@ export default defineEventHandler(async () => {
         : 'GraphQL admission reserve available',
     },
     codex,
-    { label: 'Model', status: 'ok', value: 'gpt-5.6-sol', detail: 'High reasoning effort' },
+    { label: 'Model', status: 'ok', value: 'gpt-5.6-sol', detail: 'Medium reasoning effort' },
     { label: 'Agent', status: 'ok', value: 'babysitter', detail: 'Pull-request convergence' },
     { label: 'Runtime', status: 'ok', value: `Node ${process.version}`, detail: formatUptime(process.uptime()) },
     { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
@@ -53,7 +53,7 @@ export default defineEventHandler(async () => {
       value: `Adaptive · ${capacity?.active ?? 0} active · ${capacity?.effectiveConcurrency ?? ownerLimit} admitted`,
       detail: `${capacity?.pending ?? 0} queued · hard max ${ownerLimit}${capacity?.reason ? ` · ${capacity.reason}` : ''}`,
     },
-    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 30s repair scan' },
+    { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 2m repair scan' },
     {
       label: 'Invocation state',
       status: invocationState.counts === undefined || counts.stale ? 'warning' : 'ok',
