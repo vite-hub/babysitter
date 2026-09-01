@@ -16,13 +16,13 @@
   "dependencies": {
     "@libsql/client": "0.17.4",
     "@t3tools/provider-runtime": "https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@9978e94f04d69b21a08574724933b0f82c51f041",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@d2f7dc5372de2cb0023108fb481ce3dc4ef21c24",
-    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@d2f7dc5372de2cb0023108fb481ce3dc4ef21c24",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@43ab5f160a810cfcdf98a71634c6aceb835bbfbd",
+    "@vite-hub/runtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/runtime@43ab5f160a810cfcdf98a71634c6aceb835bbfbd",
     "ai": "7.0.38",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
     "vite": "^8.0.11",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@d2f7dc5372de2cb0023108fb481ce3dc4ef21c24"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@43ab5f160a810cfcdf98a71634c6aceb835bbfbd"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
