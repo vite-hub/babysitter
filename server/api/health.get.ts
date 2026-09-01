@@ -3,12 +3,13 @@ import { promisify } from 'node:util'
 import { useServerEnv } from '#vitehub/env/server'
 import { defineEventHandler } from 'h3'
 import { createAgentInspectionMetadata } from 'vite-hub/agent'
+import { readAgentInvocationWorkload } from 'vite-hub/agent/server'
 import babysitterAgent from '../agents/babysitter/agent.ts'
 import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
 import { consoleClient } from '../console.ts'
 import { github } from '../github.ts'
-import { readInvocationWorkload } from '../invocations.ts'
+import { invocations } from '../invocations.ts'
 
 const exec = promisify(execFile)
 
@@ -26,7 +27,7 @@ export default defineEventHandler(async () => {
   const [githubDiagnostic, codex, invocationState] = await Promise.all([
     checkGitHub(),
     checkCodex(),
-    readInvocationWorkload(processStartedAt)
+    readAgentInvocationWorkload(invocations, processStartedAt)
       .then(counts => ({ counts }))
       .catch(() => ({ counts: undefined })),
   ])
