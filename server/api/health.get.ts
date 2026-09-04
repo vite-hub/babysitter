@@ -44,7 +44,7 @@ export default defineEventHandler(async () => {
         : 'GraphQL admission reserve available',
     },
     codex,
-    { label: 'Model', status: 'ok', value: 'gpt-5.6-sol', detail: 'Medium reasoning effort' },
+    { label: 'Model', status: 'ok', value: 'gpt-6-astra', detail: 'High reasoning effort' },
     { label: 'Agent', status: 'ok', value: 'babysitter', detail: 'Pull-request convergence' },
     { label: 'Runtime', status: 'ok', value: `Node ${process.version}`, detail: formatUptime(process.uptime()) },
     { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },

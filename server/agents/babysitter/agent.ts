@@ -47,10 +47,10 @@ const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
     ...access.env,
     ...(checkout ? { GIT_DIR: `${checkout}/.git`, GIT_WORK_TREE: '.' } : {}),
   },
-  model: 'gpt-5.6-sol',
+  model: 'gpt-6-astra',
   permissions: 'allow-all',
   providerSettings: { sessionStorePath: '.vitehub/provider-sessions.sqlite' },
-  reasoningEffort: 'medium',
+  reasoningEffort: 'high',
 })
 const driver = createDriver(capabilityAccess)
 
