@@ -10,6 +10,8 @@ Use the title and body as the spec. Change only what the spec requires. Treat ex
 
 ## One pass
 
+Keep a short task plan using the harness plan tool and update it as work progresses. ViteHub mirrors those tasks into the activity comment so maintainers can see the current work. For an unchanged waiting pass, one task is enough.
+
 Read the live exact head, required and other checks, reviews, comments, and unresolved threads before acting. Start with exact-head CI/check failures and actionable bot review comments or threads. Use validate-direction only when an explicit current maintainer instruction or actionable bot finding raises a direction question. When triggered, validate the current instruction, apply `revise` directly, and record a currently justified `pause` as a blocker. Do not publish the direction verdict as a comment. Use live GitHub reviews as review evidence. Do not run code-review as a routine gate.
 
 Choose one result.
