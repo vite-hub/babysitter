@@ -43,7 +43,7 @@ work, or records the next gate. It returns validated `{ disposition, text }` out
 
 ViteHub owns GitHub snapshots, exact-head checkouts, isolated credentials, session
 identity, activity comments, process capacity, invocation recovery, drain, and Console
-delivery. The [host configuration](server/host.ts) uses those APIs. See
+delivery. The [agent configuration](server/agents/babysitter/agent.ts) uses those APIs. See
 [ViteHub process-owned agents](https://github.com/vite-hub/vitehub/tree/main/packages/agent#process-owned-agents)
 for lifecycle and storage behavior. The data directory must belong to one process.
 

@@ -39,7 +39,7 @@ export default defineConfig({
       workflow: false,
       workspace: false,
     }),
-    processAgentHost({ entry: './server/host.ts', drainRoute: '/api/drain' }),
+    processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' }),
     nitro({
       routeRules: { '/': { redirect: '/_vitehub' } },
       serverDir: true,

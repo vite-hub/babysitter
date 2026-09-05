@@ -1,12 +1,9 @@
 import { useServerEnv } from '#vitehub/env/server'
 import { defineEventHandler } from 'h3'
 import { createAgentInspectionMetadata } from 'vite-hub/agent'
-import babysitterAgent from '../agents/babysitter/agent.ts'
+import babysitterAgent, { github, consoleClient, host } from '../agents/babysitter/agent.ts'
 import { babysitterWorkload } from '../babysitter.schedule.ts'
 import { resolveMaxOwners, resolveRepositories } from '../babysitter.queue.ts'
-import { consoleClient } from '../console.ts'
-import { github } from '../github.ts'
-import { host } from '../host.ts'
 
 
 type DiagnosticStatus = 'neutral' | 'ok' | 'warning'

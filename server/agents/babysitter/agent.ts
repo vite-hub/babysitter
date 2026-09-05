@@ -2,9 +2,38 @@ import { github as githubSource } from 'vite-hub/workspace'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
-import { consoleClient } from '../../console.ts'
-import { github as githubHost } from '../../github.ts'
-import { host } from '../../host.ts'
+import { useServerEnv } from '#vitehub/env/server'
+import { createGitHubHost } from '@vite-hub/agent/server/github'
+import { createAgentConsoleDelivery } from 'vite-hub/agent/server'
+import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
+
+export const github = createGitHubHost({
+  credentials: () => useServerEnv().github,
+  identity: {
+    email: '320448255+vitehub-bot[bot]@users.noreply.github.com',
+    login: 'vitehub-bot[bot]',
+  },
+})
+
+export const consoleClient = createAgentConsoleDelivery(useServerEnv().console)
+
+const concurrency = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
+
+export const host = await createProcessAgentHost({
+  name: 'babysitter',
+  providerCommand: 'codex',
+  capacity: {
+    concurrency,
+    fallbackConcurrency: Math.min(3, concurrency),
+    queue: { maxPending: 100 },
+    sampleTimeoutMs: 5_000,
+  },
+  async run(reason, context, accepting) {
+    const { reconcileBabysitterWork } = await import('../../babysitter.schedule.ts')
+    await reconcileBabysitterWork(reason, context, accepting)
+  },
+})
 
 export type PassResult = { disposition: 'park' | 'retry', text: string }
 const passResultSchema = {
@@ -37,7 +66,7 @@ const capabilities = [
 }), ...(consoleClient ? [consoleClient.capability] : [])] as const
 const driver = codexDriver({
   capacity: host.capacity,
-  env: async () => ({ ...await githubHost.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
+  env: async () => ({ ...await github.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
   model: 'gpt-6-astra',
   output: { schema: passResultSchema },
   permissions: 'allow-all',
@@ -48,7 +77,7 @@ const driver = codexDriver({
 const agent = defineAgent({
   capabilities,
   channels: {
-    github: githubHost.channel({ activity: true }),
+    github: github.channel({ activity: true }),
   },
   driver,
   invocations: host.invocations,

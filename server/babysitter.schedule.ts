@@ -1,14 +1,12 @@
 import { createGitHubPullRequests, createGitHubPullRequestRun } from '@vite-hub/agent/server/github'
 import { createMessage, runScheduledAgent, publishAgentActivity } from 'vite-hub/agent'
 import { createWorkTracker, type WorkOutcome } from 'vite-hub/runtime'
-import { consoleClient } from './console.ts'
 import { kv } from 'vite-hub/kv'
 import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
-import babysitterAgent, { createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
+import babysitterAgent, { github, consoleClient, host, createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import promptTemplate from './agents/babysitter/prompt.template.md?raw'
-import { github } from './github.ts'
 import {
   completionPolicyVersion,
   successfulPassFingerprint,
@@ -19,7 +17,6 @@ import {
   resolveRepositories,
   selectPullRequestJobs,
 } from './babysitter.queue.ts'
-import { host } from './host.ts'
 const invocations = host.invocations
 
 const policyFingerprint = createPolicyFingerprint(promptTemplate, completionPolicyVersion)
