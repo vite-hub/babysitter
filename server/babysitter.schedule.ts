@@ -236,7 +236,7 @@ async function withGraphQLBudget<T>(repository: string, cost: number, run: () =>
   }
 }
 
-const feedbackFields = `comments(first:100,after:$comments){nodes{id body updatedAt author{login}} pageInfo{hasNextPage endCursor}} reviews(first:100,after:$reviews){nodes{id body updatedAt state commit{oid}} pageInfo{hasNextPage endCursor}} reviewThreads(first:100,after:$threads){nodes{id isResolved comments(first:100){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}} pageInfo{hasNextPage endCursor}}`
+const feedbackFields = `comments(first:100,after:$comments){nodes{id body updatedAt author{login}} pageInfo{hasNextPage endCursor}} reviews(first:100,after:$reviews){nodes{id body updatedAt state commit{oid}} pageInfo{hasNextPage endCursor}} reviewThreads(first:100,after:$threads){nodes{id isResolved comments(first:20){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}} pageInfo{hasNextPage endCursor}}`
 
 async function readOpenPullRequestFeedback(repository: string) {
   // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
