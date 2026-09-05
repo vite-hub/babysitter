@@ -26,7 +26,7 @@ const capabilities = [
   ...['code-review', 'resolving-merge-conflicts'].map(name => skills({
     id: `skills.${name}`,
     path: `skills/${name}`,
-    source: githubSource({ repo: 'vite-hub/vitehub', ref: 'e2b541722b9a46d957a082c8319af1afc4bdcc3e', root: `docs/skills/${name}`, include: ['SKILL.md', 'references/**'], materialize: 'build' }),
+    source: githubSource({ repo: 'vite-hub/vitehub', ref: '724a19c68157518d1ec67b3129af44488ce7e784', root: `docs/skills/${name}`, include: ['SKILL.md', 'references/**'], materialize: 'build' }),
     shellExecution: 'write',
   })),
   diagnostics({ resources: nodeRuntimeResources() }), title({

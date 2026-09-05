@@ -4,7 +4,7 @@ export type { PullRequest } from '@vite-hub/agent/server/github'
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
-export const completionPolicyVersion = 'actionable-state-v7'
+export const completionPolicyVersion = 'actionable-state-v8'
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestJob = {
@@ -108,11 +108,14 @@ export function successfulPassFingerprint(
   const completedPullRequest = observedPullRequest.headRefOid === pullRequest.headRefOid
     ? observedPullRequest
     : pullRequest
-  const checkState = (checks: unknown) => Array.isArray(checks) ? checks.map((check) => {
-    if (!check || typeof check !== 'object') return check
-    const { name, context, workflowName, workflow } = check as Record<string, unknown>
-    return { name: name ?? context, workflow: workflowName ?? workflow, state: pullRequestCheckState([check]) }
-  }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))) : checks
+  const checkState = (checks: unknown) => {
+    if (!Array.isArray(checks)) return checks
+    const failed = checks.filter(check => pullRequestCheckState([check]) === 'failed').map(check => {
+      const { name, context, workflowName, workflow } = check as Record<string, unknown>
+      return { name: name ?? context, workflow: workflowName ?? workflow }
+    }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    return { state: pullRequestCheckState(checks), failed }
+  }
   const completionState: Record<string, unknown> = {
     ...completedPullRequest,
     comments: completedPullRequest.feedback?.comments ?? completedPullRequest.comments,

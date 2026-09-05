@@ -34,7 +34,8 @@ The [scheduler](server/babysitter.schedule.ts) selects changed PRs and applies t
 [queue policy](server/babysitter.queue.ts). It leaves a PR waiting without a model
 session when checks are pending and there is no discussion, failed check, or
 conflict to handle. Package-preview comments, Codex quota notices, and timestamp-only
-feedback edits do not wake a parked pass.
+feedback edits do not wake a parked pass. Partial CI successes stay parked until
+the overall check result changes; failures remain actionable.
 
 The [agent prompt](server/agents/babysitter/prompt.template.md) owns review and merge
 policy. Each pass makes at most one repair commit, merges ready work, closes obsolete
