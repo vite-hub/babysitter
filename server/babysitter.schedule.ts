@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
 import { createMessage, runScheduledAgent } from 'vite-hub/agent'
+import { agentInvocationId } from 'vite-hub/agent/server'
+import { createWorkTracker, type WorkOutcome } from 'vite-hub/runtime'
+import { consoleClient } from './console.ts'
 import { kv } from 'vite-hub/kv'
 import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
-import { createBabysitterAgent } from './agents/babysitter/agent.ts'
+import { createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
 import blocker from './agents/babysitter/blocker.md?raw'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import promptTemplate from './agents/babysitter/prompt.template.md?raw'
@@ -13,7 +17,7 @@ import {
 } from './babysitter.operations.ts'
 import {
   completionPolicyVersion,
-  completedPassFingerprint,
+  successfulPassFingerprint,
   createPolicyFingerprint,
   parseRequiredChecks,
   type PullRequest,
@@ -21,7 +25,6 @@ import {
   prioritizePullRequestJobs,
   pullRequestThreadId,
   pullRequestCheckState,
-  retryPassFingerprint,
   resolveMaxOwners,
   resolveRepositories,
   selectPullRequestJobs,
@@ -29,8 +32,16 @@ import {
 import { invocations } from './invocations.ts'
 
 const policyFingerprint = createPolicyFingerprint(promptTemplate, blocker, completionPolicyVersion)
-const pullRequestFields = 'baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
-const runningJobs = new Set<string>()
+const pullRequestFields = 'baseRefOid,baseRefName,body,headRefName,headRefOid,headRepository,isDraft,labels,mergeStateStatus,number,reviewDecision,state,statusCheckRollup,title,updatedAt,url'
+const work = createWorkTracker({
+  store: {
+    get: readCompletion,
+    async set(key, value) {
+      const [error] = await kv.set(key, value)
+      if (error) throw error
+    },
+  },
+})
 let wakeReconciler = () => {}
 
 export function setBabysitterReconcilerWake(wake: () => void) {
@@ -38,7 +49,7 @@ export function setBabysitterReconcilerWake(wake: () => void) {
 }
 
 export function babysitterWorkload() {
-  return { running: runningJobs.size }
+  return { running: work.active }
 }
 
 export async function reconcileBabysitterWork(
@@ -52,14 +63,14 @@ export async function reconcileBabysitterWork(
     runId: `demand:${startedAt.toISOString()}`,
     scheduledAt: startedAt,
   }
-  const { maxOwners, repositories: configuredRepositories, repository } = useServerEnv().babysitter
+  const { maxOwners, publicUrl, repositories: configuredRepositories, repository } = useServerEnv().babysitter
   const repositories = resolveRepositories(configuredRepositories, repository)
-  const discovered = await selectPullRequestJobs(repositories, listPullRequests, readCompletion, policyFingerprint)
+  const discovered = await selectPullRequestJobs(repositories, listPullRequests, work.eligible, policyFingerprint)
   if (!isAccepting()) return
   const ownerLimit = resolveMaxOwners(maxOwners)
-  const availableOwnerSlots = Math.max(0, ownerLimit - runningJobs.size)
+  const availableOwnerSlots = Math.max(0, ownerLimit - work.active)
   const eligible = discovered
-    .filter(job => !runningJobs.has(jobKey(job.repository, job.pullRequest.number)))
+    .filter(job => !work.has(job.completionKey))
   const jobs = (ownerLimit > 1 ? prioritizePullRequestJobs(eligible) : eligible)
     .slice(0, availableOwnerSlots)
   const batchStartedAt = Date.now()
@@ -71,9 +82,6 @@ export async function reconcileBabysitterWork(
     repositories,
     scheduleId: schedule.runId || schedule.id,
   })
-  for (const job of jobs) {
-    runningJobs.add(jobKey(job.repository, job.pullRequest.number))
-  }
   const batch = Promise.all(jobs.map(async job => {
     const { pullRequest, repository } = job
     const runId = `${schedule.runId || schedule.id}:${repository}:pr-${pullRequest.number}:${job.fingerprint}`
@@ -82,78 +90,69 @@ export async function reconcileBabysitterWork(
     const startedAt = Date.now()
     let outcome = 'completed'
     let failure: unknown
-    let resultText: string | undefined
+    let disposition: PassResult['disposition'] | undefined
     logOperationalEvent('babysitter.owner.started', {
       head: pullRequest.headRefOid,
       maxOwners: ownerLimit,
-      workItems: runningJobs.size,
+      workItems: work.active,
       ...owner,
     })
     try {
-      await github.withPullRequestCheckout({
-        headRef: pullRequest.headRefName,
-        headRepository: pullRequest.headRepository?.nameWithOwner,
-        headSha: pullRequest.headRefOid,
-        number: pullRequest.number,
-        repository,
-      }, async ({ path: checkout, ...access }) => {
-        const context = {
-          pullRequestHead: pullRequest.headRefOid,
-          pullRequestNumber: pullRequest.number,
-          pullRequestRepository: repository,
-          pullRequestSourceBranch: pullRequest.headRefName,
-          pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
-          pullRequestTitle: pullRequest.title,
-          pullRequestUrl: pullRequest.url,
-        }
-        const agent = createBabysitterAgent(checkout, access)
-        const prompt = await renderPrompt({ blocker, context })
-        const result = await runScheduledAgent(agent, {
-          ...schedule,
-          runId,
-        }, {
-          runtime: 'vite',
-          run: {
-            annotations: {
-              'github.head': pullRequest.headRefOid,
-              'github.pullRequest': pullRequest.number,
-              'github.repository': repository,
-              'github.title': pullRequest.title,
-              'github.url': pullRequest.url,
-            },
-            channelId: 'github',
+      await work.run(job.completionKey, successfulPassFingerprint(repository, pullRequest, policyFingerprint)!, async (): Promise<WorkOutcome> => {
+        await github.withPullRequestCheckout({
+          headRef: pullRequest.headRefName,
+          headRepository: pullRequest.headRepository?.nameWithOwner,
+          headSha: pullRequest.headRefOid,
+          number: pullRequest.number,
+          repository,
+        }, async ({ path: checkout, ...access }) => {
+          const context = {
+            pullRequestHead: pullRequest.headRefOid,
+            pullRequestNumber: pullRequest.number,
+            pullRequestRepository: repository,
+            pullRequestSourceBranch: pullRequest.headRefName,
+            pullRequestSourceRepository: pullRequest.headRepository?.nameWithOwner || '(unavailable)',
+            pullRequestTitle: pullRequest.title,
+            pullRequestUrl: pullRequest.url,
+          }
+          const agent = createBabysitterAgent(checkout, access)
+          const prompt = await renderPrompt({ blocker, context })
+          const result = await runScheduledAgent(agent, {
+            ...schedule,
             runId,
-            threadId,
-          },
-        }, {
-          abortSignal: AbortSignal.timeout(60 * 60 * 1000),
-          context,
-          messages: [createMessage({ role: 'user', text: prompt })],
-        })
-        try {
-          const invocation = await invocations.getByRunId(runId, 'babysitter')
-          resultText = agentResultText(result, invocation?.observations || [])
-        }
-        catch (error) {
-          logOperationalError('babysitter.final-message.failed', error, owner)
-        }
-      })
+          }, {
+            runtime: 'vite',
+            run: {
+              activity: {
+                target: { repository, issue: pullRequest.number },
+                links: publicUrl ? [{ label: 'Current session', url: new URL(`/_vitehub/agents/babysitter/invocations/${encodeURIComponent(await agentInvocationId(runId, 'babysitter'))}`, publicUrl).href }] : consoleClient ? [{ label: 'Current session', url: consoleClient.endpoint(`/?view=sessions&session=${encodeURIComponent(runId)}`) }] : [],
+              },
+              annotations: {
+                'github.head': pullRequest.headRefOid,
+                'github.pullRequest': pullRequest.number,
+                'github.repository': repository,
+                'github.title': pullRequest.title,
+                'github.url': pullRequest.url,
+              },
+              channelId: 'github',
+              runId,
+              threadId,
+            },
+          }, {
+            abortSignal: AbortSignal.timeout(60 * 60 * 1000),
+            context,
+            messages: [createMessage({ role: 'user', text: prompt })],
+          })
+          disposition = (result as PassResult).disposition
 
-      const current = await readPullRequest(repository, pullRequest.number)
-      const fingerprint = completedPassFingerprint(repository, current, policyFingerprint, resultText, pullRequest)
-      if (fingerprint) {
-        const [error] = await kv.set(job.completionKey, fingerprint)
-        if (error) throw error
-      }
-      else if (current.state === 'OPEN') {
-        outcome = 'retry'
-        const previousCompletion = await readCompletion(job.completionKey)
-        const retryFingerprint = retryPassFingerprint(repository, current, policyFingerprint, Date.now(), pullRequest, previousCompletion)
-        if (retryFingerprint) {
-          const [error] = await kv.set(job.completionKey, retryFingerprint)
-          if (error) throw error
-        }
-      }
+        })
+
+        const current = await readPullRequest(repository, pullRequest.number)
+        const fingerprint = successfulPassFingerprint(repository, current, policyFingerprint, pullRequest)
+        const parked = current.state !== 'OPEN' || disposition === 'park'
+        outcome = parked ? 'completed' : 'retry'
+        return { disposition: parked ? 'park' : 'retry', ...(fingerprint ? { fingerprint } : {}) }
+      })
     }
     catch (error) {
       if (github.isRateLimitError(error)) {
@@ -167,7 +166,6 @@ export async function reconcileBabysitterWork(
       }
     }
     finally {
-      runningJobs.delete(jobKey(repository, pullRequest.number))
       logOperationalEvent('babysitter.owner.finished', {
         durationMs: Date.now() - startedAt,
         outcome,
@@ -187,36 +185,8 @@ export async function reconcileBabysitterWork(
   track(batch)
 }
 
-function jobKey(repository: string, number: number) {
-  return `${repository}#${number}`
-}
-
-function agentResultText(value: unknown, observations: readonly unknown[]) {
-  const streamFinishedAt = observations.findLastIndex(observation => observationName(observation) === 'agent.stream.finish')
-  const completedStream = streamFinishedAt < 0 ? observations : observations.slice(0, streamFinishedAt)
-  const streamStartedAt = completedStream.findLastIndex(observation => observationName(observation) === 'agent.stream.finish') + 1
-  const content = completedStream.slice(streamStartedAt).flatMap((observation) => {
-    if (!observation || typeof observation !== 'object') return []
-    const record = observation as Record<string, unknown>
-    if (record.name !== 'agent.message.delta' || !record.attributes || typeof record.attributes !== 'object') return []
-    const attributes = record.attributes as Record<string, unknown>
-    if (attributes['message.role'] !== 'assistant') return []
-    const delta = attributes['message.content']
-    return typeof delta === 'string' ? [delta] : []
-  }).join('\n').trim()
-  if (content) return content
-  if (typeof value === 'string') return value.trim() || undefined
-  if (!value || typeof value !== 'object') return undefined
-  const text = (value as Record<string, unknown>).text
-  return typeof text === 'string' ? text.trim() || undefined : undefined
-}
-
-function observationName(observation: unknown) {
-  return observation && typeof observation === 'object' ? (observation as Record<string, unknown>).name : undefined
-}
-
 async function readCompletion(key: string) {
-  const [error, value] = await kv.get<string>(key)
+  const [error, value] = await kv.get(key)
   if (error) throw error
   return value
 }
@@ -266,47 +236,68 @@ async function withGraphQLBudget<T>(repository: string, cost: number, run: () =>
   }
 }
 
+const feedbackFields = `comments(first:100,after:$comments){nodes{id body updatedAt author{login}} pageInfo{hasNextPage endCursor}} reviews(first:100,after:$reviews){nodes{id body updatedAt state commit{oid}} pageInfo{hasNextPage endCursor}} reviewThreads(first:100,after:$threads){nodes{id isResolved comments(first:100){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}} pageInfo{hasNextPage endCursor}}`
+
 async function readOpenPullRequestFeedback(repository: string) {
+  // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
   const [owner, name] = repository.split('/') as [string, string]
-  const query = 'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number comments(last:1){totalCount nodes{id}} reviews(last:1){totalCount nodes{id}}}}}}'
+  const query = `query($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{number ${feedbackFields}}}}}`
   const result = await github.command(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-f', `query=${query}`], { repository })
   const nodes = JSON.parse(result.stdout)?.data?.repository?.pullRequests?.nodes
-  return new Map<number, PullRequestFeedback>((Array.isArray(nodes) ? nodes : []).flatMap((node: unknown) => {
-    const parsed = parsePullRequestFeedbackNode(node)
-    return parsed ? [[parsed.number, parsed.feedback]] : []
-  }))
+  if (!Array.isArray(nodes)) throw new Error('GitHub did not return pull request feedback.')
+  return new Map<number, PullRequestFeedback>(await Promise.all(nodes.map(async node => [
+    node.number,
+    Object.values(feedbackConnections(node)).some(connection => connection.pageInfo.hasNextPage)
+      || node.reviewThreads.nodes.some((thread: any) => thread.comments.pageInfo.hasNextPage)
+      ? await readPullRequestFeedback(repository, node.number)
+      : digestFeedback(node),
+  ] as [number, PullRequestFeedback])))
 }
 
-async function readPullRequestFeedback(repository: string, number: number) {
+function feedbackConnections(node: any): Record<string, { nodes: any[], pageInfo: { hasNextPage: boolean, endCursor: string } }> {
+  if (!node?.comments?.nodes || !node?.reviews?.nodes || !node?.reviewThreads?.nodes) throw new Error('Incomplete GitHub feedback response.')
+  return { comments: node.comments, reviews: node.reviews, threads: node.reviewThreads }
+}
+
+function digestFeedback(node: any): PullRequestFeedback {
+  const digest = (items: any[]) => createHash('sha256').update(JSON.stringify(items.sort((a, b) => a.id.localeCompare(b.id)))).digest('hex')
+  return {
+    comments: digest(node.comments.nodes.filter((comment: any) => !(['vitehub-bot', 'vitehub-bot[bot]'].includes(comment.author?.login) && comment.body.startsWith('<!-- vitehub-agent-activity:')))),
+    reviews: digest(node.reviews.nodes),
+    threads: digest(node.reviewThreads.nodes),
+  }
+}
+
+async function readPullRequestFeedback(repository: string, number: number): Promise<PullRequestFeedback> {
   const [owner, name] = repository.split('/') as [string, string]
-  const query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){comments(last:1){totalCount nodes{id}} reviews(last:1){totalCount nodes{id}}}}}'
-  const result = await github.command(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`, '-f', `query=${query}`], { repository })
-  return parseFeedback(JSON.parse(result.stdout)?.data?.repository?.pullRequest)
-}
-
-function parsePullRequestFeedbackNode(value: unknown) {
-  if (!value || typeof value !== 'object' || typeof (value as Record<string, unknown>).number !== 'number') return undefined
-  const feedback = parseFeedback(value)
-  return feedback ? { feedback, number: (value as Record<string, unknown>).number as number } : undefined
-}
-
-function parseFeedback(value: unknown): PullRequestFeedback | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const record = value as Record<string, unknown>
-  const comments = parseFeedbackConnection(record.comments)
-  const reviews = parseFeedbackConnection(record.reviews)
-  return comments && reviews ? { comments, reviews } : undefined
-}
-
-function parseFeedbackConnection(value: unknown) {
-  if (!value || typeof value !== 'object') return undefined
-  const { nodes, totalCount } = value as Record<string, unknown>
-  if (!Number.isInteger(totalCount) || !Array.isArray(nodes)) return undefined
-  const latest = nodes.at(-1)
-  const latestId = latest && typeof latest === 'object' && typeof (latest as Record<string, unknown>).id === 'string'
-    ? (latest as Record<string, unknown>).id as string
-    : null
-  return { count: totalCount as number, latestId }
+  const query = `query($owner:String!,$name:String!,$number:Int!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequest(number:$number){${feedbackFields}}}}`
+  const cursors = new Map<string, string>()
+  const collected = { comments: new Map(), reviews: new Map(), threads: new Map() }
+  do {
+    const result = await github.command(['api', 'graphql', '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${number}`, '-f', `query=${query}`, ...[...cursors].flatMap(([key, value]) => ['-f', `${key}=${value}`])], { repository })
+    const node = JSON.parse(result.stdout)?.data?.repository?.pullRequest
+    let more = false
+    for (const [key, connection] of Object.entries(feedbackConnections(node))) {
+      const items = collected[key as keyof typeof collected]
+      for (const item of connection.nodes) items.set(item.id, item)
+      if (connection.pageInfo.hasNextPage) {
+        cursors.set(key, connection.pageInfo.endCursor)
+        more = true
+      }
+    }
+    if (!more) break
+  } while (true)
+  for (const thread of collected.threads.values()) {
+    while (thread.comments.pageInfo.hasNextPage) {
+      const query = 'query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}}}}'
+      const result = await github.command(['api', 'graphql', '-f', `id=${thread.id}`, '-f', `after=${thread.comments.pageInfo.endCursor}`, '-f', `query=${query}`], { repository })
+      const page = JSON.parse(result.stdout)?.data?.node?.comments
+      if (!page?.nodes || !page.pageInfo) throw new Error('Incomplete GitHub review thread response.')
+      thread.comments.nodes.push(...page.nodes)
+      thread.comments.pageInfo = page.pageInfo
+    }
+  }
+  return digestFeedback({ comments: { nodes: [...collected.comments.values()] }, reviews: { nodes: [...collected.reviews.values()] }, reviewThreads: { nodes: [...collected.threads.values()] } })
 }
 
 async function readRequiredCheckState(repository: string, pullRequest: PullRequest) {

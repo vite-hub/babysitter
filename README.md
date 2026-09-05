@@ -1,6 +1,6 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup, after an owner finishes, and through a 30-second repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
+Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup, after an owner finishes, and through a two-minute repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
 
 ## How it works
 
@@ -28,13 +28,15 @@ flowchart TD
     close --> wake
 ```
 
-1. **Discover changed pull requests.** The [demand reconciler](server/plugins/babysitter-demand.ts) reads up to 100 open pull requests from each configured GitHub repository. Wakeups coalesce while a scan is active. The 30-second scan repairs missed wakeups and new process startup always performs a fresh scan.
+1. **Discover changed pull requests.** The [demand reconciler](server/plugins/babysitter-demand.ts) reads up to 100 open pull requests from each configured GitHub repository. Wakeups coalesce while a scan is active. The two-minute scan repairs missed wakeups and new process startup always performs a fresh scan.
 2. **Queue before admission.** Each selected pull request gets a disposable checkout verified against the observed head SHA, then creates a pending ViteHub Agent Invocation. One shared capacity object covers every repository and every checkout-specific Agent Definition. The queue is FIFO and bounded at 100 pending invocations.
 3. **Adapt to the host.** `BABYSITTER_MAX_OWNERS` is the hard ceiling. On Linux, the process adapter reads cgroup memory limits, `memory.high` events, and 10-second CPU and memory PSI. It preserves 1 GiB of memory, estimates 1 GiB per additional owner, pauses admission above the pressure thresholds, resumes through lower thresholds, and adds at most one slot per sample. Hosts without readable cgroup signals use process-available memory. If sampling fails, admission falls back to one owner. Running owners are never preempted when pressure rises.
-4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, requests review once, and exits without polling for that review. The ViteHub GitHub Channel owns one Agent activity comment per pull request, including current status, harness tasks, recent session history, and links into ViteHub Console.
+4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, leaves review initiation to repository automation, and exits without polling for that review. The ViteHub GitHub Channel owns one Agent activity comment per pull request, including current status, harness tasks, recent session history, and links into ViteHub Console.
 5. **Wake only when useful.** Every successful pass on an open pull request records its observed fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later reconciliations skip it until a commit, comment, check result, review, or metadata change updates that fingerprint. Failed, timed-out, or otherwise unfinished runs remain eligible for retry.
 
 ## Requirements
+
+Before/after images and demonstration videos are optional for Babysitter, including when a watched repository's general contribution rules require them. Only a current maintainer request for media on a specific pull request makes it required. Babysitter removes blockers and pending-upload notes based only on the generic media rule. Checks and actionable review findings still control the merge gate.
 
 > [!WARNING]
 > Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [agent prompt](server/agents/babysitter/prompt.template.md) before running it.
@@ -106,3 +108,12 @@ journalctl -u babysitter.service -f -o cat | rg '^\[babysitter\]'
 ```
 
 Keep `BABYSITTER_MAX_OWNERS=1` until representative runs finish without OOM events, sustained swap growth, or low available memory. Raise the hard ceiling one owner at a time. The adaptive gate reduces admission under pressure; it does not prove that a higher ceiling is safe.
+
+
+## Runtime ownership
+
+Babysitter keeps PR selection, actionable-change fingerprints, review policy, and the bounded repair prompt. ViteHub owns work checkpoints and retry backoff, invocation recovery, scheduled output validation, GitHub activity comments, and immutable Workspace inspection. Thrown failures receive the same cooldown as explicit retries.
+
+Set `BABYSITTER_PUBLIC_URL` to the public service origin so activity comments link directly to the live invocation in ViteHub Console. Enable `pull_request` events on the GitHub App and route them to `/api/_vitehub/agents/babysitter/webhooks/github`; configure the matching `GITHUB_WEBHOOK_SECRET`. The Channel claims one comment when a PR opens, then updates its status table, relative timestamps, task checkboxes, iteration result, and previous-session history. The coding agent does not edit that comment.
+
+Passes return validated `{ disposition, text }` output. Completion records use ViteHub's versioned checkpoint schema. Upgrading from legacy fingerprints causes one fresh evaluation of previously parked open PRs; subsequent unchanged passes remain parked.

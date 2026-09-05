@@ -1,6 +1,6 @@
 ---
 name: validate-direction
-description: Validates whether a proposed change fits ViteHub's philosophy and improves the affected experience. Use before Babysitter implements or finalizes a bug fix, developer-experience change, API change, refactor, or operational change.
+description: Validates whether a proposed change fits ViteHub's philosophy and improves the affected experience. Use only when a current maintainer instruction or actionable bot finding raises a direction question.
 ---
 
 # Validate Direction

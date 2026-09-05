@@ -1,20 +1,13 @@
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
-export const retryCooldownMs = 15 * 60 * 1000
-export const maxRetryCooldownMs = 6 * 60 * 60 * 1000
-export const completionPolicyVersion = 'stable-actionable-repository-checks-owner-state-v6'
-const parkDisposition = '<!-- babysitter:disposition:park -->'
-const retryFingerprintPattern = /^retry:v1:(\d+):([0-9a-f]+)$/
-const retryBackoffFingerprintPattern = /^retry:v2:(\d+):(\d+):([0-9a-f]+)$/
+export const completionPolicyVersion = 'actionable-state-v7'
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
-export type PullRequestFeedback = {
-  comments: { count: number, latestId: string | null }
-  reviews: { count: number, latestId: string | null }
-}
+export type PullRequestFeedback = { comments: string, reviews: string, threads: string }
 
 export type PullRequest = {
+  baseRefOid: string
   baseRefName: string
   body: string
   comments: unknown
@@ -66,9 +59,8 @@ export function pullRequestThreadId(repository: string, number: number) {
 export async function selectPullRequestJobs(
   repositories: string[],
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
-  readCompletion: (key: string) => Promise<unknown>,
+  eligible: (key: string, fingerprint: string) => Promise<boolean>,
   policyFingerprint: string,
-  now = Date.now(),
 ) {
   const byRepository = await Promise.all(repositories.map(async (repository) => {
     try {
@@ -82,24 +74,15 @@ export async function selectPullRequestJobs(
       return []
     }
   }))
-  const candidates = Array.from({ length: Math.max(0, ...byRepository.map(pullRequests => pullRequests.length)) }, (_, index) =>
-    byRepository.flatMap(pullRequests => pullRequests[index] || []),
-  ).flat()
+  const candidates = byRepository.flat()
 
   const jobs = await Promise.all(candidates.map(async ({ pullRequest, repository }) => {
     const fingerprint = pullRequestFingerprint(repository, pullRequest, policyFingerprint)
     const key = `babysitter/${repository}/pull-requests/${pullRequest.number}`
     const completionFingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint)
-    const completed = completionFingerprint ? await readCompletion(key) : null
-    const previousCompletionFingerprint = completionFingerprint
-      ? pullRequestFingerprint(repository, { ...pullRequest, statusCheckRollup: pullRequestCheckState(pullRequest.statusCheckRollup) }, policyFingerprint)
+    return completionFingerprint && await eligible(key, completionFingerprint)
+      ? { completionKey: key, fingerprint, pullRequest, repository }
       : undefined
-    return completionFingerprint && (completed === completionFingerprint
-      || completed === previousCompletionFingerprint
-      || completed === fingerprint
-      || retryCompletionActive(completed, completionFingerprint, now))
-      ? undefined
-      : { completionKey: key, fingerprint, pullRequest, repository }
   }))
 
   return jobs
@@ -151,26 +134,20 @@ export function successfulPassFingerprint(
   const completedPullRequest = observedPullRequest.headRefOid === pullRequest.headRefOid
     ? observedPullRequest
     : pullRequest
-  const visibleCheckState = pullRequestCheckState(completedPullRequest.statusCheckRollup)
-  const requiredCheckState = completedPullRequest.requiredStatusCheckRollup === undefined
-    ? undefined
-    : pullRequestCheckState(completedPullRequest.requiredStatusCheckRollup, 'passed')
-  const repositoryCheckState = pullRequestRepositoryCheckState(repository, completedPullRequest.statusCheckRollup)
-  const checkState = requiredCheckState === undefined
-    ? visibleCheckState
-    : {
-        repository: repositoryCheckState,
-        required: requiredCheckState,
-        visibleFailure: visibleCheckState === 'failed',
-      }
+  const checkState = (checks: unknown) => Array.isArray(checks) ? checks.map((check) => {
+    if (!check || typeof check !== 'object') return check
+    const { name, context, workflowName, workflow } = check as Record<string, unknown>
+    return { name: name ?? context, workflow: workflowName ?? workflow, state: pullRequestCheckState([check]) }
+  }).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))) : checks
   const completionState: Record<string, unknown> = {
     ...completedPullRequest,
-    comments: completedPullRequest.feedback?.comments ?? feedbackCollectionState(completedPullRequest.comments),
+    comments: completedPullRequest.feedback?.comments ?? completedPullRequest.comments,
     labels: stableLabels(completedPullRequest.labels),
     mergeStateStatus: stableMergeStateStatus(completedPullRequest.mergeStateStatus),
-    requiredStatusCheckRollup: checkState,
-    reviews: completedPullRequest.feedback?.reviews ?? feedbackCollectionState(completedPullRequest.reviews),
-    statusCheckRollup: checkState,
+    requiredStatusCheckRollup: checkState(completedPullRequest.requiredStatusCheckRollup),
+    threads: completedPullRequest.feedback?.threads,
+    reviews: completedPullRequest.feedback?.reviews ?? completedPullRequest.reviews,
+    statusCheckRollup: checkState(completedPullRequest.statusCheckRollup),
   }
   delete completionState.feedback
   delete completionState.updatedAt
@@ -187,70 +164,6 @@ function stableLabels(labels: unknown) {
   if (!Array.isArray(labels)) return labels
   return labels.filter(label => !label || typeof label !== 'object'
     || !lifecycleLabels.has(String((label as Record<string, unknown>).name)))
-}
-
-export function completedPassFingerprint(
-  repository: string,
-  pullRequest: PullRequest,
-  policyFingerprint: string,
-  result: unknown,
-  observedPullRequest: PullRequest = pullRequest,
-) {
-  return passResultText(result)?.split(/\r?\n/).includes(parkDisposition)
-    ? successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
-    : undefined
-}
-
-export function retryPassFingerprint(
-  repository: string,
-  pullRequest: PullRequest,
-  policyFingerprint: string,
-  now = Date.now(),
-  observedPullRequest: PullRequest = pullRequest,
-  previousCompletion?: unknown,
-) {
-  const fingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint, observedPullRequest)
-  if (!fingerprint) return undefined
-  const previousAttempt = retryCompletionState(previousCompletion, fingerprint)?.attempt ?? 0
-  const attempt = previousAttempt + 1
-  const cooldown = Math.min(retryCooldownMs * 2 ** Math.min(previousAttempt, 5), maxRetryCooldownMs)
-  return `retry:v2:${attempt}:${now + cooldown}:${fingerprint}`
-}
-
-function retryCompletionActive(completed: unknown, fingerprint: string, now: number) {
-  const retry = retryCompletionState(completed, fingerprint)
-  return Boolean(retry && retry.deadline > now)
-}
-
-function retryCompletionState(completed: unknown, fingerprint: string) {
-  if (typeof completed !== 'string') return
-  const backoff = completed.match(retryBackoffFingerprintPattern)
-  if (backoff?.[3] === fingerprint) {
-    const attempt = Number(backoff[1])
-    const deadline = Number(backoff[2])
-    if (Number.isSafeInteger(attempt) && attempt > 0 && Number.isSafeInteger(deadline)) return { attempt, deadline }
-  }
-  const retry = completed.match(retryFingerprintPattern)
-  if (retry?.[2] === fingerprint) {
-    const deadline = Number(retry[1])
-    if (Number.isSafeInteger(deadline)) return { attempt: 1, deadline }
-  }
-}
-
-function passResultText(result: unknown) {
-  if (typeof result === 'string') return result
-  if (result && typeof result === 'object' && 'text' in result && typeof result.text === 'string') return result.text
-}
-
-function feedbackCollectionState(value: unknown) {
-  if (!Array.isArray(value)) return value
-  const latest = value.at(-1)
-  return {
-    count: value.length,
-    latestId: latest && typeof latest === 'object'
-      ? String((latest as Record<string, unknown>).id ?? (latest as Record<string, unknown>).url ?? '') || null
-      : null,
-  }
 }
 
 function fingerprintPullRequestState(repository: string, state: unknown, policyFingerprint: string) {
@@ -280,25 +193,6 @@ export function pullRequestCheckState(statusCheckRollup: unknown, empty: 'passed
     else if (status !== undefined || state !== 'SUCCESS') pending = true
   }
   return pending ? 'pending' : 'passed'
-}
-
-function pullRequestRepositoryCheckState(repository: string, statusCheckRollup: unknown) {
-  if (!Array.isArray(statusCheckRollup)) return pullRequestCheckState(statusCheckRollup)
-  return pullRequestCheckState(statusCheckRollup.filter(check => isRepositoryCheck(repository, check)), 'passed')
-}
-
-function isRepositoryCheck(repository: string, value: unknown) {
-  if (!value || typeof value !== 'object') return true
-  const { detailsUrl, workflow, workflowName } = value as Record<string, unknown>
-  if ((typeof workflowName === 'string' && workflowName) || (typeof workflow === 'string' && workflow)) return true
-  if (typeof detailsUrl !== 'string' || !detailsUrl) return true
-  try {
-    const url = new URL(detailsUrl)
-    return url.hostname === 'github.com' && url.pathname.startsWith(`/${repository}/actions/`)
-  }
-  catch {
-    return true
-  }
 }
 
 export function parseRequiredChecks(stdout: string, stderr: string): unknown[] | undefined {

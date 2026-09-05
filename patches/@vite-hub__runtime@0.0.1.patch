@@ -1,0 +1,170 @@
+diff --git a/dist/index-BgQIYDtZ.d.ts b/dist/index-B8bzt_nf.d.ts
+similarity index 80%
+rename from dist/index-BgQIYDtZ.d.ts
+rename to dist/index-B8bzt_nf.d.ts
+index 64ee4febb3f1c270cc9e09c72600aeac6f181274..c08926bb0171091cb83578e7ef86dbab40fee3e5 100644
+--- a/dist/index-BgQIYDtZ.d.ts
++++ b/dist/index-B8bzt_nf.d.ts
+@@ -85,6 +85,38 @@ declare class ViteHubError<TCode extends string = string, TDetails extends ViteH
+ declare function getViteHubErrorShape(value: unknown): ViteHubErrorShape | undefined;
+ declare function isViteHubError(value: unknown): value is ViteHubErrorShape;
+ //#endregion
++//#region src/work.d.ts
++/** Durable completion state for one observed version of a work item. */
++interface WorkCheckpoint {
++  version: 1;
++  fingerprint: string;
++  disposition: "park" | "retry";
++  attempt: number;
++  retryAt?: number;
++}
++interface WorkCheckpointStore {
++  get(key: string): Promise<unknown>;
++  set(key: string, value: WorkCheckpoint): Promise<void>;
++}
++interface WorkOutcome {
++  disposition: "park" | "retry";
++  /** Use the newly observed version when the run changed the work item. */
++  fingerprint?: string;
++}
++/** Single-process ownership with durable park/retry state. Shared hosts need an external lease. */
++interface WorkTracker {
++  readonly active: number;
++  has(key: string): boolean;
++  eligible(key: string, fingerprint: string): Promise<boolean>;
++  run(key: string, fingerprint: string, run: () => Promise<WorkOutcome>): Promise<boolean>;
++}
++declare function createWorkTracker(options: {
++  store: WorkCheckpointStore;
++  retryMs?: number;
++  maxRetryMs?: number;
++  now?: () => number;
++}): WorkTracker;
++//#endregion
+ //#region src/index.d.ts
+ type MaybePromise<T> = T | Promise<T>;
+ interface ExecutionAuthority {
+@@ -325,4 +357,4 @@ declare function isResolvable<T, TContext extends RuntimeHostContext<any>>(value
+ declare function resolveRuntimeValue<T, TContext extends RuntimeHostContext<any>>(value: MaybeResolvable<T, TContext>, context: TContext): Promise<T>;
+ declare function resolveCapabilityPolicy(policy: CapabilityPolicy | undefined, context: PolicyContext): Promise<PolicyDecision>;
+ //#endregion
+-export { isResolvable as $, TraceActivityPhase as A, TraceRunView as B, RuntimeCapabilityHandle as C, RuntimeResourceSnapshot as Ct, RuntimeWaitUntilController as D, normalizeRuntimeDiagnosticError as Dt, RuntimeWaitUntil as E, formatRuntimeDiagnosticError as Et, TraceEventLogEntry as F, createRuntimeWaitUntilController as G, TraceStepView as H, TraceEventLogOptions as I, deriveTraceRuns as J, createTraceEventLog as K, TraceEventPayload as L, TraceEvent as M, TraceEventContentPolicy as N, TraceActivityContext as O, TraceEventLog as P, isExecutionAuthority as Q, TracePayloadVisibility as R, RuntimeCapabilities as S, RuntimeResourceScope as St, RuntimeHostContext as T, RuntimeResourceUnit as Tt, createExecutionContext as U, TraceStepStatus as V, createRuntimeContext as W, getCapability as X, emitTraceEvent as Y, hasCapability as Z, OpenTelemetrySpanViewOptions as _, RuntimeDiagnosticEvent as _t, CapabilityHandle as a, traceEventsToOpenTelemetryLogRecords as at, Resolvable as b, RuntimeResourceInspector as bt, ExecutionAuthority as c, ViteHubError as ct, LeaseStore as d, ViteHubErrorOptions as dt, isTraceContentAttributeKey as et, MaybePromise as f, ViteHubErrorShape as ft, OpenTelemetrySpanView as g, RuntimeDiagnosticErrorOptions as gt, OpenTelemetrySpanEventView as h, RuntimeDiagnosticError as ht, CapabilityDefinition as i, resolveRuntimeValue as it, TraceContext as j, TraceActivityOwner as k, ExecutionContext as l, ViteHubErrorDetail as lt, OpenTelemetryLogRecordView as m, isViteHubError as mt, ApprovalRequest as n, normalizeExecutionAuthority as nt, CapabilityPolicy as o, traceEventsToOpenTelemetrySpans as ot, MaybeResolvable as p, getViteHubErrorShape as pt, defineCapability as q, ApprovalState as r, resolveCapabilityPolicy as rt, CreatedRuntimeContext as s, unknownExecutionAuthority as st, ApprovalDecision as t, noExecutionAuthority as tt, Lease as u, ViteHubErrorDetails as ut, PolicyContext as v, RuntimeDiagnosticLevel as vt, RuntimeContextInput as w, RuntimeResourceSupport as wt, RunLifecycleHooks as x, RuntimeResourceObservation as xt, PolicyDecision as y, RuntimeDiagnosticReporter as yt, TraceRunStatus as z };
+\ No newline at end of file
++export { isResolvable as $, TraceActivityPhase as A, RuntimeResourceUnit as At, TraceRunView as B, RuntimeCapabilityHandle as C, RuntimeDiagnosticLevel as Ct, RuntimeWaitUntilController as D, RuntimeResourceScope as Dt, RuntimeWaitUntil as E, RuntimeResourceObservation as Et, TraceEventLogEntry as F, createRuntimeWaitUntilController as G, TraceStepView as H, TraceEventLogOptions as I, deriveTraceRuns as J, createTraceEventLog as K, TraceEventPayload as L, TraceEvent as M, normalizeRuntimeDiagnosticError as Mt, TraceEventContentPolicy as N, TraceActivityContext as O, RuntimeResourceSnapshot as Ot, TraceEventLog as P, isExecutionAuthority as Q, TracePayloadVisibility as R, RuntimeCapabilities as S, RuntimeDiagnosticEvent as St, RuntimeHostContext as T, RuntimeResourceInspector as Tt, createExecutionContext as U, TraceStepStatus as V, createRuntimeContext as W, getCapability as X, emitTraceEvent as Y, hasCapability as Z, OpenTelemetrySpanViewOptions as _, ViteHubErrorShape as _t, CapabilityHandle as a, traceEventsToOpenTelemetryLogRecords as at, Resolvable as b, RuntimeDiagnosticError as bt, ExecutionAuthority as c, WorkCheckpoint as ct, LeaseStore as d, WorkTracker as dt, isTraceContentAttributeKey as et, MaybePromise as f, createWorkTracker as ft, OpenTelemetrySpanView as g, ViteHubErrorOptions as gt, OpenTelemetrySpanEventView as h, ViteHubErrorDetails as ht, CapabilityDefinition as i, resolveRuntimeValue as it, TraceContext as j, formatRuntimeDiagnosticError as jt, TraceActivityOwner as k, RuntimeResourceSupport as kt, ExecutionContext as l, WorkCheckpointStore as lt, OpenTelemetryLogRecordView as m, ViteHubErrorDetail as mt, ApprovalRequest as n, normalizeExecutionAuthority as nt, CapabilityPolicy as o, traceEventsToOpenTelemetrySpans as ot, MaybeResolvable as p, ViteHubError as pt, defineCapability as q, ApprovalState as r, resolveCapabilityPolicy as rt, CreatedRuntimeContext as s, unknownExecutionAuthority as st, ApprovalDecision as t, noExecutionAuthority as tt, Lease as u, WorkOutcome as ut, PolicyContext as v, getViteHubErrorShape as vt, RuntimeContextInput as w, RuntimeDiagnosticReporter as wt, RunLifecycleHooks as x, RuntimeDiagnosticErrorOptions as xt, PolicyDecision as y, isViteHubError as yt, TraceRunStatus as z };
+\ No newline at end of file
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index cab8c6472923f446473c38df88f31e9f2639918e..b685a45ed4646d5ab4cf29c7c21b162f2ac095bd 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1,2 +1,2 @@
+-import { $ as isResolvable, A as TraceActivityPhase, B as TraceRunView, C as RuntimeCapabilityHandle, Ct as RuntimeResourceSnapshot, D as RuntimeWaitUntilController, Dt as normalizeRuntimeDiagnosticError, E as RuntimeWaitUntil, Et as formatRuntimeDiagnosticError, F as TraceEventLogEntry, G as createRuntimeWaitUntilController, H as TraceStepView, I as TraceEventLogOptions, J as deriveTraceRuns, K as createTraceEventLog, L as TraceEventPayload, M as TraceEvent, N as TraceEventContentPolicy, O as TraceActivityContext, P as TraceEventLog, Q as isExecutionAuthority, R as TracePayloadVisibility, S as RuntimeCapabilities, St as RuntimeResourceScope, T as RuntimeHostContext, Tt as RuntimeResourceUnit, U as createExecutionContext, V as TraceStepStatus, W as createRuntimeContext, X as getCapability, Y as emitTraceEvent, Z as hasCapability, _ as OpenTelemetrySpanViewOptions, _t as RuntimeDiagnosticEvent, a as CapabilityHandle, at as traceEventsToOpenTelemetryLogRecords, b as Resolvable, bt as RuntimeResourceInspector, c as ExecutionAuthority, ct as ViteHubError, d as LeaseStore, dt as ViteHubErrorOptions, et as isTraceContentAttributeKey, f as MaybePromise, ft as ViteHubErrorShape, g as OpenTelemetrySpanView, gt as RuntimeDiagnosticErrorOptions, h as OpenTelemetrySpanEventView, ht as RuntimeDiagnosticError, i as CapabilityDefinition, it as resolveRuntimeValue, j as TraceContext, k as TraceActivityOwner, l as ExecutionContext, lt as ViteHubErrorDetail, m as OpenTelemetryLogRecordView, mt as isViteHubError, n as ApprovalRequest, nt as normalizeExecutionAuthority, o as CapabilityPolicy, ot as traceEventsToOpenTelemetrySpans, p as MaybeResolvable, pt as getViteHubErrorShape, q as defineCapability, r as ApprovalState, rt as resolveCapabilityPolicy, s as CreatedRuntimeContext, st as unknownExecutionAuthority, t as ApprovalDecision, tt as noExecutionAuthority, u as Lease, ut as ViteHubErrorDetails, v as PolicyContext, vt as RuntimeDiagnosticLevel, w as RuntimeContextInput, wt as RuntimeResourceSupport, x as RunLifecycleHooks, xt as RuntimeResourceObservation, y as PolicyDecision, yt as RuntimeDiagnosticReporter, z as TraceRunStatus } from "./index-BgQIYDtZ.js";
+-export { ApprovalDecision, ApprovalRequest, ApprovalState, CapabilityDefinition, CapabilityHandle, CapabilityPolicy, CreatedRuntimeContext, ExecutionAuthority, ExecutionContext, Lease, LeaseStore, MaybePromise, MaybeResolvable, OpenTelemetryLogRecordView, OpenTelemetrySpanEventView, OpenTelemetrySpanView, OpenTelemetrySpanViewOptions, PolicyContext, PolicyDecision, Resolvable, RunLifecycleHooks, RuntimeCapabilities, RuntimeCapabilityHandle, RuntimeContextInput, type RuntimeDiagnosticError, type RuntimeDiagnosticErrorOptions, type RuntimeDiagnosticEvent, type RuntimeDiagnosticLevel, type RuntimeDiagnosticReporter, RuntimeHostContext, type RuntimeResourceInspector, type RuntimeResourceObservation, type RuntimeResourceScope, type RuntimeResourceSnapshot, type RuntimeResourceSupport, type RuntimeResourceUnit, RuntimeWaitUntil, RuntimeWaitUntilController, TraceActivityContext, TraceActivityOwner, TraceActivityPhase, TraceContext, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventLogOptions, TraceEventPayload, TracePayloadVisibility, TraceRunStatus, TraceRunView, TraceStepStatus, TraceStepView, ViteHubError, type ViteHubErrorDetail, type ViteHubErrorDetails, type ViteHubErrorOptions, type ViteHubErrorShape, createExecutionContext, createRuntimeContext, createRuntimeWaitUntilController, createTraceEventLog, defineCapability, deriveTraceRuns, emitTraceEvent, formatRuntimeDiagnosticError, getCapability, getViteHubErrorShape, hasCapability, isExecutionAuthority, isResolvable, isTraceContentAttributeKey, isViteHubError, noExecutionAuthority, normalizeExecutionAuthority, normalizeRuntimeDiagnosticError, resolveCapabilityPolicy, resolveRuntimeValue, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans, unknownExecutionAuthority };
+\ No newline at end of file
++import { $ as isResolvable, A as TraceActivityPhase, At as RuntimeResourceUnit, B as TraceRunView, C as RuntimeCapabilityHandle, Ct as RuntimeDiagnosticLevel, D as RuntimeWaitUntilController, Dt as RuntimeResourceScope, E as RuntimeWaitUntil, Et as RuntimeResourceObservation, F as TraceEventLogEntry, G as createRuntimeWaitUntilController, H as TraceStepView, I as TraceEventLogOptions, J as deriveTraceRuns, K as createTraceEventLog, L as TraceEventPayload, M as TraceEvent, Mt as normalizeRuntimeDiagnosticError, N as TraceEventContentPolicy, O as TraceActivityContext, Ot as RuntimeResourceSnapshot, P as TraceEventLog, Q as isExecutionAuthority, R as TracePayloadVisibility, S as RuntimeCapabilities, St as RuntimeDiagnosticEvent, T as RuntimeHostContext, Tt as RuntimeResourceInspector, U as createExecutionContext, V as TraceStepStatus, W as createRuntimeContext, X as getCapability, Y as emitTraceEvent, Z as hasCapability, _ as OpenTelemetrySpanViewOptions, _t as ViteHubErrorShape, a as CapabilityHandle, at as traceEventsToOpenTelemetryLogRecords, b as Resolvable, bt as RuntimeDiagnosticError, c as ExecutionAuthority, ct as WorkCheckpoint, d as LeaseStore, dt as WorkTracker, et as isTraceContentAttributeKey, f as MaybePromise, ft as createWorkTracker, g as OpenTelemetrySpanView, gt as ViteHubErrorOptions, h as OpenTelemetrySpanEventView, ht as ViteHubErrorDetails, i as CapabilityDefinition, it as resolveRuntimeValue, j as TraceContext, jt as formatRuntimeDiagnosticError, k as TraceActivityOwner, kt as RuntimeResourceSupport, l as ExecutionContext, lt as WorkCheckpointStore, m as OpenTelemetryLogRecordView, mt as ViteHubErrorDetail, n as ApprovalRequest, nt as normalizeExecutionAuthority, o as CapabilityPolicy, ot as traceEventsToOpenTelemetrySpans, p as MaybeResolvable, pt as ViteHubError, q as defineCapability, r as ApprovalState, rt as resolveCapabilityPolicy, s as CreatedRuntimeContext, st as unknownExecutionAuthority, t as ApprovalDecision, tt as noExecutionAuthority, u as Lease, ut as WorkOutcome, v as PolicyContext, vt as getViteHubErrorShape, w as RuntimeContextInput, wt as RuntimeDiagnosticReporter, x as RunLifecycleHooks, xt as RuntimeDiagnosticErrorOptions, y as PolicyDecision, yt as isViteHubError, z as TraceRunStatus } from "./index-B8bzt_nf.js";
++export { ApprovalDecision, ApprovalRequest, ApprovalState, CapabilityDefinition, CapabilityHandle, CapabilityPolicy, CreatedRuntimeContext, ExecutionAuthority, ExecutionContext, Lease, LeaseStore, MaybePromise, MaybeResolvable, OpenTelemetryLogRecordView, OpenTelemetrySpanEventView, OpenTelemetrySpanView, OpenTelemetrySpanViewOptions, PolicyContext, PolicyDecision, Resolvable, RunLifecycleHooks, RuntimeCapabilities, RuntimeCapabilityHandle, RuntimeContextInput, type RuntimeDiagnosticError, type RuntimeDiagnosticErrorOptions, type RuntimeDiagnosticEvent, type RuntimeDiagnosticLevel, type RuntimeDiagnosticReporter, RuntimeHostContext, type RuntimeResourceInspector, type RuntimeResourceObservation, type RuntimeResourceScope, type RuntimeResourceSnapshot, type RuntimeResourceSupport, type RuntimeResourceUnit, RuntimeWaitUntil, RuntimeWaitUntilController, TraceActivityContext, TraceActivityOwner, TraceActivityPhase, TraceContext, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventLogOptions, TraceEventPayload, TracePayloadVisibility, TraceRunStatus, TraceRunView, TraceStepStatus, TraceStepView, ViteHubError, type ViteHubErrorDetail, type ViteHubErrorDetails, type ViteHubErrorOptions, type ViteHubErrorShape, type WorkCheckpoint, type WorkCheckpointStore, type WorkOutcome, type WorkTracker, createExecutionContext, createRuntimeContext, createRuntimeWaitUntilController, createTraceEventLog, createWorkTracker, defineCapability, deriveTraceRuns, emitTraceEvent, formatRuntimeDiagnosticError, getCapability, getViteHubErrorShape, hasCapability, isExecutionAuthority, isResolvable, isTraceContentAttributeKey, isViteHubError, noExecutionAuthority, normalizeExecutionAuthority, normalizeRuntimeDiagnosticError, resolveCapabilityPolicy, resolveRuntimeValue, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans, unknownExecutionAuthority };
+\ No newline at end of file
+diff --git a/dist/index.js b/dist/index.js
+index 1010c0c283ad95c31fa909eafb507ed3f2a6a6e1..d88c893e402d2f4470ae3f81c6ed65554454e8be 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -344,6 +344,84 @@ function normalizeRuntimeDiagnosticError(error, options = {}) {
+ 	}, 0);
+ }
+ //#endregion
++//#region src/work.ts
++function createWorkTracker(options) {
++	const retryMs = options.retryMs ?? 15 * 6e4;
++	const maxRetryMs = options.maxRetryMs ?? 360 * 6e4;
++	if (!Number.isFinite(retryMs) || retryMs <= 0 || !Number.isFinite(maxRetryMs) || maxRetryMs < retryMs) throw new TypeError("Work retry intervals must be positive and maxRetryMs must be at least retryMs.");
++	const now = options.now ?? Date.now;
++	const active = /* @__PURE__ */ new Set();
++	const fallback = /* @__PURE__ */ new Map();
++	function checkpoint(value) {
++		if (!isRuntimeObject(value)) return;
++		const state = value;
++		if (state.version !== 1 || !hasRuntimeType(state.fingerprint, "string") || !Number.isSafeInteger(state.attempt) || state.attempt < 0) return;
++		if (state.disposition === "park") return state;
++		if (state.disposition === "retry" && Number.isFinite(state.retryAt)) return state;
++	}
++	async function read(key) {
++		return fallback.get(key) ?? checkpoint(await options.store.get(key));
++	}
++	function eligible(state, fingerprint) {
++		return !state || state.fingerprint !== fingerprint || state.disposition === "retry" && state.retryAt <= now();
++	}
++	async function write(key, state) {
++		fallback.set(key, state);
++		await options.store.set(key, state);
++		fallback.delete(key);
++	}
++	function retry(fingerprint, previous) {
++		const attempt = previous?.fingerprint === fingerprint ? previous.attempt + 1 : 1;
++		return {
++			version: 1,
++			fingerprint,
++			disposition: "retry",
++			attempt,
++			retryAt: now() + Math.min(retryMs * 2 ** Math.min(attempt - 1, 30), maxRetryMs)
++		};
++	}
++	return {
++		get active() {
++			return active.size;
++		},
++		has(key) {
++			return active.has(key);
++		},
++		async eligible(key, fingerprint) {
++			return !active.has(key) && eligible(await read(key), fingerprint);
++		},
++		async run(key, fingerprint, run) {
++			if (active.has(key)) return false;
++			active.add(key);
++			let previous;
++			let current = fingerprint;
++			try {
++				previous = await read(key);
++				if (!eligible(previous, fingerprint)) return false;
++				const result = await run();
++				if (result.disposition !== "park" && result.disposition !== "retry") throw new TypeError("Work must return a park or retry disposition.");
++				current = result.fingerprint ?? fingerprint;
++				await write(key, result.disposition === "retry" ? retry(current, previous) : {
++					version: 1,
++					fingerprint: current,
++					disposition: "park",
++					attempt: 0
++				});
++				return true;
++			} catch (error) {
++				try {
++					await write(key, retry(current, previous));
++				} catch (checkpointError) {
++					throw new AggregateError([error, checkpointError], "Work failed and its retry checkpoint could not be persisted.");
++				}
++				throw error;
++			} finally {
++				active.delete(key);
++			}
++		}
++	};
++}
++//#endregion
+ //#region src/index.ts
+ const noExecutionAuthority = Object.freeze({
+ 	credentials: "none",
+@@ -1195,4 +1273,4 @@ async function resolveCapabilityPolicy(policy, context) {
+ 	return hasRuntimeType(policy, "function") ? await policy(context) : policy;
+ }
+ //#endregion
+-export { ViteHubError, createExecutionContext, createRuntimeContext, createRuntimeWaitUntilController, createTraceEventLog, defineCapability, deriveTraceRuns, emitTraceEvent, formatRuntimeDiagnosticError, getCapability, getViteHubErrorShape, hasCapability, isExecutionAuthority, isResolvable, isTraceContentAttributeKey, isViteHubError, noExecutionAuthority, normalizeExecutionAuthority, normalizeRuntimeDiagnosticError, resolveCapabilityPolicy, resolveRuntimeValue, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans, unknownExecutionAuthority };
++export { ViteHubError, createExecutionContext, createRuntimeContext, createRuntimeWaitUntilController, createTraceEventLog, createWorkTracker, defineCapability, deriveTraceRuns, emitTraceEvent, formatRuntimeDiagnosticError, getCapability, getViteHubErrorShape, hasCapability, isExecutionAuthority, isResolvable, isTraceContentAttributeKey, isViteHubError, noExecutionAuthority, normalizeExecutionAuthority, normalizeRuntimeDiagnosticError, resolveCapabilityPolicy, resolveRuntimeValue, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans, unknownExecutionAuthority };
+diff --git a/dist/node.d.ts b/dist/node.d.ts
+index 190a8a57518cb8e0495e0b252f33467ea14ff9de..8daf2713936ae42f0205faa5499a2f0897d9139b 100644
+--- a/dist/node.d.ts
++++ b/dist/node.d.ts
+@@ -1,4 +1,4 @@
+-import { bt as RuntimeResourceInspector } from "./index-BgQIYDtZ.js";
++import { Tt as RuntimeResourceInspector } from "./index-B8bzt_nf.js";
+ 
+ //#region src/node.d.ts
+ type ReadText = (path: string, options?: {

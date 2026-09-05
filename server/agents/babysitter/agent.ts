@@ -8,6 +8,22 @@ import { consoleClient } from '../../console.ts'
 import { github as githubHost } from '../../github.ts'
 import { invocations } from '../../invocations.ts'
 
+export type PassResult = { disposition: 'park' | 'retry', text: string }
+const passResultSchema = {
+  '~standard': {
+    version: 1 as const,
+    vendor: 'babysitter',
+    validate(value: unknown) {
+      if (value && typeof value === 'object' && 'disposition' in value && 'text' in value
+        && (value.disposition === 'park' || value.disposition === 'retry')
+        && typeof value.text === 'string' && value.text.trim()) {
+        return { value: { disposition: value.disposition, text: value.text } as PassResult }
+      }
+      return { issues: [{ message: 'Expected a park/retry disposition and a non-empty text result.' }] }
+    },
+  },
+}
+
 type GitHubAccess = Awaited<ReturnType<typeof githubHost.access>>
 
 const capabilityAccess = await githubHost.access({ fallback: true })
@@ -48,16 +64,17 @@ const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
     ...(checkout ? { GIT_DIR: `${checkout}/.git`, GIT_WORK_TREE: '.' } : {}),
   },
   model: 'gpt-6-astra',
+  output: { schema: passResultSchema },
   permissions: 'allow-all',
   providerSettings: { sessionStorePath: '.vitehub/provider-sessions.sqlite' },
-  reasoningEffort: 'high',
+  reasoningEffort: 'medium',
 })
 const driver = createDriver(capabilityAccess)
 
 const settings = {
   capabilities,
   channels: {
-    github: agentChannels.github({ app: true }),
+    github: agentChannels.github({ activity: true, app: true }),
   },
   driver,
   invocations,
