@@ -1,33 +1,11 @@
+import { pullRequestCheckState, type PullRequest } from '@vite-hub/agent/server/github'
+export { pullRequestCheckState } from '@vite-hub/agent/server/github'
+export type { PullRequest } from '@vite-hub/agent/server/github'
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
 export const completionPolicyVersion = 'actionable-state-v7'
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
-
-export type PullRequestFeedback = { comments: string, reviews: string, threads: string }
-
-export type PullRequest = {
-  baseRefOid: string
-  baseRefName: string
-  body: string
-  comments: unknown
-  feedback?: PullRequestFeedback
-  headRefName: string
-  headRefOid: string
-  headRepository: { nameWithOwner: string } | null
-  isDraft: boolean
-  labels?: unknown
-  mergeStateStatus: string
-  number: number
-  reviewDecision: string | null
-  reviews: unknown
-  requiredStatusCheckRollup?: unknown
-  state: string
-  statusCheckRollup: unknown
-  title: string
-  updatedAt: string
-  url: string
-}
 
 export type PullRequestJob = {
   completionKey: string
@@ -50,10 +28,6 @@ export function resolveMaxOwners(value: string) {
   const maxOwners = Number(value)
   if (!Number.isInteger(maxOwners) || maxOwners < 1) throw new Error(`Invalid Babysitter owner limit: ${value}`)
   return maxOwners
-}
-
-export function pullRequestThreadId(repository: string, number: number) {
-  return `github:${repository.toLowerCase()}:pull-request:${number}`
 }
 
 export async function selectPullRequestJobs(
@@ -168,43 +142,4 @@ function stableLabels(labels: unknown) {
 
 function fingerprintPullRequestState(repository: string, state: unknown, policyFingerprint: string) {
   return createHash('sha256').update(policyFingerprint).update(repository).update(JSON.stringify(state)).digest('hex').slice(0, 16)
-}
-
-export function pullRequestCheckState(statusCheckRollup: unknown, empty: 'passed' | 'pending' = 'pending'): 'failed' | 'passed' | 'pending' {
-  if (!Array.isArray(statusCheckRollup) || statusCheckRollup.length === 0) return empty
-  const failedConclusions = new Set(['ACTION_REQUIRED', 'CANCELLED', 'FAILURE', 'STALE', 'STARTUP_FAILURE', 'TIMED_OUT'])
-  let pending = false
-  for (const value of statusCheckRollup) {
-    if (!value || typeof value !== 'object') {
-      pending = true
-      continue
-    }
-    const { bucket, conclusion, state, status } = value as Record<string, unknown>
-    if (bucket === 'fail' || bucket === 'cancel') return 'failed'
-    if (bucket === 'pending') {
-      pending = true
-      continue
-    }
-    if (bucket === 'pass' || bucket === 'skipping') continue
-    if (state === 'ERROR' || state === 'FAILURE' || status === 'COMPLETED' && typeof conclusion === 'string' && failedConclusions.has(conclusion)) return 'failed'
-    if (status === 'COMPLETED') {
-      if (typeof conclusion !== 'string' || !conclusion) pending = true
-    }
-    else if (status !== undefined || state !== 'SUCCESS') pending = true
-  }
-  return pending ? 'pending' : 'passed'
-}
-
-export function parseRequiredChecks(stdout: string, stderr: string): unknown[] | undefined {
-  if (stdout.trim()) {
-    try {
-      const checks: unknown = JSON.parse(stdout)
-      return Array.isArray(checks) ? checks : undefined
-    }
-    catch {
-      return undefined
-    }
-  }
-  const message = stderr.trim()
-  return /^no (?:required )?checks reported on the '.+' branch$/.test(message) ? [] : undefined
 }

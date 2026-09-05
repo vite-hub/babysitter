@@ -1,6 +1,7 @@
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
+import { processAgentHost } from '@vite-hub/agent/vite'
 import { env } from 'vite-hub/env'
 import { defaultMaxOwners } from './server/babysitter.queue.ts'
 
@@ -38,6 +39,7 @@ export default defineConfig({
       workflow: false,
       workspace: false,
     }),
+    processAgentHost({ entry: './server/host.ts', drainRoute: '/api/drain' }),
     nitro({
       routeRules: { '/': { redirect: '/_vitehub' } },
       serverDir: true,

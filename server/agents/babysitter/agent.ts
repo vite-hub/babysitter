@@ -1,12 +1,10 @@
+import { github as githubSource } from 'vite-hub/workspace'
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { diagnostics, otlp, title } from 'vite-hub/agent/capabilities'
-import * as agentChannels from 'vite-hub/agent/channels'
-import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
-import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
 import { consoleClient } from '../../console.ts'
 import { github as githubHost } from '../../github.ts'
-import { invocations } from '../../invocations.ts'
+import { host } from '../../host.ts'
 
 export type PassResult = { disposition: 'park' | 'retry', text: string }
 const passResultSchema = {
@@ -24,69 +22,44 @@ const passResultSchema = {
   },
 }
 
-type GitHubAccess = Awaited<ReturnType<typeof githubHost.access>>
-
-const capabilityAccess = await githubHost.access({ fallback: true })
-const maxOwners = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
-export const ownerCapacity = createProcessAgentCapacity({
-  concurrency: maxOwners,
-  cpu: { pausePressure: 0.25, resumePressure: 0.10 },
-  fallbackConcurrency: 3,
-  intervalMs: 5_000,
-  memory: {
-    pausePressure: 0.05,
-    perInvocationBytes: 1024 ** 3,
-    reserveBytes: 1024 ** 3,
-    resumePressure: 0.01,
-  },
-  queue: { maxPending: 100 },
-  rampUp: 1,
-  sampleTimeoutMs: 5_000,
-})
-const createCapabilities = () => [diagnostics({ resources: nodeRuntimeResources() }), title({
+const capabilities = [
+  ...['code-review', 'resolving-merge-conflicts'].map(name => skills({
+    id: `skills.${name}`,
+    path: `skills/${name}`,
+    source: githubSource({ repo: 'vite-hub/vitehub', ref: 'e2b541722b9a46d957a082c8319af1afc4bdcc3e', root: `docs/skills/${name}`, include: ['SKILL.md', 'references/**'], materialize: 'build' }),
+    shellExecution: 'write',
+  })),
+  diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
     return context.pullRequestTitle
   },
-}), ...(consoleClient
-  ? [otlp({
-      endpoint: consoleClient.endpoint('/api/otlp'),
-      headers: consoleClient.headers,
-      resource: { 'service.namespace': 'vitehub' },
-    })]
-  : [])] as const
-const capabilities = createCapabilities()
-const createDriver = (access: GitHubAccess, checkout?: string) => codexDriver({
-  capacity: ownerCapacity,
-  env: {
-    NODE_OPTIONS: '--max-old-space-size=1024',
-    ...access.env,
-    ...(checkout ? { GIT_DIR: `${checkout}/.git`, GIT_WORK_TREE: '.' } : {}),
-  },
+}), ...(consoleClient ? [consoleClient.capability] : [])] as const
+const driver = codexDriver({
+  capacity: host.capacity,
+  env: async () => ({ ...await githubHost.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
   model: 'gpt-6-astra',
   output: { schema: passResultSchema },
   permissions: 'allow-all',
-  providerSettings: { sessionStorePath: '.vitehub/provider-sessions.sqlite' },
+  sessionStorePath: host.providerSessionStorePath,
   reasoningEffort: 'medium',
 })
-const driver = createDriver(capabilityAccess)
 
-const settings = {
+const agent = defineAgent({
   capabilities,
   channels: {
-    github: agentChannels.github({ activity: true, app: true }),
+    github: githubHost.channel({ activity: true }),
   },
   driver,
-  invocations,
+  invocations: host.invocations,
   name: 'babysitter',
-} as const
+})
 
-export function createBabysitterAgent(checkout: string, access: GitHubAccess) {
+export function createBabysitterAgent(checkout: string) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
   return defineAgent({
-    ...settings,
-    capabilities: createCapabilities(),
-    driver: createDriver(access, checkout),
+    extends: agent,
+    name: 'babysitter',
     workspace: {
       commit: true,
       mode: 'write',
@@ -95,4 +68,4 @@ export function createBabysitterAgent(checkout: string, access: GitHubAccess) {
   })
 }
 
-export default defineAgent(settings)
+export default agent

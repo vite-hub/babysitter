@@ -9,7 +9,9 @@ flowchart TD
     wake["Startup, owner completion, or repair scan"] --> discover["Read open pull requests from GitHub"]
     discover --> unchanged{"Observed state unchanged?"}
     unchanged -- Yes --> wait["Wait for the next wake"]
-    unchanged -- No --> checkout["Create a disposable exact-head checkout"]
+    unchanged -- No --> gate{"Only waiting for checks?"}
+    gate -- Yes --> wait
+    gate -- No --> checkout["Create a disposable exact-head checkout"]
     checkout --> pending["Create a pending Agent Invocation"]
     pending --> capacity{"Host capacity available?"}
     capacity -- No --> pending
@@ -28,11 +30,24 @@ flowchart TD
     close --> wake
 ```
 
-1. **Discover changed pull requests.** The [demand reconciler](server/plugins/babysitter-demand.ts) reads up to 100 open pull requests from each configured GitHub repository. Wakeups coalesce while a scan is active. The two-minute scan repairs missed wakeups and new process startup always performs a fresh scan.
-2. **Queue before admission.** Each selected pull request gets a disposable checkout verified against the observed head SHA, then creates a pending ViteHub Agent Invocation. One shared capacity object covers every repository and every checkout-specific Agent Definition. The queue is FIFO and bounded at 100 pending invocations.
-3. **Adapt to the host.** `BABYSITTER_MAX_OWNERS` is the hard ceiling. On Linux, the process adapter reads cgroup memory limits, `memory.high` events, and 10-second CPU and memory PSI. It preserves 1 GiB of memory, estimates 1 GiB per additional owner, pauses admission above the pressure thresholds, resumes through lower thresholds, and adds at most one slot per sample. Hosts without readable cgroup signals use process-available memory. If sampling fails, admission falls back to one owner. Running owners are never preempted when pressure rises.
-4. **Run one convergence pass.** The [agent prompt](server/agents/babysitter/prompt.template.md) and colocated [Skills](https://vitehub.dev/docs/capabilities/skills) tell the coding agent to inspect the exact head once. It either repairs every current actionable finding in at most one new commit, merges an already-ready head, closes obsolete work, records an external blocker, or yields pending checks and reviews. A repair pass pushes once, leaves review initiation to repository automation, and exits without polling for that review. The ViteHub GitHub Channel owns one Agent activity comment per pull request, including current status, harness tasks, recent session history, and links into ViteHub Console.
-5. **Wake only when useful.** Every successful pass on an open pull request records its observed fingerprint in [ViteHub KV](https://vitehub.dev/docs/server-primitives/kv). Later reconciliations skip it until a commit, comment, check result, review, or metadata change updates that fingerprint. Failed, timed-out, or otherwise unfinished runs remain eligible for retry.
+The [scheduler](server/babysitter.schedule.ts) selects changed PRs and applies the
+[queue policy](server/babysitter.queue.ts). It leaves a PR waiting without a model
+session when checks are pending and there is no discussion, failed check, or
+conflict to handle. Package-preview comments, Codex quota notices, and timestamp-only
+feedback edits do not wake a parked pass.
+
+The [agent prompt](server/agents/babysitter/prompt.template.md) owns review and merge
+policy. Each pass makes at most one repair commit, merges ready work, closes obsolete
+work, or records the next gate. It returns validated `{ disposition, text }` output.
+
+ViteHub owns GitHub snapshots, exact-head checkouts, isolated credentials, session
+identity, activity comments, process capacity, invocation recovery, drain, and Console
+delivery. The [host configuration](server/host.ts) uses those APIs. See
+[ViteHub process-owned agents](https://github.com/vite-hub/vitehub/tree/main/packages/agent#process-owned-agents)
+for lifecycle and storage behavior. The data directory must belong to one process.
+
+Generic review and merge-conflict skills use pinned GitHub Sources from ViteHub.
+They are configured in the [agent definition](server/agents/babysitter/agent.ts).
 
 ## Requirements
 
@@ -83,37 +98,23 @@ Before/after images and demonstration videos are optional for Babysitter, includ
 
 To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace `codexDriver()` with `claudeCodeDriver()` in the [agent definition](server/agents/babysitter/agent.ts).
 
-## Operational logs
+## Operations
 
-Babysitter writes one-line JSON events prefixed with `[babysitter]`. A reconciliation pass records its wake reason, configured hard ceiling, and discovered work. Each owner records its repository, pull request, run ID, outcome, and elapsed time, including queue delay. The ViteHub `diagnostics()` Capability samples resources every ten seconds and writes:
+`GET /api/health` reports provider availability, GitHub budget, admission, and stale
+invocations. `GET /api/drain` reports the process drain status. Drain active work
+before replacing a release. Build and typecheck the exact release commit, then
+verify health and a completed pass or justified wait after restart.
 
-- one `agent.resource.snapshot` heartbeat per minute with process, host, and service-scoped cgroup observations;
-- `agent.resource.peak` when a peak grows by at least 64 MiB;
-- `agent.invocation.terminal` with the run ID, outcome, duration, and bounded nested failure details.
-
-Linux cgroup and `/proc` fields are optional. Babysitter still runs on hosts that do not expose them. Service-scoped observations correlate pressure with a run; they do not claim per-invocation attribution when multiple owners share the process.
-
-Before discovery, Babysitter checks the authenticated GitHub GraphQL budget and preserves a 1,500-point reserve. When the installation falls below that reserve, new GitHub work stays queued until the reported reset time instead of starting owners that are guaranteed to fail.
-
-`GET /api/health` reports the hard ceiling, current effective concurrency, active and queued invocations, the latest admission reason, whether capacity sampling has degraded to its fallback, and whether GitHub budget pressure is deferring discovery.
-
-The health response also reports stale active invocation records. Any pending or running record older than the current service process degrades health because startup recovery should have marked it failed.
-
-Before deploying a systemd release, build the exact commit, then run the service's pre-start verification against the unit and drop-in paths systemd will load. Keep one canonical release override so a stale drop-in cannot shadow the intended build.
-
-On a systemd host, follow the events with:
-
-```sh
-journalctl -u babysitter.service -f -o cat | rg '^\[babysitter\]'
-```
-
-Keep `BABYSITTER_MAX_OWNERS=1` until representative runs finish without OOM events, sustained swap growth, or low available memory. Raise the hard ceiling one owner at a time. The adaptive gate reduces admission under pressure; it does not prove that a higher ceiling is safe.
-
+ViteHub writes process lifecycle diagnostics. Babysitter adds `[babysitter]` JSON
+batch and owner events with the PR, outcome, and duration. The diagnostics capability
+records resource samples and terminal invocation events. See the
+[ViteHub process host documentation](https://github.com/vite-hub/vitehub/tree/main/packages/agent#process-owned-agents)
+for storage recovery and shutdown.
 
 ## Runtime ownership
 
 Babysitter keeps PR selection, actionable-change fingerprints, review policy, and the bounded repair prompt. ViteHub owns work checkpoints and retry backoff, invocation recovery, scheduled output validation, GitHub activity comments, and immutable Workspace inspection. Thrown failures receive the same cooldown as explicit retries.
 
-Set `BABYSITTER_PUBLIC_URL` to the public service origin so activity comments link directly to the live invocation in ViteHub Console. Enable `pull_request` events on the GitHub App and route them to `/api/_vitehub/agents/babysitter/webhooks/github`; configure the matching `GITHUB_WEBHOOK_SECRET`. The Channel claims one comment when a PR opens. One table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. The coding agent does not edit that comment.
+Set `BABYSITTER_PUBLIC_URL` to the public service origin so activity comments link directly to the live invocation in ViteHub Console. Enable `pull_request` events on the GitHub App and route them to `/api/_vitehub/agents/babysitter/webhooks/github`; configure the matching `GITHUB_WEBHOOK_SECRET`. The Channel claims one comment when a PR opens, showing “Waiting to start.” until execution or a known wait reason is available. One table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. The coding agent does not edit that comment.
 
 Passes return validated `{ disposition, text }` output. Completion records use ViteHub's versioned checkpoint schema. Upgrading from legacy fingerprints causes one fresh evaluation of previously parked open PRs; subsequent unchanged passes remain parked.

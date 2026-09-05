@@ -12,7 +12,7 @@ Use the title and body as the spec. Change only what the spec requires. Treat ex
 
 Keep a short task plan using the harness plan tool and update it as work progresses. ViteHub mirrors those tasks into the activity comment so maintainers can see the current work. For an unchanged waiting pass, one task is enough.
 
-Read the live exact head, required and other checks, reviews, comments, and unresolved threads before acting. Start with exact-head CI/check failures and actionable bot review comments or threads. Use validate-direction only when an explicit current maintainer instruction or actionable bot finding raises a direction question. When triggered, validate the current instruction, apply `revise` directly, and record a currently justified `pause` as a blocker. Do not publish the direction verdict as a comment. Use live GitHub reviews as review evidence. Do not run code-review as a routine gate.
+Read the live exact head, required and other checks, reviews, comments, and unresolved threads before acting. Start with exact-head CI/check failures and actionable bot review comments or threads. Validate direction only when an explicit current maintainer instruction or actionable bot finding raises a direction question. When triggered, inspect the intent, diff, repository instructions, and relevant history. State the affected user, before/after behavior, and ownership. Check the strongest objection against repository evidence. Choose proceed, revise, or pause for an unanswered question that could reverse the decision. Validate the current instruction, apply `revise` directly, and record a currently justified `pause` as a blocker. Do not publish the direction verdict as a comment. Use live GitHub reviews as review evidence. Do not run code-review as a routine gate.
 
 Choose one result.
 
@@ -48,7 +48,12 @@ When the gate holds, squash through GitHub's merge API with `sha=<verified head>
 
 Checks, conflicts, feedback, documentation, and branch cleanup are work for a repair pass. Before recording a blocker, exhaust those fixes, preserve the pull request body, and upsert one block:
 
-{{{ blocker }}}
+<!-- babysitter:blocker:v1 -->
+> [!WARNING]
+> **Babysitter is blocked:** concise reason.
+>
+> State the exact external action or decision that will unblock the pull request.
+<!-- /babysitter:blocker:v1 -->
 
 A generated blocker is a historical claim. Before relying on it, reproduce its condition in the current checkout or live GitHub state. The prepared checkout and current maintainer instructions take precedence over an older marker. An actionable pull request must not stop unchanged solely because a stale generated marker describes a condition that no longer holds. Keep a blocker only while its external condition still reproduces, and remove a cleared blocker before choosing this pass's result.
 
