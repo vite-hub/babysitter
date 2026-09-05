@@ -63,7 +63,7 @@ index 9e6d02a67c4b64351369f6a56d28f2afbef32ef7..46091b24feabe0a996e26fcb987d9bff
  import { TranscriptionModel } from "ai";
  import { WorkspaceContent, WorkspaceName, WorkspaceSourceInput } from "@vite-hub/workspace";
 diff --git a/dist/capabilities.js b/dist/capabilities.js
-index ce85076bbd2db1f01518bb39538ae2e9b91baa43..656a4374fb7928d1154fd84aa85e0ee0532e6cb8 100644
+index ce85076bbd2db1f01518bb39538ae2e9b91baa43..722cfc748797febe53298e09101b8565d1dacfe4 100644
 --- a/dist/capabilities.js
 +++ b/dist/capabilities.js
 @@ -1,4 +1,3 @@
@@ -79,7 +79,7 @@ index ce85076bbd2db1f01518bb39538ae2e9b91baa43..656a4374fb7928d1154fd84aa85e0ee0
 +import { b as responseTitleFallbackContextKey, c as toAgentRunResult, f as enrichAgentUsageCost, l as toAgentStreamEvent, p as modelsDevPricing, s as streamAgentOutputToEvents } from "./agent-output-DQvChOsM.js";
  import { c as traceAgentEvent, n as agentInvocationJournalTraceLogSymbol } from "./trace-cS-wdPpV.js";
 -import { E as chat, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, w as agentChatContextKey } from "./channels-BHsaWAFz.js";
-+import { E as chat, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, w as agentChatContextKey } from "./channels-QlhOMe8j.js";
++import { E as chat, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, w as agentChatContextKey } from "./channels-DhWkiPeH.js";
  import { i as readAgentWorkspaceDiff, n as clearAgentWorkspaceDiff, r as readActiveAgentWorkspaceFile, t as activeAgentWorkspaceCommands } from "./agent-workspace-runtime-DHncEX27.js";
 -import { n as agentInvocationId } from "./invocations-Lc3Wa4Nw.js";
 +import { n as agentInvocationId } from "./invocations-GSu6_vZD.js";
@@ -110,13 +110,13 @@ index ce85076bbd2db1f01518bb39538ae2e9b91baa43..656a4374fb7928d1154fd84aa85e0ee0
  		return await resultText(await createProviderAgentAdapter({
  			...driver,
  			instructions
-diff --git a/dist/channels-BHsaWAFz.js b/dist/channels-QlhOMe8j.js
-similarity index 98%
+diff --git a/dist/channels-BHsaWAFz.js b/dist/channels-DhWkiPeH.js
+similarity index 97%
 rename from dist/channels-BHsaWAFz.js
-rename to dist/channels-QlhOMe8j.js
-index e60ae4c6af47fddcf1423fe50733b5a4e79fcc7d..7728b32114d274f34efb5c8c76ecfc55d89c5583 100644
+rename to dist/channels-DhWkiPeH.js
+index e60ae4c6af47fddcf1423fe50733b5a4e79fcc7d..49fbc645d6ca122edeaac1bf54a5bd46d2fafb7a 100644
 --- a/dist/channels-BHsaWAFz.js
-+++ b/dist/channels-QlhOMe8j.js
++++ b/dist/channels-DhWkiPeH.js
 @@ -1222,6 +1222,9 @@ function decodeGithubActivityState(body) {
  			return [{
  				links,
@@ -127,10 +127,38 @@ index e60ae4c6af47fddcf1423fe50733b5a4e79fcc7d..7728b32114d274f34efb5c8c76ecfc55
  				...status && [
  					"cancelled",
  					"completed",
-@@ -1278,6 +1281,13 @@ function encodeGithubActivityState(state) {
+@@ -1278,34 +1281,21 @@ function encodeGithubActivityState(state) {
  	}
  	return marker;
  }
+-function githubActivityBadge(status) {
+-	const value = {
+-		cancelled: {
+-			color: "6e7781",
+-			label: "cancelled"
+-		},
+-		completed: {
+-			color: "1f883d",
+-			label: "completed"
+-		},
+-		failed: {
+-			color: "d1242f",
+-			label: "failed"
+-		},
+-		queued: {
+-			color: "6e7781",
+-			label: "queued"
+-		},
+-		running: {
+-			color: "0969da",
+-			label: "running"
+-		},
+-		waiting: {
+-			color: "bf8700",
+-			label: "waiting for input"
+-		}
+-	}[status];
+-	return `![Agent: ${value.label}](https://img.shields.io/badge/agent-${encodeURIComponent(value.label)}-${value.color})`;
 +function githubActivityDate(value) {
 +	if (!hasRuntimeType(value, "string") || !Number.isFinite(Date.parse(value))) return;
 +	return new Date(value).toISOString();
@@ -138,22 +166,44 @@ index e60ae4c6af47fddcf1423fe50733b5a4e79fcc7d..7728b32114d274f34efb5c8c76ecfc55
 +function githubActivityTime(value) {
 +	return `<relative-time datetime="${value}">${value}</relative-time>`;
 +}
- function githubActivityBadge(status) {
- 	const value = {
- 		cancelled: {
-@@ -1322,11 +1332,25 @@ function githubActivityLinks(links) {
++function githubActivityDuration(entry) {
++	if (entry.status === "running" || entry.status === "waiting") return "In progress";
++	if (!entry.startedAt || !entry.updatedAt) return "—";
++	const seconds = Math.max(0, Math.round((Date.parse(entry.updatedAt) - Date.parse(entry.startedAt)) / 1e3));
++	if (seconds < 60) return `${seconds}s`;
++	const minutes = Math.floor(seconds / 60);
++	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
++	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+ }
+ function githubActivityText(value, limit) {
+ 	return value.replace(/[\r\n]+/g, " ").replace(/([\\`*_()[\]<>#@!|{}])/g, "\\$1").slice(0, limit);
+@@ -1320,17 +1310,44 @@ function githubActivityLinks(links) {
+ 	return links.map((link) => `[${link.label}](<${link.url}>)`).join(" · ");
+ }
  function renderGithubActivity(activity, state) {
- 	const sections = [encodeGithubActivityState(state), githubActivityBadge(activity.status)];
- 	const links = githubActivityLinksState(activity.links);
-+	if (activity.status === "queued") sections.push("Starting");
- 	if (links.length) sections.push(githubActivityLinks(links));
+-	const sections = [encodeGithubActivityState(state), githubActivityBadge(activity.status)];
+-	const links = githubActivityLinksState(activity.links);
+-	if (links.length) sections.push(githubActivityLinks(links));
++	const sections = [encodeGithubActivityState(state)];
 +	const current = state.current;
-+	const running = activity.status === "running" || activity.status === "waiting";
-+	const time = activity.status === "queued" ? void 0 : running ? current?.startedAt : current?.updatedAt;
++	const sessions = [current, ...state.history].filter((entry) => !!entry && (entry === current || entry.links.length > 0));
++	const labels = {
++		queued: "Starting",
++		running: "Running",
++		waiting: "Waiting for input",
++		completed: "Completed",
++		failed: "Failed",
++		cancelled: "Cancelled"
++	};
 +	sections.push([
-+		"| Status | Updated |",
-+		"| --- | --- |",
-+		`| ${activity.status} | ${time ? `${running ? "Running since" : "Last run at"} ${githubActivityTime(time)}` : "Waiting to start"} |`
++		"| Session | Status | Started | Duration |",
++		"| --- | --- | --- | --- |",
++		...sessions.map((entry) => {
++			return `| ${githubActivityLinks(entry.links.map((link, index) => ({
++				...link,
++				label: index === 0 ? "View session" : link.label
++			}))) || "Pending"} | ${entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry)} |`;
++		})
 +	].join("\n"));
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
 +	if (current?.summary && [
@@ -164,11 +214,20 @@ index e60ae4c6af47fddcf1423fe50733b5a4e79fcc7d..7728b32114d274f34efb5c8c76ecfc55
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	if (state.history.length) {
 -		const history = state.history.filter((entry) => entry.links.length).map((entry) => `<li>${githubActivityLinks(entry.links)}</li>`).join("\n");
-+		const history = state.history.filter((entry) => entry.links.length).map((entry) => `<li>\n\n${githubActivityLinks(entry.links)}${entry.updatedAt ? ` · ${githubActivityTime(entry.updatedAt)}` : ""}${entry.status ? ` · ${entry.status}` : ""}${entry.summary ? `\n\n${githubActivityText(entry.summary, 2e3)}` : ""}\n\n</li>`).join("\n");
- 		if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`);
+-		if (history) sections.push(`<details>\n<summary>Previous sessions</summary>\n\n<ul>\n${history}\n</ul>\n</details>`);
++		const history = state.history.filter((entry) => entry.links.length && entry.summary).map((entry) => `<li>\n\n${githubActivityLinks(entry.links)}${entry.updatedAt ? ` · ${githubActivityTime(entry.updatedAt)}` : ""}${entry.status ? ` · ${entry.status}` : ""}${entry.summary ? `\n\n${githubActivityText(entry.summary, 2e3)}` : ""}\n\n</li>`).join("\n");
++		if (history) sections.push(`<details>\n<summary>Previous results</summary>\n\n<ul>\n${history}\n</ul>\n</details>`);
  	}
  	const body = sections.join("\n\n");
-@@ -1382,10 +1406,14 @@ function githubAgentActivity(app, mode = "lifecycle") {
+ 	if (Buffer.byteLength(body) <= githubActivityBodyLimit) return body;
++	if (state.history.length) return renderGithubActivity(activity, {
++		...state,
++		history: state.history.slice(0, -1)
++	});
+ 	let bounded = sections[0];
+ 	for (const section of sections.slice(1)) {
+ 		const separator = bounded ? "\n\n" : "";
+@@ -1382,10 +1399,14 @@ function githubAgentActivity(app, mode = "lifecycle") {
  			if (knownCommentId && !existing) commentIds.delete(activityKey);
  			if (mode === "initialize" && existing) return;
  			const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : void 0);
@@ -194,13 +253,13 @@ index 641ab0fc177f9d7868d811afc6f219487cd285d7..1dc4ef2887c1f7d664a124f55a8acec1
  export { type AgentActivityLink, type AgentActivityStatus, type AgentActivityTarget, type AgentActivityTask, type AgentActivityTaskStatus, type AgentActivityUpdate, type AgentChannelActivityContext, type AgentChannelActivityDefinition, type AgentChannelDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectHandler, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectIntentOptions, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryEffectPayload, type AgentChannelDeliveryEffects, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectCallback, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDeliveryFinishEffectResult, type AgentChannelDeliveryReactionInput, type AgentChannelDeliveryReactionPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelDeliveryStatusInput, type AgentChannelDeliveryStatusPayload, type AgentChannelDeliveryStatusState, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, AgentChannelOptions, type AgentChannels, type AgentDeliveryArtifact, type AgentDeliveryArtifactPlacement, type AgentDeliveryArtifactPublishInput, type AgentDeliveryArtifactPublishResult, type AgentDeliveryArtifactPublisher, type AgentMessageChannelSettings, AgentWebChatChannelOptions, DiscordAdapterOptions, DiscordChannelOptions, GitHubAppOptions, GitHubChannelOptions, GitHubIssueCommentPayload, GitHubPullRequestCommand, GitHubPullRequestCommentEventOptions, GitHubPullRequestCommentMetadata, GitHubPullRequestContext, GitHubPullRequestFileMetadata, GitHubPullRequestMetadata, GitHubPullRequestReadInvocation, GitHubPullRequestRefMetadata, GitHubPullRequestRunContext, type PublishWorkspaceArtifactsOptions, type PublishedAgentDeliveryArtifact, TelegramChannelOptions, channelHasCustomTitleEffect, defineChannel, defineFinishEffect, deliveryArtifactAttachments, discord, github, http, messageChannelDeliveredReplyBody, messageChannelReplyBody, messageChannelSupportsTitleEffect, messageChannelTitleSupportContextKey, publishWorkspaceArtifacts, pullRequest, rewriteDeliveryArtifactMarkdown, slack, teams, telegram, webChat };
 \ No newline at end of file
 diff --git a/dist/channels.js b/dist/channels.js
-index df9a06d4c43da6779169b16e7878fe5692e6eee0..ff23e38779d7809be9b7ee9319dfeab00086c4a6 100644
+index df9a06d4c43da6779169b16e7878fe5692e6eee0..ece49a988857e6c379c56fced1cc5ecd266e1ff3 100644
 --- a/dist/channels.js
 +++ b/dist/channels.js
 @@ -1,3 +1,3 @@
  import { i as publishWorkspaceArtifacts, o as rewriteDeliveryArtifactMarkdown, t as deliveryArtifactAttachments } from "./delivery-artifacts-CeTUoZJv.js";
 -import { a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, l as messageChannelTitleSupportContextKey, m as webChat, n as defineChannel, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, u as pullRequest, z as defineFinishEffect } from "./channels-BHsaWAFz.js";
-+import { a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, l as messageChannelTitleSupportContextKey, m as webChat, n as defineChannel, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, u as pullRequest, z as defineFinishEffect } from "./channels-QlhOMe8j.js";
++import { a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, l as messageChannelTitleSupportContextKey, m as webChat, n as defineChannel, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, u as pullRequest, z as defineFinishEffect } from "./channels-DhWkiPeH.js";
  export { channelHasCustomTitleEffect, defineChannel, defineFinishEffect, deliveryArtifactAttachments, discord, github, http, messageChannelDeliveredReplyBody, messageChannelReplyBody, messageChannelSupportsTitleEffect, messageChannelTitleSupportContextKey, publishWorkspaceArtifacts, pullRequest, rewriteDeliveryArtifactMarkdown, slack, teams, telegram, webChat };
 diff --git a/dist/cli.d.ts b/dist/cli.d.ts
 index 82c81a6684b7eef6531ea02adf589d7e6cc2768d..4f68109c168e91382ce7fac56efb3c39593f09c5 100644
@@ -213,7 +272,7 @@ index 82c81a6684b7eef6531ea02adf589d7e6cc2768d..4f68109c168e91382ce7fac56efb3c39
  //#region src/internal/agent-info-cli.d.ts
  interface AgentInfoCliContext {
 diff --git a/dist/cli.js b/dist/cli.js
-index fc341fe13d0ea41a87279c4849655c837bb0848c..bcef5255b45a91d1c23e282d417fad148c7195fc 100644
+index fc341fe13d0ea41a87279c4849655c837bb0848c..3e24312c34ce98261ba53468cda7b46eb56869cf 100644
 --- a/dist/cli.js
 +++ b/dist/cli.js
 @@ -1,10 +1,10 @@
@@ -225,9 +284,9 @@ index fc341fe13d0ea41a87279c4849655c837bb0848c..bcef5255b45a91d1c23e282d417fad14
 -import { C as readAgentInvocationStream, b as agentInvocationStreamHeader, x as agentInvocationStreamRoute } from "./src-dXEEgCkb.js";
 -import { b as discoverAgentDefinitions, f as VITEHUB_SERVER_DIRS, i as createViteAgentDiscoveryContext, n as resolveAgentEvalOptions, r as writeAgentEvaliteConfig, s as loadViteAgent, x as discoverAgentEvalFiles, y as createAgentEvalInclude } from "./evalite-config-inigkHYg.js";
 +import { f as enrichAgentUsageCost, p as modelsDevPricing } from "./agent-output-DQvChOsM.js";
-+import { _ as agentChannelSyncProviderHeader, g as getAgentChannelHistoryDefinition, h as agentChannelHistoryHeader, v as getAgentChannelSyncDefinition } from "./channels-QlhOMe8j.js";
-+import { C as readAgentInvocationStream, b as agentInvocationStreamHeader, x as agentInvocationStreamRoute } from "./src-Dmb1dfkD.js";
-+import { b as discoverAgentDefinitions, f as VITEHUB_SERVER_DIRS, i as createViteAgentDiscoveryContext, n as resolveAgentEvalOptions, r as writeAgentEvaliteConfig, s as loadViteAgent, x as discoverAgentEvalFiles, y as createAgentEvalInclude } from "./evalite-config-C5fEqCtm.js";
++import { _ as agentChannelSyncProviderHeader, g as getAgentChannelHistoryDefinition, h as agentChannelHistoryHeader, v as getAgentChannelSyncDefinition } from "./channels-DhWkiPeH.js";
++import { C as readAgentInvocationStream, b as agentInvocationStreamHeader, x as agentInvocationStreamRoute } from "./src-qNmT3wCw.js";
++import { b as discoverAgentDefinitions, f as VITEHUB_SERVER_DIRS, i as createViteAgentDiscoveryContext, n as resolveAgentEvalOptions, r as writeAgentEvaliteConfig, s as loadViteAgent, x as discoverAgentEvalFiles, y as createAgentEvalInclude } from "./evalite-config-C_T3EOSi.js";
  import { isExecutionAuthority } from "@vite-hub/runtime";
  import { createHmac } from "node:crypto";
  import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -236,7 +295,7 @@ index fc341fe13d0ea41a87279c4849655c837bb0848c..bcef5255b45a91d1c23e282d417fad14
  }
  async function loadEvaliteRunner() {
 -	const { runAgentEvalite } = await import("./evalite-runner-DM0gLenW.js");
-+	const { runAgentEvalite } = await import("./evalite-runner-CoMq4xhj.js");
++	const { runAgentEvalite } = await import("./evalite-runner-OIG2A7t8.js");
  	return runAgentEvalite;
  }
  async function runAgentEvalCli(args, context, options, runner, writeConfig = writeAgentEvaliteConfig, include) {
@@ -251,44 +310,44 @@ index 183a85604bc5a18c9e613f8103ea224b8919e460..2f16a987f51138f0ada0b851918e5db4
  import { WorkspaceName } from "@vite-hub/workspace";
  
 diff --git a/dist/eval.js b/dist/eval.js
-index 9913568e77ec208891ce02110ddf2ae46c0bbac4..26128dd105f0b0ab1385cdf7151bd14ec3dd2a5e 100644
+index 9913568e77ec208891ce02110ddf2ae46c0bbac4..7f8fcefe169b537c3c2009f30dae79779b7090b3 100644
 --- a/dist/eval.js
 +++ b/dist/eval.js
 @@ -1,6 +1,6 @@
  import { t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
  import { createMessage } from "./messages.js";
 -import { i as defineAgent } from "./src-dXEEgCkb.js";
-+import { i as defineAgent } from "./src-Dmb1dfkD.js";
++import { i as defineAgent } from "./src-qNmT3wCw.js";
  import { createAgentTestRunner } from "./test.js";
  import { basename, dirname, extname, join, resolve } from "node:path";
  import { statSync } from "node:fs";
-diff --git a/dist/evalite-config-inigkHYg.js b/dist/evalite-config-C5fEqCtm.js
+diff --git a/dist/evalite-config-inigkHYg.js b/dist/evalite-config-C_T3EOSi.js
 similarity index 99%
 rename from dist/evalite-config-inigkHYg.js
-rename to dist/evalite-config-C5fEqCtm.js
-index 77be8efbabf6a6315f870739d0f28af3aae7f803..1c08995f661971edbc5ea391f0c50a45558c7fd3 100644
+rename to dist/evalite-config-C_T3EOSi.js
+index 77be8efbabf6a6315f870739d0f28af3aae7f803..ec5b1c4e595ad45b79e1f4a74e87db23efa34eee 100644
 --- a/dist/evalite-config-inigkHYg.js
-+++ b/dist/evalite-config-C5fEqCtm.js
++++ b/dist/evalite-config-C_T3EOSi.js
 @@ -1,7 +1,7 @@
  import { t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
  import { F as internalErrorDiagnostics } from "./capability-runtime-TGjDVCXr.js";
  import { i as resolveInstructionImports } from "./instruction-composition-BSRYUi5N.js";
 -import { t as agentWithColocatedInstructions } from "./src-dXEEgCkb.js";
-+import { t as agentWithColocatedInstructions } from "./src-Dmb1dfkD.js";
++import { t as agentWithColocatedInstructions } from "./src-qNmT3wCw.js";
  import { i as withColocatedAgentSkills, r as decodeColocatedAgentSkills } from "./colocated-agent-skills-DjrNZ7Y3.js";
  import { d as workspaceAgentWithSourceRoot } from "./workspace-agent-DLMfVD5e.js";
  import { t as createAgentRuntimeContext } from "./context-KghRPYRx.js";
-diff --git a/dist/evalite-runner-DM0gLenW.js b/dist/evalite-runner-CoMq4xhj.js
+diff --git a/dist/evalite-runner-DM0gLenW.js b/dist/evalite-runner-OIG2A7t8.js
 similarity index 98%
 rename from dist/evalite-runner-DM0gLenW.js
-rename to dist/evalite-runner-CoMq4xhj.js
-index 5b878639cca21603bb9fcf30a94f5e8511fffee8..1478ccca0b464499eaa9121f22be9c5b375cb7d3 100644
+rename to dist/evalite-runner-OIG2A7t8.js
+index 5b878639cca21603bb9fcf30a94f5e8511fffee8..61c676645bffc8b40ac8ab7c3c0db7c8d6ef29c7 100644
 --- a/dist/evalite-runner-DM0gLenW.js
-+++ b/dist/evalite-runner-CoMq4xhj.js
++++ b/dist/evalite-runner-OIG2A7t8.js
 @@ -1,5 +1,5 @@
  import { t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
 -import { v as agentEvalFileConvention } from "./evalite-config-inigkHYg.js";
-+import { v as agentEvalFileConvention } from "./evalite-config-C5fEqCtm.js";
++import { v as agentEvalFileConvention } from "./evalite-config-C_T3EOSi.js";
  import { mkdir, writeFile } from "node:fs/promises";
  import path from "node:path";
  import { fileURLToPath } from "node:url";
@@ -387,7 +446,7 @@ index 45411327badeb4d294570daa33240d72f825c474..ba7f8a0aae4c9d6afa0f0a08a4e28012
  export { type AgentAccessInvocationContextValue, type AgentAccessWorkspaceScopeContext, AgentActivity, type AgentActor, type AgentAdapter, type AgentAdapterFactory, type AgentAdapterInstructions, type AgentAdapterInstructionsPart, type AgentAdapterInstructionsValue, type AgentAdapterMetadataContext, type AgentAdapterResult, type AgentAdapterRunContext, type AgentCallSettingsInstrumentation, type AgentCallSettingsInstrumentationContext, type AgentCallbackContext, type AgentCapabilities, type AgentCapabilitiesInput, type AgentCapabilitiesList, type AgentCapabilitiesResolver, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliContribution, type AgentCapabilityCliExecutionInput, type AgentCapabilityCliExecutionResult, type AgentCapabilityCliOutputDefinition, type AgentCapabilityCliOutputFormat, type AgentCapabilityCliResolver, type AgentCapabilityCliRunContext, type AgentCapabilityCliStandardSchemaResultFailure, type AgentCapabilityCliStandardSchemaResultSuccess, type AgentCapabilityCliStandardSchemaV1, type AgentCapabilityContext, type AgentCapabilityDefinition, type AgentCapabilityHandle, type AgentCapabilityHookName, type AgentCapabilityHooks, type AgentCapabilityInput, type AgentCapabilityMode, type AgentCapabilityPhase, type AgentCapabilityRuntimeContext, type AgentChannelContext, type AgentChannelDefinition, type AgentChannelDelivery, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectHandler, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectIntentOptions, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryEffectPayload, type AgentChannelDeliveryEffects, type AgentChannelDeliveryEvent, type AgentChannelDeliveryEventInput, type AgentChannelDeliveryEventType, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectCallback, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDeliveryFinishEffectResult, type AgentChannelDeliveryInspection, type AgentChannelDeliveryReactionInput, type AgentChannelDeliveryReactionPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelDeliveryStatus, type AgentChannelDeliveryStatusInput, type AgentChannelDeliveryStatusPayload, type AgentChannelDeliveryStatusState, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentChannelTriggerContext, type AgentChannelWebhookRegistrationDefinition, type AgentChannels, type AgentChatAgentHookArgs, type AgentChatContext, AgentChatData, type AgentChatErrorHookArgs, type AgentChatEventHookArgs, type AgentChatEventHooks, type AgentChatFinishExtension, type AgentChatMessage, type AgentChatMessageHookArgs, type AgentChatOptions, type AgentChatPlatformAdapter, type AgentChatPlatformResolver, type AgentChatPlatformsResolver, type AgentChatRunContext, type AgentChatSendMessage, type AgentChatSessionOptions, type AgentChatTriggerHistory, type AgentDefinition, type AgentDefinitionCliOptions, type AgentDeliveryArtifact, type AgentDeliveryArtifactPlacement, type AgentDevLoopAgentSummary, type AgentDevLoopDiscoveryResponse, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentDriverCapacitySample, type AgentDriverCapacitySampleContext, type AgentDriverContribution, type AgentDriverContributionKind, type AgentDriverKind, type AgentErrorHook, type AgentErrorHookEvent, type AgentExecution, type AgentFinishEvent, type AgentFinishExtensionValues, type AgentFinishExtensions, type AgentFinishHook, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserver, type AgentHookObserverEvent, type AgentHookObserverHooks, type AgentHookOutcome, type AgentHookOwner, type AgentHostIdentity, type AgentInput, type AgentInputHook, type AgentInspectionCapabilityMetadata, type AgentInspectionConfigMetadata, type AgentInspectionConfigValue, type AgentInspectionDriverMetadata, type AgentInspectionFileTreeItem, type AgentInspectionMetadata, type AgentInspectionModelExecutionMetadata, type AgentInspectionModelMetadata, type AgentInspectionProviderMetadata, type AgentInspectionToolDefinition, type AgentInspectionValue, type AgentIntegrationOption, type AgentIntegrationsOptions, type AgentInvocationAnnotationValue, type AgentInvocationContextStore, type AgentInvocationContextValues, type AgentInvocationControlOutcome, type AgentInvocationControlResult, type AgentInvocationController, type AgentInvocationExtensions, type AgentInvocationHooks, type AgentInvocationInputMode, type AgentInvocationInputSupport, type AgentInvocationInspection, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationObservationOptions, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationSnapshot, type AgentInvocationStatus, type AgentInvocationStore, type AgentInvocationStreamErrorEvent, type AgentInvocationStreamEvent, type AgentInvocationSummary, type AgentInvocations, type AgentInvoker, type AgentInvokerMeta, type AgentInvokerOptions, type AgentInvokerProfile, type AgentInvokerResolveContext, type AgentMessageChannelSettings, type AgentMessageConcurrency, type AgentMessageDeliveryKind, type AgentMessageFilter, type AgentMessageFilterContext, type AgentMessageLockScope, AgentMessagePhase, type AgentModelDriver, type AgentModelExecutionInstrumentation, type AgentModelExecutionOptions, type AgentModelInput, type AgentModelInstrumentation, type AgentModelInstrumentationContext, type AgentModelResolver, type AgentModelResolverContext, type AgentModuleOptions, type AgentOutputDefinition, type AgentOutputExtensionEvent, type AgentOutputExtensionProvider, type AgentOutputExtensionValues, type AgentOutputExtensions, type AgentOutputRenderer, type AgentProviderCredentialContext, type AgentProviderCredentialResolver, type AgentProviderCredentialValue, type AgentProviderDriverOptions, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentProviderPermissions, type AgentProviderSealedCredential, type AgentProviderStatus, type AgentProviderUsageLimits, type AgentProvidersOptions, type AgentPublicError, type AgentPublicErrorCode, type AgentPublicErrorDetails, type AgentRegistry, type AgentRegistryHandlerOptions, type AgentRegistryModule, type AgentRunCallbackContext, type AgentRunContext, type AgentRunDriver, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEvents, type AgentRunHandler, type AgentRunInput, type AgentRunInputContextValues, type AgentRunMetadata, type AgentRunResult, type AgentRuntime, type AgentRuntimeBinding, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentRuntimeHooks, type AgentRuntimeName, type AgentSandboxProviderOptions, type AgentSchedulerProviderOptions, type AgentSettings, type AgentStateProviderOptions, type AgentTelemetry, type AgentTelemetryContentOptions, type AgentTelemetryExportContext, type AgentTelemetryLogsExportContext, type AgentTelemetryRegistration, type AgentTelemetryTracesExportContext, type AgentToolDefinition, type AgentToolInspection, type AgentToolPolicyContext, type AgentToolPolicyDecision, type AgentToolResolver, type AgentToolSchema, type AgentToolSet, type AgentToolStandardSchema, type AgentToolStep, type AgentToolTransform, type AgentTriggerContext, type AgentTriggerDefinition, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUIMessageStreamProjectionResolver, type AgentUsage, type AgentUsageCost, type AgentUsageCredentialSource, type AgentUsageRecord, type AgentWaitUntil, type AgentWebhookRegistrationDefinition, type AgentWebhookVerificationResult, type AgentWorkflowRuntimeBinding, ApprovalDecisionPart, ApprovalRequestPart, AttachmentData, AttachmentPart, AudioData, AudioPart, type BuiltInAgentDriver, type BuiltInAgentDriverName, type ClaudeCodeDriverOptions, type CodexDriverOptions, type CodexReasoningEffort, type CodexReasoningSummary, CreateMessageOptions, type CustomAgentDriver, DataPart, DefineAgent, type DiscoveredAgentDefinition, ErrorPart, FilePart, ImagePart, type MaybePromise, type MaybeResolvable, Message, MessageMetadata, MessagePart, MessageRole, type PublishedAgentDeliveryArtifact, type Resolvable, type ResolvedAgentModuleOptions, type ResolvedAgentRuntimeContext, type ResolvedAgentStateProviderOptions, type ResolvedAgentTriggerDefinition, type ResolvedAgentTriggerHandledInvocation, type ResolvedAgentTriggerInvocation, type ResolvedAgentTriggerInvocationResult, RunEvent, SerializedMessages, SourcePart, StreamEvent, TextPart, ToolCallPart, ToolInvocation, ToolInvocationState, ToolResultPart, type WorkspaceAgentDefaults, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, type WorkspaceAgentWorkspaceConfig, type WorkspaceAgentWorkspaceOptions, agentChatContextKey, agentInvocationId, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, appendMessageText, applyAgentToolPolicies, applyStreamEvent, attachmentStringByteLength, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, inspectAgentTools, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, portableAgentWorkflowInput, readAgentInvocationStream, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, runScheduledAgent, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
 \ No newline at end of file
 diff --git a/dist/index.js b/dist/index.js
-index 9b3fd62d2731c21bee83c32b4d22b40767c86e47..5338ac4c94404826314f82125b22753e67366a45 100644
+index 9b3fd62d2731c21bee83c32b4d22b40767c86e47..5d3aa1aeae348aebd0f18f5caf1725f3e3e18955 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1,9 +1,9 @@
@@ -399,9 +458,9 @@ index 9b3fd62d2731c21bee83c32b4d22b40767c86e47..5338ac4c94404826314f82125b22753e
 -import { n as agentInvocationId } from "./invocations-Lc3Wa4Nw.js";
 -import { C as readAgentInvocationStream, D as verifyAgentWebhookRequest, S as createAgentInvocationStreamResponse, _ as streamAgentInline, a as getAgent, c as resolveAgent, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, i as defineAgent, l as resolveAgentTriggerInvocation, m as runScheduledAgent, n as claudeCodeDriver, o as getAgentFromRegistry, p as runAgentTrigger, r as codexDriver, s as portableAgentWorkflowInput, t as agentWithColocatedInstructions, u as resolveAgentTriggers, v as streamAgentTrigger, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute, y as workflow } from "./src-dXEEgCkb.js";
 +import { a as withAgentToolStepReporting, n as applyAgentToolPolicies, s as inspectAgentTools } from "./tool-runtime-6eFPmGzG.js";
-+import { k as getAgentChatContext, w as agentChatContextKey, z as defineFinishEffect } from "./channels-QlhOMe8j.js";
++import { k as getAgentChatContext, w as agentChatContextKey, z as defineFinishEffect } from "./channels-DhWkiPeH.js";
 +import { n as agentInvocationId } from "./invocations-GSu6_vZD.js";
-+import { C as readAgentInvocationStream, D as verifyAgentWebhookRequest, S as createAgentInvocationStreamResponse, _ as streamAgentInline, a as getAgent, c as resolveAgent, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, i as defineAgent, l as resolveAgentTriggerInvocation, m as runScheduledAgent, n as claudeCodeDriver, o as getAgentFromRegistry, p as runAgentTrigger, r as codexDriver, s as portableAgentWorkflowInput, t as agentWithColocatedInstructions, u as resolveAgentTriggers, v as streamAgentTrigger, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute, y as workflow } from "./src-Dmb1dfkD.js";
++import { C as readAgentInvocationStream, D as verifyAgentWebhookRequest, S as createAgentInvocationStreamResponse, _ as streamAgentInline, a as getAgent, c as resolveAgent, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, i as defineAgent, l as resolveAgentTriggerInvocation, m as runScheduledAgent, n as claudeCodeDriver, o as getAgentFromRegistry, p as runAgentTrigger, r as codexDriver, s as portableAgentWorkflowInput, t as agentWithColocatedInstructions, u as resolveAgentTriggers, v as streamAgentTrigger, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute, y as workflow } from "./src-qNmT3wCw.js";
  import { a as materializeAgentInspectionSourceMetadata, f as workspaceDefinitionFromOptions, l as workspaceAgentOwnsWorkspaceDefinition, o as resolveAgentInspectionMetadata, t as createAgentInspectionMetadata } from "./workspace-agent-DLMfVD5e.js";
  export { agentChatContextKey, agentInvocationId, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, appendMessageText, applyAgentToolPolicies, applyStreamEvent, attachmentStringByteLength, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, inspectAgentTools, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, portableAgentWorkflowInput, readAgentInvocationStream, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, runScheduledAgent, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
 diff --git a/dist/invocation-health-BCJ1I-Ca.js b/dist/invocation-health-BCJ1I-Ca.js
@@ -680,13 +739,13 @@ index 0000000000000000000000000000000000000000..dd85dcf658faf380241b4e85c8c30f17
 +};
 +//#endregion
 +export { __exportAll as t };
-diff --git a/dist/routes-DbpN_Urw.js b/dist/routes-BsBTLiXC.js
+diff --git a/dist/routes-DbpN_Urw.js b/dist/routes-dthF16vH.js
 similarity index 99%
 rename from dist/routes-DbpN_Urw.js
-rename to dist/routes-BsBTLiXC.js
-index 8a4bde0e7ea4cef222661245e9124acfe74c5044..d1c1fd076158e108f993c08334fc09a5d158be47 100644
+rename to dist/routes-dthF16vH.js
+index 8a4bde0e7ea4cef222661245e9124acfe74c5044..c74f976573d89a16081c6fc562536fdb1729b36e 100644
 --- a/dist/routes-DbpN_Urw.js
-+++ b/dist/routes-BsBTLiXC.js
++++ b/dist/routes-dthF16vH.js
 @@ -1,4 +1,3 @@
 -import { a as loadConfiguredAgentWorkflowCapabilities, i as loadAgentWorkflowRuntimeStateModule } from "./workflow-runtime-loaders-DtUmZ4IO.js";
  import { n as isAgentTypeDiagnostic, t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
@@ -701,7 +760,7 @@ index 8a4bde0e7ea4cef222661245e9124acfe74c5044..d1c1fd076158e108f993c08334fc09a5
  import { a as markDerivedChatTriggerInvoker, c as resolveChatTriggerHistory, i as derivedChatTriggerInvoker, l as uiMessagesToAgentMessages, o as resolveChatSessionBaseId, r as createChatMessageTriggerInput, s as resolveChatSessionId, t as chatTriggerHistoryLimit } from "./chat-message-input-gEEnXATm.js";
 -import { A as getChatCapabilityOptions, C as CHAT_FINISH_EXTENSION_CONTEXT_KEY, M as resolveChatErrorFallbackText, T as assertChatDeliveryOptions, _ as agentChannelSyncProviderHeader, b as chatFinishDirectReplyTrace, y as chatFinishDeliveryRegistrarKey } from "./channels-BHsaWAFz.js";
 -import { n as agentInvocationId } from "./invocations-Lc3Wa4Nw.js";
-+import { A as getChatCapabilityOptions, C as CHAT_FINISH_EXTENSION_CONTEXT_KEY, M as resolveChatErrorFallbackText, T as assertChatDeliveryOptions, _ as agentChannelSyncProviderHeader, b as chatFinishDirectReplyTrace, y as chatFinishDeliveryRegistrarKey } from "./channels-QlhOMe8j.js";
++import { A as getChatCapabilityOptions, C as CHAT_FINISH_EXTENSION_CONTEXT_KEY, M as resolveChatErrorFallbackText, T as assertChatDeliveryOptions, _ as agentChannelSyncProviderHeader, b as chatFinishDirectReplyTrace, y as chatFinishDeliveryRegistrarKey } from "./channels-DhWkiPeH.js";
 +import { n as agentInvocationId } from "./invocations-GSu6_vZD.js";
  import { a as isRuntimeObject, c as isRuntimeUndefined, i as isRuntimeNumber, n as isRuntimeBoolean, o as isRuntimeString, r as isRuntimeFunction, s as isRuntimeSymbol, t as isRuntimeBigInt } from "./runtime-value-AnCEk2nX.js";
  import { a as agentChannelDeliverySourceValue, b as setAgentChannelDeliveryWorkflowResolver, c as bindAgentChannelDeliveryMessage, f as openAgentChannelDelivery, g as resumeAgentChannelDeliveryPayload, h as resumeAgentChannelDeliveryMessage, i as agentChannelDeliverySourceId, l as bindAgentChannelDeliveryPayload, m as resumeAgentChannelDelivery, o as agentChannelDeliveryTracker, p as readAgentChannelDeliveries, r as agentChannelDeliveryPayloadFingerprint, s as agentChannelDeliveryWorkflowContextKey, t as agentChannelDeliveryMessageIdentity, u as detachAgentChannelDelivery, x as withAgentChannelDelivery, y as setAgentChannelDeliveryWorkflowOwnershipResolver } from "./channel-delivery-CE3QemUD.js";
@@ -711,7 +770,7 @@ index 8a4bde0e7ea4cef222661245e9124acfe74c5044..d1c1fd076158e108f993c08334fc09a5
 -import { a as withParsedAgentMessageMeta, i as restoreParsedAgentMessageMeta, r as parsedAgentMessageMetaState, s as portableWorkflowCapabilityMask, t as hasParsedAgentMessageMeta } from "./message-meta-DZyJrr5F.js";
 +import { u as createAgentUIMessageStreamResponse } from "./scheduled-turn-Cl2U6Kme.js";
 +import { a as loadConfiguredAgentWorkflowCapabilities, i as loadAgentWorkflowRuntimeStateModule } from "./workflow-runtime-loaders-BYyQgH2I.js";
-+import { D as verifyAgentWebhookRequest, E as resolveAgentTriggerInvocationResult, O as AgentHttpError, T as resolveAgentTriggerInvocation, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, j as awaitAgentInvocationResult, k as toHttpErrorResponse, l as resolveAgentTriggerInvocation$1, s as portableAgentWorkflowInput, u as resolveAgentTriggers, v as streamAgentTrigger, w as isResolvedAgentTriggerHandledInvocation } from "./src-Dmb1dfkD.js";
++import { D as verifyAgentWebhookRequest, E as resolveAgentTriggerInvocationResult, O as AgentHttpError, T as resolveAgentTriggerInvocation, d as runAgent, f as runAgentInline, g as streamAgent, h as startAgentInvocation, j as awaitAgentInvocationResult, k as toHttpErrorResponse, l as resolveAgentTriggerInvocation$1, s as portableAgentWorkflowInput, u as resolveAgentTriggers, v as streamAgentTrigger, w as isResolvedAgentTriggerHandledInvocation } from "./src-qNmT3wCw.js";
 +import { a as withParsedAgentMessageMeta, i as restoreParsedAgentMessageMeta, r as parsedAgentMessageMetaState, s as portableWorkflowCapabilityMask, t as hasParsedAgentMessageMeta } from "./message-meta-DH6rEG76.js";
  import { a as registerActiveAgentInvocation, r as activeAgentInvocation } from "./agent-invocation-response-owner-BJjGK8gX.js";
  import { r as runWithActiveCloudflareEnv } from "./cloudflare-env-BCmgFyqB.js";
@@ -924,7 +983,7 @@ index 31058ef0f5c331be7b77a278f74dd53827947f88..792c4c8bc77be6d222139075490d947c
  //#region src/server/scheduled-turn.d.ts
  interface ScheduledAgentTargetRunContext {
 diff --git a/dist/server/internal.js b/dist/server/internal.js
-index c637c7bab806fde1073d2c977a3a239f508a6906..be22ae3c0767d8e8be6c1bba91de19b8a7a8f0c9 100644
+index c637c7bab806fde1073d2c977a3a239f508a6906..b98f6e36f57ea8172bba427aeb8c4b768826b4fa 100644
 --- a/dist/server/internal.js
 +++ b/dist/server/internal.js
 @@ -1,8 +1,8 @@
@@ -932,10 +991,10 @@ index c637c7bab806fde1073d2c977a3a239f508a6906..be22ae3c0767d8e8be6c1bba91de19b8
  import { t as agentDiagnostics } from "../agent-diagnostics-B6hXj3kF.js";
 -import { m as runScheduledAgent } from "../src-dXEEgCkb.js";
 +import { o as setAgentWorkflowCapabilityLoaders, s as setAgentWorkflowRuntimeLoaders } from "../workflow-runtime-loaders-BYyQgH2I.js";
-+import { m as runScheduledAgent } from "../src-Dmb1dfkD.js";
++import { m as runScheduledAgent } from "../src-qNmT3wCw.js";
  import { r as markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent-DLMfVD5e.js";
 -import { a as hasChannelChatRoute, i as createTelegramPollingRouteHandler, n as createChannelWebhookRouteHandler, o as installAgentChannelDeliveryWorkflowResolver, r as createDiscordGatewayRouteHandler, s as setAgentChannelDeliveryWorkflowStateResolver, t as createChannelChatRouteHandler } from "../routes-DbpN_Urw.js";
-+import { a as hasChannelChatRoute, i as createTelegramPollingRouteHandler, n as createChannelWebhookRouteHandler, o as installAgentChannelDeliveryWorkflowResolver, r as createDiscordGatewayRouteHandler, s as setAgentChannelDeliveryWorkflowStateResolver, t as createChannelChatRouteHandler } from "../routes-BsBTLiXC.js";
++import { a as hasChannelChatRoute, i as createTelegramPollingRouteHandler, n as createChannelWebhookRouteHandler, o as installAgentChannelDeliveryWorkflowResolver, r as createDiscordGatewayRouteHandler, s as setAgentChannelDeliveryWorkflowStateResolver, t as createChannelChatRouteHandler } from "../routes-dthF16vH.js";
  //#region src/server/scheduled-turn.ts
  function defineScheduledAgentTarget(agent, runtimeContext = {}) {
  	return {
@@ -963,7 +1022,7 @@ index e0fa4b212c3408c100ba1635f5032ed398cae665..be53d15697ecdc4dea85bcf249d65183
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteResumableContext, type AgentChannelChatRouteResumableOptions, type AgentChannelChatRouteResumableRequestBody, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentDiscordGatewayRouteOptions, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationObservationOptions, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, agentInvocationId, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, readAgentInvocationWorkload, summarizeAgentInvocationWorkload };
 \ No newline at end of file
 diff --git a/dist/server.js b/dist/server.js
-index f55a29675f3bc95a3cf4c093a2f78b0d2473507a..2cfbfdaa264f88e3fb0dc1b65e0c9a686dc88431 100644
+index f55a29675f3bc95a3cf4c093a2f78b0d2473507a..c27f21816c1c6fa355f1f13f044f450c2ea236a5 100644
 --- a/dist/server.js
 +++ b/dist/server.js
 @@ -1,86 +1,5 @@
@@ -1054,17 +1113,17 @@ index f55a29675f3bc95a3cf4c093a2f78b0d2473507a..2cfbfdaa264f88e3fb0dc1b65e0c9a68
 -//#endregion
 -export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, readAgentInvocationWorkload, summarizeAgentInvocationWorkload };
 +import { n as agentInvocationId, o as createMemoryAgentInvocationStore, r as applyAgentInvocationStoreUpdate, s as defineAgentInvocations, t as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./invocations-GSu6_vZD.js";
-+import { A as defineAgentRunEvents } from "./src-Dmb1dfkD.js";
-+import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-BsBTLiXC.js";
++import { A as defineAgentRunEvents } from "./src-qNmT3wCw.js";
++import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-dthF16vH.js";
 +import { i as summarizeAgentInvocationWorkload, r as readAgentInvocationWorkload, t as failInterruptedAgentInvocations } from "./invocation-health-BCJ1I-Ca.js";
 +export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, agentInvocationId, applyAgentInvocationStoreUpdate, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, failInterruptedAgentInvocations, readAgentInvocationWorkload, summarizeAgentInvocationWorkload };
-diff --git a/dist/src-dXEEgCkb.js b/dist/src-Dmb1dfkD.js
+diff --git a/dist/src-dXEEgCkb.js b/dist/src-qNmT3wCw.js
 similarity index 99%
 rename from dist/src-dXEEgCkb.js
-rename to dist/src-Dmb1dfkD.js
-index 696a0f5db454437a8aee97513a26ab2022f46a04..b730fd41734faa84ed0d2b352acef92009bc7dc9 100644
+rename to dist/src-qNmT3wCw.js
+index 696a0f5db454437a8aee97513a26ab2022f46a04..07c6251d97ea5ee7b185fb74f45cbf037197ad41 100644
 --- a/dist/src-dXEEgCkb.js
-+++ b/dist/src-Dmb1dfkD.js
++++ b/dist/src-qNmT3wCw.js
 @@ -1,4 +1,3 @@
 -import { i as loadAgentWorkflowRuntimeStateModule, r as loadAgentWorkflowModule } from "./workflow-runtime-loaders-DtUmZ4IO.js";
  import { t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
@@ -1080,7 +1139,7 @@ index 696a0f5db454437a8aee97513a26ab2022f46a04..b730fd41734faa84ed0d2b352acef920
 +import { a as withAgentToolStepReporting, c as getAgentTelemetryConfiguration, g as validateAgentOutput, l as safeAgentTelemetryMetadata, n as applyAgentToolPolicies, o as withJsonCompatibleToolOutputs, s as inspectAgentTools, u as setAgentTelemetryConfiguration } from "./tool-runtime-6eFPmGzG.js";
  import { a as createAgentStreamEventTracer, d as traceAgentInvocationFinish, f as traceAgentInvocationStart, l as traceAgentInvocationCancelled, n as agentInvocationJournalTraceLogSymbol, r as agentInvocationTraceIdContextKey, s as traceAgentChannelDeliveryEffect, t as agentInvocationJournalContentTraceLogSymbol, u as traceAgentInvocationError } from "./trace-cS-wdPpV.js";
 -import { A as getChatCapabilityOptions, D as defineChatCapability, F as resolveDurableChatErrorFallbackIntents, I as createReactionDeliveryEffectIntent, L as createReplyDeliveryEffectIntent, N as resolveChatMessageContextInstructions, O as durableChatErrorFallbackTimeout, P as resolveChatMessageRunMetadata, R as createStatusDeliveryEffectIntent, S as setChatFinishDirectReplyTrace, a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, j as isDurableChatErrorFallbackEffect, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, m as webChat, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, x as registerMessageChannelDeferredReplyTrace } from "./channels-BHsaWAFz.js";
-+import { A as getChatCapabilityOptions, D as defineChatCapability, F as resolveDurableChatErrorFallbackIntents, I as createReactionDeliveryEffectIntent, L as createReplyDeliveryEffectIntent, N as resolveChatMessageContextInstructions, O as durableChatErrorFallbackTimeout, P as resolveChatMessageRunMetadata, R as createStatusDeliveryEffectIntent, S as setChatFinishDirectReplyTrace, a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, j as isDurableChatErrorFallbackEffect, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, m as webChat, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, x as registerMessageChannelDeferredReplyTrace } from "./channels-QlhOMe8j.js";
++import { A as getChatCapabilityOptions, D as defineChatCapability, F as resolveDurableChatErrorFallbackIntents, I as createReactionDeliveryEffectIntent, L as createReplyDeliveryEffectIntent, N as resolveChatMessageContextInstructions, O as durableChatErrorFallbackTimeout, P as resolveChatMessageRunMetadata, R as createStatusDeliveryEffectIntent, S as setChatFinishDirectReplyTrace, a as http, c as messageChannelSupportsTitleEffect, d as slack, f as teams, i as github, j as isDurableChatErrorFallbackEffect, k as getAgentChatContext, l as messageChannelTitleSupportContextKey, m as webChat, o as messageChannelDeliveredReplyBody, p as telegram, r as discord, s as messageChannelReplyBody, t as channelHasCustomTitleEffect, x as registerMessageChannelDeferredReplyTrace } from "./channels-DhWkiPeH.js";
  import { t as agentWorkflowExecutionContextKey } from "./workflow-execution-B2vVyYrw.js";
 -import { i as bindAgentInvocations } from "./invocations-Lc3Wa4Nw.js";
 +import { i as bindAgentInvocations } from "./invocations-GSu6_vZD.js";
@@ -1135,7 +1194,21 @@ index 696a0f5db454437a8aee97513a26ab2022f46a04..b730fd41734faa84ed0d2b352acef920
  			return inspectAgentProvider(driver, {
  				...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
  				agentIdentity: { name: name ?? context.agentIdentity?.name ?? "agent" },
-@@ -5306,7 +5310,7 @@ async function runScheduledAgent(agent, context, runtimeContext = {}, input = {}
+@@ -4519,8 +4523,11 @@ async function executeAgentInvocationWithCapacityLease(agent, context, input, op
+ 									else cancellationTask.catch(() => {});
+ 									return;
+ 								}
+-								if (outcome.failed) await source.settleCancellation(outcome.error);
+-								await finishPreserved(outcome);
++								try {
++									if (outcome.failed) await source.settleCancellation(outcome.error);
++								} finally {
++									await finishPreserved(outcome);
++								}
+ 							}, {
+ 								abortSignal: invocation.input.abortSignal,
+ 								detachPendingReaderCancellation: true,
+@@ -5306,7 +5313,7 @@ async function runScheduledAgent(agent, context, runtimeContext = {}, input = {}
  		delete forwardedInput.messages;
  		delete forwardedInput.prompt;
  	}
@@ -1144,12 +1217,16 @@ index 696a0f5db454437a8aee97513a26ab2022f46a04..b730fd41734faa84ed0d2b352acef920
  		...runtimeContext,
  		memo(key, create) {
  			if (!memoValues.has(key)) memoValues.set(key, create());
-@@ -5338,6 +5342,12 @@ async function runScheduledAgent(agent, context, runtimeContext = {}, input = {}
+@@ -5338,6 +5345,16 @@ async function runScheduledAgent(agent, context, runtimeContext = {}, input = {}
  		},
  		...turn ? { prompt: turn.prompt } : {}
  	});
-+	if (isAsyncIterable(result) || hasTraceableStreamResult(result)) {
-+		const collected = withStreamedResult(isAsyncIterable(result) ? result : streamAgentOutputToEvents(result), result);
++	if (result instanceof Response) return {
++		raw: result,
++		text: await result.text()
++	};
++	if (isAsyncIterable(result) || hasTraceableStreamResult(result) || isUIMessageStreamResult(result)) {
++		const collected = withStreamedResult(isAsyncIterable(result) ? result : !hasTraceableStreamResult(result) && isUIMessageStreamResult(result) ? result.toUIMessageStream() : streamAgentOutputToEvents(result), result);
 +		for await (const _event of collected.stream);
 +		return await collected.finishResult();
 +	}
@@ -1168,7 +1245,7 @@ index c7a13f712bbad7c105b92aff6d67b4e8fb0cd803..50dc562133f31a6777c73d9993776719
  import { WorkspaceName } from "@vite-hub/workspace";
  
 diff --git a/dist/test.js b/dist/test.js
-index eb22bc92181b1976f3e87f6d76a8a62681e395f6..7bcc406f276193c1b637feae9107b828c5502b8e 100644
+index eb22bc92181b1976f3e87f6d76a8a62681e395f6..3757fe365a775a2a371d28fa167e0ad7b204ba8c 100644
 --- a/dist/test.js
 +++ b/dist/test.js
 @@ -1,6 +1,6 @@
@@ -1176,7 +1253,7 @@ index eb22bc92181b1976f3e87f6d76a8a62681e395f6..7bcc406f276193c1b637feae9107b828
 -import { o as resolveAgentUsageRecord } from "./agent-output-KPm1VysL.js";
 -import { f as runAgentInline, i as defineAgent } from "./src-dXEEgCkb.js";
 +import { o as resolveAgentUsageRecord } from "./agent-output-DQvChOsM.js";
-+import { f as runAgentInline, i as defineAgent } from "./src-Dmb1dfkD.js";
++import { f as runAgentInline, i as defineAgent } from "./src-qNmT3wCw.js";
  import { t as createAgentRuntimeContext } from "./context-KghRPYRx.js";
  import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime";
  import { registerWorkspace } from "@vite-hub/workspace/test";
@@ -1238,7 +1315,7 @@ index 1059a3bb0ea3236ae5242e5cb40f63edd1f4307f..1f667f3f02ec976787c430ec4bda8f2d
  
  //#region src/vite/colocated-agent-skills.d.ts
 diff --git a/dist/vite.js b/dist/vite.js
-index 0389cc956cfd5fde3cd651e25ad50be581a3c98a..d256e290429fa57bec808410ceeafeabde91ffc1 100644
+index 0389cc956cfd5fde3cd651e25ad50be581a3c98a..21944767b27beee17934912f2ab7b05c4fd9e3b3 100644
 --- a/dist/vite.js
 +++ b/dist/vite.js
 @@ -2,13 +2,13 @@ import { t as agentDiagnostics } from "./agent-diagnostics-B6hXj3kF.js";
@@ -1250,11 +1327,11 @@ index 0389cc956cfd5fde3cd651e25ad50be581a3c98a..d256e290429fa57bec808410ceeafeab
  import { l as uiMessagesToAgentMessages } from "./chat-message-input-gEEnXATm.js";
  import { n as isPlainObject } from "./agent-driver-D5cUgsDP.js";
 -import { S as createAgentInvocationStreamResponse, b as agentInvocationStreamHeader, f as runAgentInline, g as streamAgent, l as resolveAgentTriggerInvocation, u as resolveAgentTriggers, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute } from "./src-dXEEgCkb.js";
-+import { S as createAgentInvocationStreamResponse, b as agentInvocationStreamHeader, f as runAgentInline, g as streamAgent, l as resolveAgentTriggerInvocation, u as resolveAgentTriggers, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute } from "./src-Dmb1dfkD.js";
++import { S as createAgentInvocationStreamResponse, b as agentInvocationStreamHeader, f as runAgentInline, g as streamAgent, l as resolveAgentTriggerInvocation, u as resolveAgentTriggers, w as isResolvedAgentTriggerHandledInvocation, x as agentInvocationStreamRoute } from "./src-qNmT3wCw.js";
  import { h as workspaceNameFromOptions, l as workspaceAgentOwnsWorkspaceDefinition, m as workspaceModeFromOptions, o as resolveAgentInspectionMetadata, r as markDiscoveredWorkspaceAgentDefinitionRegistered } from "./workspace-agent-DLMfVD5e.js";
  import { a as installCloudflareAgentStateEntrypoint, n as defaultCloudflareAgentStateBinding, t as configureCloudflareAgentState } from "./cloudflare-DHJlPPs_.js";
 -import { C as dirname$1, S as createImportPath, T as resolve$1, _ as resolveViteHubGeneratedRoot, a as createViteAgentRuntimeContext, b as discoverAgentDefinitions, c as writeViteResponse, d as readColocatedAgentInstructions, g as mergeGeneratedViteHubWatchIgnored, h as isServerEnvironment, i as createViteAgentDiscoveryContext, l as readColocatedAgentSkills, m as hasNitroConfigContext, n as resolveAgentEvalOptions, o as createViteWorkspaceAgentLoader, p as createNoExternalMerger, r as writeAgentEvaliteConfig, s as loadViteAgent, t as removeAgentEvaliteConfig, u as resolveColocatedAgentSkillsRoot, w as relative$1, x as discoverAgentEvalFiles } from "./evalite-config-inigkHYg.js";
-+import { C as dirname$1, S as createImportPath, T as resolve$1, _ as resolveViteHubGeneratedRoot, a as createViteAgentRuntimeContext, b as discoverAgentDefinitions, c as writeViteResponse, d as readColocatedAgentInstructions, g as mergeGeneratedViteHubWatchIgnored, h as isServerEnvironment, i as createViteAgentDiscoveryContext, l as readColocatedAgentSkills, m as hasNitroConfigContext, n as resolveAgentEvalOptions, o as createViteWorkspaceAgentLoader, p as createNoExternalMerger, r as writeAgentEvaliteConfig, s as loadViteAgent, t as removeAgentEvaliteConfig, u as resolveColocatedAgentSkillsRoot, w as relative$1, x as discoverAgentEvalFiles } from "./evalite-config-C5fEqCtm.js";
++import { C as dirname$1, S as createImportPath, T as resolve$1, _ as resolveViteHubGeneratedRoot, a as createViteAgentRuntimeContext, b as discoverAgentDefinitions, c as writeViteResponse, d as readColocatedAgentInstructions, g as mergeGeneratedViteHubWatchIgnored, h as isServerEnvironment, i as createViteAgentDiscoveryContext, l as readColocatedAgentSkills, m as hasNitroConfigContext, n as resolveAgentEvalOptions, o as createViteWorkspaceAgentLoader, p as createNoExternalMerger, r as writeAgentEvaliteConfig, s as loadViteAgent, t as removeAgentEvaliteConfig, u as resolveColocatedAgentSkillsRoot, w as relative$1, x as discoverAgentEvalFiles } from "./evalite-config-C_T3EOSi.js";
  import { a as defaultAgentInspectionRoute, i as defaultAgentDiscordGatewayRoute, n as agentRouteUsesParam, o as defaultAgentWebhookRoute, r as defaultAgentChatRoute, s as normalizeAgentRoute } from "./routes-CRV8AREy.js";
  import { n as resolveProviderRuntimePackages } from "./provider-runtime-packages-TVtsZ-qn.js";
  import { createRequire } from "node:module";
