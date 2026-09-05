@@ -102,7 +102,8 @@ To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace 
 ## Operations
 
 `GET /api/health` reports provider availability, GitHub budget, admission, and stale
-invocations. `GET /api/drain` reports the process drain status. Drain active work
+invocations through ViteHub's `createAgentHealth`. The Agent module exports health
+and Workspace inspection; `agentHostRoutes` generates their HTTP routes. `GET /api/drain` reports the process drain status. Drain active work
 before replacing a release. Build and typecheck the exact release commit, then
 verify health and a completed pass or justified wait after restart.
 

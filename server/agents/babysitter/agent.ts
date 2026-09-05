@@ -3,10 +3,10 @@ import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
-import { createGitHubHost } from '@vite-hub/agent/server/github'
-import { createAgentConsoleDelivery } from 'vite-hub/agent/server'
+import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from '@vite-hub/agent/server/github'
+import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
-import { defaultMaxOwners, resolveMaxOwners } from '../../babysitter.queue.ts'
+import { defaultMaxOwners, resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
 
 export const github = createGitHubHost({
   credentials: () => useServerEnv().github,
@@ -82,6 +82,21 @@ const agent = defineAgent({
   driver,
   invocations: host.invocations,
   name: 'babysitter',
+})
+
+export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, invocations: host.invocations })
+export const health = createAgentHealth({
+  name: 'Babysitter', agent: () => agent, process: host, github,
+  console: () => Boolean(consoleClient),
+  async workload() { return (await import('../../babysitter.schedule.ts')).babysitterWorkload() },
+  diagnostics() {
+    const config = useServerEnv().babysitter
+    const repositories = resolveRepositories(config.repositories, config.repository)
+    return [
+      { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
+      { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 2m repair scan' },
+    ]
+  },
 })
 
 export function createBabysitterAgent(checkout: string) {

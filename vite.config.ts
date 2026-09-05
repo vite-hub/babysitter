@@ -1,7 +1,7 @@
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
-import { processAgentHost } from '@vite-hub/agent/vite'
+import { processAgentHost, agentHostRoutes } from 'vite-hub/agent/vite'
 import { env } from 'vite-hub/env'
 import { defaultMaxOwners } from './server/babysitter.queue.ts'
 
@@ -40,6 +40,7 @@ export default defineConfig({
       workspace: false,
     }),
     processAgentHost({ entry: './server/agents/babysitter/agent.ts', exportName: 'host' }),
+    agentHostRoutes({ entry: './server/agents/babysitter/agent.ts', health: 'health', workspace: 'workspace' }),
     nitro({
       routeRules: { '/': { redirect: '/_vitehub' } },
       serverDir: true,
