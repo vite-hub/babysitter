@@ -7,10 +7,8 @@ import { defaultMaxOwners } from './server/babysitter.queue.ts'
 
 export default defineConfig({
   env: {
-    define: {
-      __BABYSITTER_RELEASE__: {
-        revision: env({ mode: 'build', source: env.gitSha() }),
-      },
+    public: {
+      releaseRevision: env({ mode: 'build', source: env.gitSha() }),
     },
     server: {
       babysitter: {

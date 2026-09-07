@@ -2,6 +2,7 @@ import { github as githubSource } from 'vite-hub/workspace'
 import { defineAgent } from 'vite-hub/agent'
 import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { usePublicEnv } from '#vitehub/env/public'
 import { useServerEnv } from '#vitehub/env/server'
 import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-hub/agent/server/github'
 import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
@@ -81,7 +82,7 @@ const agent = defineAgent({
   },
   invocations: host.invocations,
   name: 'babysitter',
-  version: __BABYSITTER_RELEASE__.revision,
+  version: usePublicEnv().releaseRevision,
 })
 
 export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, invocations: host.invocations })
@@ -93,7 +94,7 @@ export const health = createAgentHealth({
     const config = useServerEnv().babysitter
     const repositories = resolveRepositories(config.repositories, config.repository)
     return [
-      { label: 'Release', status: 'ok', value: __BABYSITTER_RELEASE__.revision },
+      { label: 'Release', status: 'ok', value: usePublicEnv().releaseRevision },
       { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
       { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 2m repair scan' },
     ]
