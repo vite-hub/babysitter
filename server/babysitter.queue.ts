@@ -1,6 +1,6 @@
-import { pullRequestCheckState, type PullRequest } from '@vite-hub/agent/server/github'
-export { pullRequestCheckState } from '@vite-hub/agent/server/github'
-export type { PullRequest } from '@vite-hub/agent/server/github'
+import { pullRequestCheckState, type PullRequest } from 'vite-hub/agent/server/github'
+export { pullRequestCheckState } from 'vite-hub/agent/server/github'
+export type { PullRequest } from 'vite-hub/agent/server/github'
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'

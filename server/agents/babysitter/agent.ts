@@ -1,12 +1,12 @@
 import { github as githubSource } from 'vite-hub/workspace'
-import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
-import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from '@vite-hub/agent/server/github'
+import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-hub/agent/server/github'
 import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
-import { defaultMaxOwners, resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
+import { resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
 
 export const github = createGitHubHost({
   credentials: () => useServerEnv().github,
@@ -18,7 +18,7 @@ export const github = createGitHubHost({
 
 export const consoleClient = createAgentConsoleDelivery(useServerEnv().console)
 
-const concurrency = resolveMaxOwners(process.env.BABYSITTER_MAX_OWNERS || defaultMaxOwners)
+const concurrency = resolveMaxOwners(useServerEnv().babysitter.maxOwners)
 
 export const host = await createProcessAgentHost({
   name: 'babysitter',
@@ -64,24 +64,24 @@ const capabilities = [
     return context.pullRequestTitle
   },
 }), ...(consoleClient ? [consoleClient.capability] : [])] as const
-const driver = codexDriver({
-  capacity: host.capacity,
-  env: async () => ({ ...await github.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
-  model: 'gpt-6-astra',
-  output: { schema: passResultSchema },
-  permissions: 'allow-all',
-  sessionStorePath: host.providerSessionStorePath,
-  reasoningEffort: 'medium',
-})
-
 const agent = defineAgent({
   capabilities,
   channels: {
     github: github.channel({ activity: true }),
   },
-  driver,
+  driver: {
+    kind: 'codex',
+    capacity: host.capacity,
+    env: async () => ({ ...await github.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
+    model: 'gpt-6-astra',
+    output: { schema: passResultSchema },
+    permissions: 'allow-all',
+    sessionStorePath: host.providerSessionStorePath,
+    reasoningEffort: 'medium',
+  },
   invocations: host.invocations,
   name: 'babysitter',
+  version: __BABYSITTER_RELEASE__.revision,
 })
 
 export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, invocations: host.invocations })
@@ -93,6 +93,7 @@ export const health = createAgentHealth({
     const config = useServerEnv().babysitter
     const repositories = resolveRepositories(config.repositories, config.repository)
     return [
+      { label: 'Release', status: 'ok', value: __BABYSITTER_RELEASE__.revision },
       { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
       { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 2m repair scan' },
     ]

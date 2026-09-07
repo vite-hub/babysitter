@@ -1,4 +1,4 @@
-import { createGitHubPullRequests, createGitHubPullRequestRun } from '@vite-hub/agent/server/github'
+import { createGitHubPullRequests, createGitHubPullRequestRun } from 'vite-hub/agent/server/github'
 import { createMessage, runScheduledAgent, publishAgentActivity } from 'vite-hub/agent'
 import { createWorkTracker, type WorkOutcome } from 'vite-hub/runtime'
 import { kv } from 'vite-hub/kv'

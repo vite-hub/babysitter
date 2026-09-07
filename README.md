@@ -97,12 +97,14 @@ Before/after images and demonstration videos are optional for Babysitter, includ
    pnpm dev
    ```
 
-To use Claude Code instead, install `@ai-sdk/harness-claude-code`, then replace `codexDriver()` with `claudeCodeDriver()` in the [agent definition](server/agents/babysitter/agent.ts).
+To use Claude Code instead, install and authenticate its CLI. In the [agent definition](server/agents/babysitter/agent.ts), set `driver.kind` to `claude-code`, choose a Claude model, and set the process host's `providerCommand` to `claude`.
 
 ## Operations
 
 `GET /api/health` reports provider availability, GitHub budget, admission, and stale
-invocations through ViteHub's `createAgentHealth`. The Agent module exports health
+invocations through ViteHub's `createAgentHealth`. Its Release diagnostic and each
+Agent Invocation identify the application commit embedded at build time.
+The Agent module exports health
 and Workspace inspection; `agentHostRoutes` generates their HTTP routes. `GET /api/drain` reports the process drain status. Drain active work
 before replacing a release. Build and typecheck the exact release commit, then
 verify health and a completed pass or justified wait after restart.
