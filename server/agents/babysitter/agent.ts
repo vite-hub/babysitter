@@ -7,10 +7,18 @@ import { useServerEnv } from '#vitehub/env/server'
 import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-hub/agent/server/github'
 import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { parseGitHubInstallations } from '../../babysitter.github.ts'
 import { resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
 
+const installations = parseGitHubInstallations(useServerEnv().github.installations)
+
 export const github = createGitHubHost({
-  credentials: () => useServerEnv().github,
+  credentials: ({ repository }) => {
+    const config = useServerEnv().github
+    const owner = repository?.split('/')[0]?.toLowerCase()
+    const installationId = owner ? installations[owner] : undefined
+    return installationId ? { ...config, owner, installationId } : config
+  },
   identity: {
     email: '320448255+vitehub-bot[bot]@users.noreply.github.com',
     login: 'vitehub-bot[bot]',

@@ -18,6 +18,7 @@ export default defineConfig({
         repository: env({ default: 'vite-hub/vitehub', source: env.source('BABYSITTER_REPO') }),
       },
       github: {
+        installations: env({ default: '', source: env.source('GITHUB_APP_INSTALLATIONS') }),
         appId: env({ default: '', source: env.source('GITHUB_APP_ID') }),
         installationId: env({ default: '', source: env.source('GITHUB_APP_INSTALLATION_ID') }),
         owner: env({ default: 'vite-hub', source: env.source('GITHUB_APP_OWNER') }),

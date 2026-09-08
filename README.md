@@ -87,7 +87,15 @@ Before/after images and demonstration videos are optional for Babysitter, includ
    pnpm dev
    ```
 
-   Repositories outside `GITHUB_APP_OWNER` keep using `GITHUB_TOKEN` or the host's existing `gh` login, so one Babysitter can retain queues that span accounts.
+   To use the same GitHub App across organizations in one server, map each owner to its approved installation ID:
+
+   ```sh
+   GITHUB_APP_INSTALLATIONS='{"vite-hub":156121915,"nuxt-modules":159985432}' \
+   BABYSITTER_REPOS=vite-hub/vitehub,nuxt-modules/better-auth \
+   pnpm dev
+   ```
+
+   Keep the App ID, private key, and default owner/installation settings above. Babysitter selects installation credentials by repository for discovery, checkouts, pushes, and activity comments. Both queues share `BABYSITTER_MAX_OWNERS`, saved invocation state, and `BABYSITTER_PUBLIC_URL`. Repositories outside the map and default owner keep using `GITHUB_TOKEN` or the host's existing `gh` login.
 
    To mirror invocation sessions and export completed OTLP traces to ViteHub Console, set its base URL and bearer token:
 
