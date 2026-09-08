@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  vite-hub@0.0.1:
+    hash: b2a54de4d8892484956f6e5951a5fc83af48c06124d243265ef86299f4b1889a
+    path: patches/vite-hub@0.0.1.patch
+
 importers:
 
   .:
@@ -19,7 +24,7 @@ importers:
         version: 8.2.2(@types/node@25.9.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)
       vite-hub:
         specifier: https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d
-        version: https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d(d8b1cdf37ff678c7a5a93a5e03475705)
+        version: https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d(patch_hash=b2a54de4d8892484956f6e5951a5fc83af48c06124d243265ef86299f4b1889a)(d8b1cdf37ff678c7a5a93a5e03475705)
     devDependencies:
       '@types/node':
         specifier: ^25.6.0
@@ -16132,7 +16137,7 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite-hub@https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d(d8b1cdf37ff678c7a5a93a5e03475705):
+  vite-hub@https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d(patch_hash=b2a54de4d8892484956f6e5951a5fc83af48c06124d243265ef86299f4b1889a)(d8b1cdf37ff678c7a5a93a5e03475705):
     dependencies:
       '@aws-sdk/client-s3': 3.1127.0
       '@aws-sdk/lib-storage': 3.1127.0(@aws-sdk/client-s3@3.1127.0)
