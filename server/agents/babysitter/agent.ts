@@ -85,7 +85,6 @@ const agent = defineAgent({
     model: 'gpt-6-astra',
     output: { schema: passResultSchema },
     permissions: 'allow-all',
-    sessionStorePath: host.providerSessionStorePath,
     reasoningEffort: 'medium',
   },
   invocations: host.invocations,

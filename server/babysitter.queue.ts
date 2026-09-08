@@ -4,7 +4,7 @@ export type { PullRequest } from 'vite-hub/agent/server/github'
 import { createHash } from 'node:crypto'
 
 export const defaultMaxOwners = '1'
-export const completionPolicyVersion = 'actionable-state-v8'
+export const completionPolicyVersion = 'actionable-state-v9'
 const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestJob = {
