@@ -39,7 +39,9 @@ the overall check result changes; failures remain actionable.
 
 The [agent prompt](server/agents/babysitter/prompt.template.md) owns review and merge
 policy. Each pass makes at most one repair commit, merges ready work, closes obsolete
-work, or records the next gate. It returns validated `{ disposition, text }` output.
+work, or records the next gate. Waiting for base CI or review does not stop
+independent review fixes or conflict repairs. An unchanged repair pass must explain
+what it attempted and the concrete reason it could not proceed. It returns validated `{ disposition, text }` output.
 
 ViteHub owns GitHub snapshots, exact-head checkouts, isolated credentials, session
 identity, activity comments, process capacity, invocation recovery, drain, and Console
