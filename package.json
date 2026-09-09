@@ -16,7 +16,7 @@
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
     "vite": "^8.2.2",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@aaad331bc2335bbf5b0decc3a4f05d66db10958a"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@1356"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
