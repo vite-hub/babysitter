@@ -9,6 +9,7 @@ const lifecycleLabels = new Set(['Agent: Queued', 'Agent: Working'])
 
 export type PullRequestJob = {
   completionKey: string
+  completionFingerprint: string
   fingerprint: string
   pullRequest: PullRequest
   repository: string
@@ -55,7 +56,7 @@ export async function selectPullRequestJobs(
     const key = `babysitter/${repository}/pull-requests/${pullRequest.number}`
     const completionFingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint)
     return completionFingerprint && await eligible(key, completionFingerprint)
-      ? { completionKey: key, fingerprint, pullRequest, repository }
+      ? { completionKey: key, completionFingerprint, fingerprint, pullRequest, repository }
       : undefined
   }))
 

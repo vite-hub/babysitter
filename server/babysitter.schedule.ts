@@ -84,7 +84,7 @@ export async function reconcileBabysitterWork(
       ...owner,
     })
     try {
-      await work.run(job.completionKey, successfulPassFingerprint(repository, pullRequest, policyFingerprint)!, async (): Promise<WorkOutcome> => {
+      await work.run(job.completionKey, job.completionFingerprint, async (): Promise<WorkOutcome> => {
         const waitingForChecks = pullRequestCheckState(pullRequest.statusCheckRollup) === 'pending'
           && pullRequestCheckState(pullRequest.requiredStatusCheckRollup, 'passed') !== 'failed'
           && pullRequest.feedback?.hasDiscussion === false
