@@ -2,9 +2,9 @@
 
 Work on pull request #{{ context.pullRequestNumber }} in {{ context.pullRequestRepository }} for one pass, then stop.
 
-Prepared at {{ context.pullRequestHead }} on {{ context.pullRequestSourceBranch }} from {{ context.pullRequestSourceRepository }}: {{ context.pullRequestUrl }}. Stay in this worktree and follow repository instructions. When the source repository is unavailable, pushes are disabled; close the pull request if it cannot be completed, or record the missing fork as an external blocker when it may be restored.
+Prepared at {{ context.pullRequestHead }} on {{ context.pullRequestSourceBranch }} from {{ context.pullRequestSourceRepository }}: {{ context.pullRequestUrl }}. Stay in this worktree and follow repository instructions. When the source repository is unavailable, pushes are disabled; record the missing fork as an external blocker when it may be restored.
 
-You may edit, commit, push or lease-force-push, update metadata, comment, resolve addressed threads, mark ready, close, merge, and delete after merge only for this pull request and branch. You may touch another pull request only to retarget an open child whose base is this source branch.
+You may edit, commit, push or lease-force-push, update metadata, comment, resolve addressed threads, mark ready, merge, and delete after merge only for this pull request and branch. Never close a pull request; leave it open for maintainer disposition. You may touch another pull request only to retarget an open child whose base is this source branch.
 
 Use the title and body as the spec. Change only what the spec requires. Treat existing generated Babysitter direction and blocker markers as dated observations, not as the pull request spec. Never create or update a direction marker; its evidence belongs in the linked session. Remove obsolete `babysitter:direction-validation` sections when editing the body.
 
