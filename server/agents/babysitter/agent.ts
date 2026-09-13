@@ -1,14 +1,16 @@
-import { github as githubSource } from 'vite-hub/workspace'
-import { defineAgent } from 'vite-hub/agent'
-import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
+import { defineAgent, type CodexDriverOptions } from 'vite-hub/agent'
+import { babysitter, type BabysitterPassResult } from 'vite-hub/agent/presets/babysitter'
+import { diagnostics, title } from 'vite-hub/agent/capabilities'
+import { createAgentEvlog } from 'vite-hub/agent/evlog'
+import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
 import { useServerEnv } from '#vitehub/env/server'
 import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-hub/agent/server/github'
 import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
+import { resolveMaxOwners, resolveRepositories } from '../../babysitter.config.ts'
 import { parseGitHubInstallations } from '../../babysitter.github.ts'
-import { resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
 
 const installations = parseGitHubInstallations(useServerEnv().github.installations)
 
@@ -26,12 +28,33 @@ export const github = createGitHubHost({
 })
 
 export const consoleClient = createAgentConsoleDelivery(useServerEnv().console)
+const observabilityConfig = useServerEnv().observability
+export const telemetry = createAgentEvlog({
+  service: 'babysitter',
+  environment: observabilityConfig.environment,
+  // Keep scheduler and per-PR worker telemetry in the same PostHog project.
+  // The worker's runtime identity is added automatically by ViteHub.
+  metadata: { agent_family: 'babysitter' },
+  level: 'standard',
+  ...(observabilityConfig.posthogApiKey ? {
+    exporter: posthogAgentExporter({
+      apiKey: observabilityConfig.posthogApiKey.unseal(),
+      host: observabilityConfig.posthogHost,
+      service: 'babysitter',
+    }),
+  } : {}),
+})
 
 const concurrency = resolveMaxOwners(useServerEnv().babysitter.maxOwners)
 
 export const host = await createProcessAgentHost({
   name: 'babysitter',
-  providerCommand: 'codex',
+  intervalMs: 10_000,
+  // The production process runs under the restricted `agents` account, whose
+  // PATH does not include the global Node bin directory consistently. Use the
+  // installed CLI's absolute path so the process health probe and invocations
+  // resolve the same executable as the CLI-proxy setup.
+  providerCommand: '/usr/bin/codex',
   capacity: {
     concurrency,
     fallbackConcurrency: Math.min(3, concurrency),
@@ -39,54 +62,52 @@ export const host = await createProcessAgentHost({
     sampleTimeoutMs: 5_000,
   },
   async run(reason, context, accepting) {
-    const { reconcileBabysitterWork } = await import('../../babysitter.schedule.ts')
-    await reconcileBabysitterWork(reason, context, accepting)
+    const { runtime } = await import('../../babysitter.runtime.ts')
+    await runtime.reconcile(reason, context, accepting)
   },
 })
 
-export type PassResult = { disposition: 'park' | 'retry', text: string }
-const passResultSchema = {
-  '~standard': {
-    version: 1 as const,
-    vendor: 'babysitter',
-    validate(value: unknown) {
-      if (value && typeof value === 'object' && 'disposition' in value && 'text' in value
-        && (value.disposition === 'park' || value.disposition === 'retry')
-        && typeof value.text === 'string' && value.text.trim()) {
-        return { value: { disposition: value.disposition, text: value.text } as PassResult }
-      }
-      return { issues: [{ message: 'Expected a park/retry disposition and a non-empty text result.' }] }
+const capabilities = [
+  diagnostics({ resources: nodeRuntimeResources() }),
+  title({
+    execute: ({ input }) => {
+      const context = input.context as { pullRequestTitle: string }
+      return context.pullRequestTitle
     },
-  },
+  }),
+  ...(consoleClient ? [consoleClient.capability] : []),
+  telemetry.capability,
+] as const
+
+function workerEnvironment() {
+  return {
+    ...(process.env.CLIPROXY_API_KEY ? { CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY } : {}),
+    ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
+    NODE_OPTIONS: '--max-old-space-size=1024',
+  }
+}
+const babysitterDriver: CodexDriverOptions<BabysitterPassResult> & { kind: 'codex' } = {
+  kind: 'codex',
+  capacity: host.capacity,
+  // The service cannot read the interactive user's Codex configuration.
+  env: workerEnvironment,
+  model: 'gpt-6-astra',
+  permissions: 'allow-edits',
+  reasoningEffort: 'medium',
 }
 
-const capabilities = [
-  ...['code-review', 'resolving-merge-conflicts'].map(name => skills({
-    id: `skills.${name}`,
-    path: `skills/${name}`,
-    source: githubSource({ repo: 'vite-hub/vitehub', ref: '724a19c68157518d1ec67b3129af44488ce7e784', root: `docs/skills/${name}`, include: ['SKILL.md', 'references/**'], materialize: 'build' }),
-    shellExecution: 'write',
-  })),
-  diagnostics({ resources: nodeRuntimeResources() }), title({
-  execute: ({ input }) => {
-    const context = input.context as { pullRequestTitle: string }
-    return context.pullRequestTitle
-  },
-}), ...(consoleClient ? [consoleClient.capability] : [])] as const
 const agent = defineAgent({
+  preset: 'babysitter',
+  presets: { babysitter },
+  options: {
+    filter: { author: { allow: ['onmax'] } },
+    autoMerge: false,
+  },
   capabilities,
   channels: {
-    github: github.channel({ activity: true }),
+    github: github.channel({ activity: true, pullRequest: false, webhooks: false }),
   },
-  driver: {
-    kind: 'codex',
-    capacity: host.capacity,
-    env: async () => ({ ...await github.environment(), NODE_OPTIONS: '--max-old-space-size=1024' }),
-    model: 'gpt-6-astra',
-    output: { schema: passResultSchema },
-    permissions: 'allow-all',
-    reasoningEffort: 'medium',
-  },
+  driver: babysitterDriver,
   invocations: host.invocations,
   name: 'babysitter',
   version: usePublicEnv().releaseRevision,
@@ -96,29 +117,22 @@ export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, 
 export const health = createAgentHealth({
   name: 'Babysitter', agent: () => agent, process: host, github,
   console: () => Boolean(consoleClient),
-  async workload() { return (await import('../../babysitter.schedule.ts')).babysitterWorkload() },
-  diagnostics() {
+  async workload() { return (await import('../../babysitter.runtime.ts')).runtime.workload() },
+  async diagnostics() {
     const config = useServerEnv().babysitter
+    const { runtime } = await import('../../babysitter.runtime.ts')
+    const queue = runtime.inbox.summary()
+    const waiting = queue.filter(item => item.status === 'waiting').length
+    const ready = queue.filter(item => item.status === 'ready').length
+    const retrying = queue.filter(item => item.attempts >= 3 && item.status !== 'terminal').length
     const repositories = resolveRepositories(config.repositories, config.repository)
     return [
       { label: 'Release', status: 'ok', value: usePublicEnv().releaseRevision },
       { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
-      { label: 'Work discovery', status: 'ok', value: 'On demand', detail: 'Startup, owner completion, and 2m repair scan' },
+      { label: 'Work discovery', status: 'ok', value: 'Durable PR inbox', detail: 'Webhooks and local 10s retry timer; REST recovery every 15–30m' },
+      { label: 'PR queue', status: retrying ? 'warning' : 'ok', value: `${ready} ready · ${waiting} waiting`, detail: `${retrying} PRs with repeated unsuccessful passes` },
     ]
   },
 })
-
-export function createBabysitterAgent(checkout: string) {
-  if (!checkout) throw new Error('Babysitter requires a checkout.')
-  return defineAgent({
-    extends: agent,
-    name: 'babysitter',
-    workspace: {
-      commit: true,
-      mode: 'write',
-      store: { provider: 'local', root: checkout },
-    },
-  })
-}
 
 export default agent

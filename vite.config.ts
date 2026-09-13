@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { processAgentHost, agentHostRoutes } from 'vite-hub/agent/vite'
 import { env } from 'vite-hub/env'
-import { defaultMaxOwners } from './server/babysitter.queue.ts'
+import { defaultMaxOwners } from './server/babysitter.config.ts'
 
 export default defineConfig({
   env: {
@@ -23,11 +23,17 @@ export default defineConfig({
         installationId: env({ default: '', source: env.source('GITHUB_APP_INSTALLATION_ID') }),
         owner: env({ default: 'vite-hub', source: env.source('GITHUB_APP_OWNER') }),
         privateKey: env({ optional: true, secret: true, source: env.source('GITHUB_APP_PRIVATE_KEY') }),
+        webhookSecret: env({ optional: true, secret: true, source: env.source('GITHUB_WEBHOOK_SECRET') }),
         token: env({ optional: true, secret: true, source: env.source('GITHUB_TOKEN') }),
       },
       console: {
         url: env({ optional: true, source: env.source('VITEHUB_CONSOLE_URL') }),
         token: env({ optional: true, secret: true, source: env.source('VITEHUB_CONSOLE_TOKEN') }),
+      },
+      observability: {
+        posthogApiKey: env({ optional: true, secret: true, source: env.source('POSTHOG_API_KEY') }),
+        posthogHost: env({ default: 'https://us.i.posthog.com', source: env.source('POSTHOG_HOST') }),
+        environment: env({ default: 'production', source: env.source('NODE_ENV') }),
       },
     },
   },

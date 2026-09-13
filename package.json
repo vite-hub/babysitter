@@ -13,10 +13,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "evlog": "^2.29.0",
     "h3": "^2.0.1-rc.25",
     "nitro": "3.0.260429-beta",
+    "posthog-node": "^5.52.1",
     "vite": "^8.2.2",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@6728446c0ba56ae2903e53239a72c430d32d4f1d"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@056d5a77b465e3cbdb111d6c96f73d3dc46a5c85"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
