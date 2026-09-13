@@ -93,7 +93,7 @@ const babysitterDriver: CodexDriverOptions<BabysitterPassResult> & { kind: 'code
   // The service cannot read the interactive user's Codex configuration.
   env: workerEnvironment,
   model: 'gpt-6-astra',
-  permissions: 'allow-edits',
+  permissions: 'allow-all',
   reasoningEffort: 'medium',
 }
 

@@ -29,6 +29,34 @@ index 61a3dac22081629f11830cc2627ba8407da6d5e6..2db8e899e2af76421a5c3624ca37d7ec
  const babysitter = defineAgent({
  	options: {
  		filter: {},
+diff --git a/dist/github-CSg5aq9A.js b/dist/github-CSg5aq9A.js
+index ae54cf69f64fe2c7bdc76163831f3ffbf9bdd2b7..aa2d123777611bac11ba2a784630475966eb19a0 100644
+--- a/dist/github-CSg5aq9A.js
++++ b/dist/github-CSg5aq9A.js
+@@ -727,6 +727,12 @@ function createGitHubHost(options) {
+ 				"HEAD"
+ 			], commandOptions)).stdout.trim();
+ 			if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` });
++			// The credential-free worker must be able to inspect HEAD against each parent offline.
++			// Checkout already hydrated HEAD; diff stat hydrates only changed parent blobs.
++			await exec("git", [
++				"-C", checkout, "diff-tree", "--root", "-m", "-r", "--stat",
++				"--no-renames", "--no-ext-diff", "--no-textconv", fetched
++			], commandOptions);
+ 			operation.signal.throwIfAborted();
+ 			const prepareWorkspace = async (target) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal });
+ 			let pushHead = pullRequest.headSha;
+@@ -824,7 +830,9 @@ function createGitHubHost(options) {
+ 			operation.close();
+ 			await rm(checkout, {
+ 				force: true,
+-				recursive: true
++				recursive: true,
++				maxRetries: 5,
++				retryDelay: 100
+ 			});
+ 		}
+ 	}
 diff --git a/dist/github-inbox-B8IqHNIK.d.ts b/dist/github-inbox-B8IqHNIK.d.ts
 index 9c374bb668d7cfc0a8cb2ac232de241663f182ba..521997331a427b848c5f31cd34eb4a98881bbbe4 100644
 --- a/dist/github-inbox-B8IqHNIK.d.ts
@@ -502,7 +530,7 @@ index 0000000000000000000000000000000000000000..0d4a177c58760287e04f5c438d98961f
 +    return states.includes('pending') ? 'pending' : 'passed';
 +}
 diff --git a/dist/presets/babysitter/server.js b/dist/presets/babysitter/server.js
-index 18713426ebfbcb7b93d7b8e55dd526c9a79aaabb..d7b9673f1d2a021d03c706246a06e6d9c5807e6d 100644
+index 18713426ebfbcb7b93d7b8e55dd526c9a79aaabb..8addf54978d489ad38ac2ce35a341fba144ae794 100644
 --- a/dist/presets/babysitter/server.js
 +++ b/dist/presets/babysitter/server.js
 @@ -1,10 +1,15 @@
@@ -611,7 +639,8 @@ index 18713426ebfbcb7b93d7b8e55dd526c9a79aaabb..d7b9673f1d2a021d03c706246a06e6d9
  						capabilities: [repairCapability(operations, presetOptions.autoMerge)],
  						driver: {
  							...workerDriver,
- 							permissions: "allow-edits",
+-							permissions: "allow-edits",
++							permissions: workerDriver.permissions ?? "allow-edits",
 +							output: { schema: babysitterPassResultSchema },
  							env: async (context) => {
  								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
@@ -822,6 +851,28 @@ index 0000000000000000000000000000000000000000..9a3acce253c6c3f2b16feac99bc526f0
 +        return false; // optional CI must not strand merge-ready work
 +    return false; // an unknown policy cannot turn optional CI into a durable blocker
 +}
+diff --git a/dist/provider-agent-CGN8BThL.js b/dist/provider-agent-CGN8BThL.js
+index 7021f95d54f894fd727cf97ab8f59137218b7675..be311f40dc99363d20c761d4c1e0784b2af32ea3 100644
+--- a/dist/provider-agent-CGN8BThL.js
++++ b/dist/provider-agent-CGN8BThL.js
+@@ -1530,7 +1530,7 @@ async function prepareWorkspace(context, root) {
+ async function closeWorkspace(context, session, error, abortSignal) {
+ 	if (!session) return;
+ 	try {
+-		if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return;
++		if (error || !context.workspaceDefinition || context.workspaceMode !== "write" || context.workspaceAutoCommit === false) return;
+ 		const diff = await session.diff({ abortSignal });
+ 		const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit);
+ 		const commit = resolveWorkspaceAutoCommit(definition, diff);
+@@ -1541,7 +1541,7 @@ async function closeWorkspace(context, session, error, abortSignal) {
+ 		});
+ 		setAgentWorkspaceDiff(context.context, diff);
+ 	} finally {
+-		await session.close({ abortSignal });
++		await session.close({ abortSignal, discard: true });
+ 	}
+ }
+ async function resolveInstructions(options, context) {
 diff --git a/dist/server.js b/dist/server.js
 index 0818b4d8d9887087e27a2edf5e66763acb0beacf..1ce51f62a347ae3955b6375b12619ab0bfb9104c 100644
 --- a/dist/server.js
