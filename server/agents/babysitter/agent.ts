@@ -88,6 +88,7 @@ function workerEnvironment() {
 }
 const babysitterDriver: CodexDriverOptions<BabysitterPassResult> & { kind: 'codex' } = {
   kind: 'codex',
+  providerSettings: { binaryPath: '/usr/bin/codex' },
   capacity: host.capacity,
   // The service cannot read the interactive user's Codex configuration.
   env: workerEnvironment,

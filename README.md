@@ -69,4 +69,4 @@ The receiver verifies signatures and passes deliveries to the upstream durable i
 
 The application keeps the existing `.vitehub/pull-request-inbox.sqlite` location. Back up persistent state before deploying an upstream inbox schema change. The upstream runtime recovers expired claims. Restarting preserves unexpired leases, so a claimed PR can wait until its lease expires before another worker takes it.
 
-This repository has no pnpm patches or local copies of the preset workflow. Fix shared behavior in ViteHub, then update the pinned package dependency here.
+The preset workflow comes from ViteHub. A pnpm patch preserves the verified CI waiting and evidence fixes and corrects App authentication health checks until they are published upstream. After updating the pinned dependency, verify those behaviors before removing the patch.
