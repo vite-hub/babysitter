@@ -370,7 +370,10 @@ export async function reconcileBabysitterWork(
         ...owner,
       })
       active.delete(`${repository}#${number}`)
-      host.wake()
+      // The process host may coalesce a wake while this batch is still
+      // completing. Schedule the next admission after releasing the lease so
+      // ready PRs continue draining up to the configured capacity.
+      setTimeout(() => host.wake(), 100)
     }
   })).then(() => {}).finally(() => {
     schedulerEvent('babysitter.batch.finished', {
