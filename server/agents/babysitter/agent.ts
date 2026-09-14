@@ -131,7 +131,7 @@ const agent = defineAgent({
 })
 
 export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, invocations: host.invocations })
-export const health = createAgentHealth({
+const readHealth = createAgentHealth({
   name: 'Babysitter', agent: () => agent, process: host, github,
   console: () => Boolean(consoleClient),
   async workload() { return (await import('../../babysitter.schedule.ts')).babysitterWorkload() },
@@ -151,26 +151,13 @@ export const health = createAgentHealth({
   },
 })
 
-// Let module initialization finish before waking: the scheduler imports this
-// agent module, so an eager wake here would be lost during the circular load.
-// Keep a lightweight heartbeat as a safety net for durable ready work. The
-// scheduler's inbox/coalescing gates make this an admission check, not a model
-// invocation; CI/review waits remain parked until a relevant webhook arrives.
-setTimeout(() => {
-  host.wake()
-  // Wake the process host often enough to drain durable ready work. The
-  // scheduler still owns admission, deduplication, and CI waiting.
-  setInterval(() => host.wake(), 10_000)
-  let reconciling = false
-  setInterval(() => {
-    if (reconciling) return
-    reconciling = true
-    void import('../../babysitter.schedule.ts').then(({ reconcileBabysitterWork }) =>
-      reconcileBabysitterWork('timer', { track: promise => promise }),
-    ).catch(error => host.error('babysitter.timer.failed', error))
-      .finally(() => { reconciling = false })
-  }, 15_000)
-}, 5_000)
+export async function health() {
+  const result = await readHealth()
+  const workload = (await import('../../babysitter.schedule.ts')).babysitterWorkload()
+  // ViteHub overwrites the workload callback's queue count with the provider
+  // semaphore's pending count. Our durable PR queue also includes CI waits.
+  return { ...result, workload: { ...result.workload, ...workload } }
+}
 
 export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
