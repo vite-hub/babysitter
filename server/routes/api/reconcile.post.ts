@@ -1,7 +1,6 @@
-import { reconcileBabysitterWork } from '../../babysitter.schedule.ts'
-
 export default defineEventHandler(async () => {
   try {
+    const { reconcileBabysitterWork } = await import('../../babysitter.schedule.ts')
     await reconcileBabysitterWork('http', { track: promise => promise })
     return { ok: true }
   } catch (error) {
