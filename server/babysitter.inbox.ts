@@ -11,6 +11,7 @@ export type Snapshot = {
   waitForChecks?: CheckWait
   requiredCheckEvidence?: Json
   repository: string; number: number; pr: Json | null
+  lastPassFingerprint?: string
   generation: number; handled: number; dirtyAt: number; nextAt: number; revision?: number
   status: 'ready' | 'working' | 'waiting' | 'attention' | 'terminal'
   lease: string | null; leaseUntil: number; attempts: number
@@ -26,6 +27,13 @@ const ownBots = new Set(['vitehub-bot', 'vitehub-bot[bot]', 'pkg-pr-new[bot]'])
 const reviewBots = /pullfrog|codex|coderabbit|copilot|greptile|cursor|claude|gemini|qodo|sourcery/i
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const stamp = (value: Json) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
+function passFingerprint(s: Snapshot): string {
+  return digest({
+    head: s.pr?.head?.sha, base: s.pr?.base?.sha, mergeable: s.pr?.mergeable,
+    mergeableState: s.pr?.mergeable_state, comments: s.comments, reviews: s.reviews,
+    reviewComments: s.reviewComments, threads: s.threads, checks: s.checks, statuses: s.statuses,
+  })
+}
 // REST webhooks and ViteHub's discovery response use different field names.
 // Persist one shape so authored PRs and head-matched checks can be claimed.
 export const normalizePullRequest = (pr: Json): Json => ({
@@ -254,6 +262,12 @@ export class PullRequestInbox {
       for (const s of all.sort((a,b) => a.dirtyAt - b.dirtyAt || a.number - b.number)) {
         if (claims.length >= limit) break
         if (s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now || (s.cancellationUntil ?? 0) > now) continue
+        // A waiting result is keyed to the complete durable PR state. Ignore
+        // duplicate deliveries that recreate the same generation, and mark
+        // that generation handled so it cannot spin back into the queue.
+        if (s.status === 'ready' && s.lastPassFingerprint === passFingerprint(s)) {
+          s.status = 'waiting'; s.handled = s.generation; s.reasons = []; this.put(s); continue
+        }
         if (s.pr && s.pr.user?.login !== 'onmax') continue
         // Stacked PRs may run in parallel. Each worker checks the current base
         // and head before editing, and GitHub remains the merge gate.
@@ -299,6 +313,7 @@ export class PullRequestInbox {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token) return false
       s.lease = null; s.leaseUntil = 0; s.lastResult = result.text
+      s.lastPassFingerprint = passFingerprint(claim.snapshot)
       s.waitForChecks = result.cancelled || result.terminal ? undefined : result.waitForChecks
       if (result.cancelled) {
         s.cancellationStreak = (s.cancellationStreak ?? 0) + 1
