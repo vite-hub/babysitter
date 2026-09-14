@@ -133,7 +133,9 @@ export function babysitterWorkload() {
   const snapshots = pullRequestInbox.summary()
   return {
     running: snapshots.filter(item => item.status === 'working').length,
-    queued: snapshots.filter(item => item.status === 'ready' && item.dirty).length,
+    // Durable PR work includes ready repairs and waiting PRs. Waiting work
+    // has no live host invocation, but it must remain visible in the queue.
+    queued: snapshots.filter(item => item.status === 'ready' || item.status === 'waiting').length,
   }
 }
 

@@ -1,3 +1,5 @@
+import { defineEventHandler } from 'h3'
+
 export default defineEventHandler(async () => {
   try {
     const { reconcileBabysitterWork } = await import('../../babysitter.schedule.ts')

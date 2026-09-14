@@ -255,8 +255,8 @@ export class PullRequestInbox {
         if (claims.length >= limit) break
         if (s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now || (s.cancellationUntil ?? 0) > now) continue
         if (s.pr && s.pr.user?.login !== 'onmax') continue
-        // Stack children remain local; a parent merge's base push wakes them.
-        if (s.pr?.base?.ref && all.some(parent => parent.repository === s.repository && parent.number !== s.number && String(parent.pr?.state).toLowerCase() === 'open' && parent.pr?.head?.ref === s.pr?.base?.ref)) continue
+        // Stacked PRs may run in parallel. Each worker checks the current base
+        // and head before editing, and GitHub remains the merge gate.
         s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'
         this.put(s); claims.push({ token: s.lease, generation: s.generation, snapshot: structuredClone(s) })
       }
