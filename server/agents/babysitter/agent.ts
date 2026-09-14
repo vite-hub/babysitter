@@ -156,7 +156,9 @@ export const health = createAgentHealth({
 // invocation; CI/review waits remain parked until a relevant webhook arrives.
 setTimeout(() => {
   host.wake()
-  setInterval(() => host.wake(), 60 * 60 * 1000)
+  // Wake the process host often enough to drain durable ready work. The
+  // scheduler still owns admission, deduplication, and CI waiting.
+  setInterval(() => host.wake(), 10_000)
 }, 5_000)
 
 export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
