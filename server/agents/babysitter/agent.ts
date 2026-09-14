@@ -143,7 +143,7 @@ export const health = createAgentHealth({
     return [
       { label: 'Release', status: 'ok', value: usePublicEnv().releaseRevision },
       { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
-      { label: 'Work discovery', status: 'ok', value: 'Durable PR inbox', detail: 'Webhooks and local 10s retry timer; REST recovery every 15–30m' },
+      { label: 'Work discovery', status: 'ok', value: 'Durable PR inbox', detail: 'Webhook intake with hourly reconciliation' },
       { label: 'PR queue', status: retrying ? 'warning' : 'ok', value: `${ready} ready · ${waiting} waiting`, detail: `${retrying} PRs with repeated unsuccessful passes` },
     ]
   },
