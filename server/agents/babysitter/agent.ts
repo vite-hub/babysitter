@@ -164,7 +164,7 @@ setTimeout(() => {
     if (reconciling) return
     reconciling = true
     void import('../../babysitter.schedule.ts').then(({ reconcileBabysitterWork }) =>
-      reconcileBabysitterWork('timer', { track: promise => { void promise } }),
+      reconcileBabysitterWork('timer', { track: promise => promise }),
     ).finally(() => { reconciling = false })
   }, 60_000)
 }, 5_000)
