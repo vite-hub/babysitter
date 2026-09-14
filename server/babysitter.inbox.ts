@@ -279,7 +279,12 @@ export class PullRequestInbox {
         // A waiting result is keyed to the complete durable PR state. Ignore
         // duplicate deliveries that recreate the same generation, and mark
         // that generation handled so it cannot spin back into the queue.
-        if (s.status === 'ready' && s.lastPassFingerprint === passFingerprint(s)) {
+        // A prior pass may have parked a clean, unchanged head while CI or a
+        // review is pending. Never suppress a PR that is conflicting or
+        // behind, because those states are repair work.
+        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
+        const repairableMergeState = s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind'
+        if (s.status === 'ready' && !repairableMergeState && s.waitForChecks && s.lastPassFingerprint === passFingerprint(s)) {
           s.status = 'waiting'; s.handled = s.generation; s.reasons = []; this.put(s); continue
         }
         if (s.pr && s.pr.user?.login !== 'onmax') continue
