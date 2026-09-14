@@ -28,10 +28,19 @@ const reviewBots = /pullfrog|codex|coderabbit|copilot|greptile|cursor|claude|gem
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const stamp = (value: Json) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
 function passFingerprint(s: Snapshot): string {
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stable)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(Object.entries(value as Json)
+      .filter(([key]) => !/(?:^|_)(?:updated|created|started|completed|received|timestamp)(?:At|_at)?$/.test(key)
+        && key !== 'url' && key !== 'html_url')
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => [key, stable(item)]))
+  }
   return digest({
     head: s.pr?.head?.sha, base: s.pr?.base?.sha, mergeable: s.pr?.mergeable,
-    mergeableState: s.pr?.mergeable_state, comments: s.comments, reviews: s.reviews,
-    reviewComments: s.reviewComments, threads: s.threads, checks: s.checks, statuses: s.statuses,
+    mergeableState: s.pr?.mergeable_state, comments: stable(s.comments), reviews: stable(s.reviews),
+    reviewComments: stable(s.reviewComments), threads: stable(s.threads), checks: stable(s.checks), statuses: stable(s.statuses),
   })
 }
 // REST webhooks and ViteHub's discovery response use different field names.
