@@ -360,6 +360,11 @@ export class PullRequestInbox {
     // Called once by the process owning this database, after the old process exits.
     this.transaction(() => {
       for (const s of this.all()) {
+        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
+        if (!s.lease && s.status === 'waiting'
+          && (s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind')) {
+          this.dirty(s, 'conflict-recovery')
+        }
         // Older releases permanently parked retryable failures after three
         // attempts. Resume that legacy state once under bounded retries.
         const legacyRetry = s.status === 'attention'
@@ -369,11 +374,6 @@ export class PullRequestInbox {
         // Releases before the conflict wake fix could park a conflicting PR
         // behind the duplicate-pass fingerprint guard. Requeue that durable
         // state once when the process starts.
-        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
-        if (!s.lease && s.status === 'waiting'
-          && (s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind')) {
-          this.dirty(s, 'conflict-recovery')
-        }
         if (s.status !== 'terminal') s.status = 'ready'
         this.put(s)
       }
