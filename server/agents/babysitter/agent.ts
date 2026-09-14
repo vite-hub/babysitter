@@ -75,7 +75,6 @@ const capabilities = [
   // Keep this skill colocated with the Babysitter agent so every worker
   // invocation receives the same conflict-resolution procedure as the code.
   skills({ id: 'skills.resolving-merge-conflicts', path: 'skills/resolving-merge-conflicts', shellExecution: 'write' }),
-  skills({ id: 'skills.unslop', path: 'skills/unslop', shellExecution: 'write' }),
   diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
