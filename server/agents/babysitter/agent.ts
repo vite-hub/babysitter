@@ -165,8 +165,9 @@ setTimeout(() => {
     reconciling = true
     void import('../../babysitter.schedule.ts').then(({ reconcileBabysitterWork }) =>
       reconcileBabysitterWork('timer', { track: promise => promise }),
-    ).finally(() => { reconciling = false })
-  }, 60_000)
+    ).catch(error => host.error('babysitter.timer.failed', error))
+      .finally(() => { reconciling = false })
+  }, 15_000)
 }, 5_000)
 
 export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
