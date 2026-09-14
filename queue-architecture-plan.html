@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Babysitter queue architecture</title>
+<style>
+  :root{font:16px/1.45 system-ui,sans-serif;color:#172033;background:#f6f8fb}
+  body{max-width:1180px;margin:0 auto;padding:32px 22px 60px}
+  h1{font-size:30px;margin:0 0 8px} h2{font-size:20px;margin:32px 0 12px}
+  p{max-width:850px;color:#536078}.diagram{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin:16px 0 10px}
+  .box{flex:1 1 150px;min-height:96px;padding:16px;border-radius:12px;background:#fff;border:1px solid #d9e0eb;box-shadow:0 2px 8px #1720330d}
+  .box strong{display:block;margin-bottom:6px}.arrow{display:grid;place-items:center;color:#71809a;font-size:24px;min-width:20px}
+  .blue{border-color:#85b7ff;background:#f5f9ff}.green{border-color:#8dd6b1;background:#f3fcf7}.amber{border-color:#f1c778;background:#fffaf0}.red{border-color:#f0a3a3;background:#fff7f7}
+  code{font-size:.9em;background:#edf1f7;padding:2px 5px;border-radius:4px}.note{font-size:14px;color:#64748b}
+  table{border-collapse:collapse;width:100%;background:white;border:1px solid #d9e0eb}th,td{text-align:left;padding:11px;border-bottom:1px solid #e7ebf2;vertical-align:top}th{background:#f0f4f9}
+  .state{display:inline-block;padding:5px 9px;border-radius:999px;background:#e8eef8;margin:3px 4px 3px 0;font-size:14px}
+</style>
+<body>
+<h1>Babysitter: webhook-first PR queue</h1>
+<p>The queue is the source of truth. GitHub calls wake it; agents consume one coalesced PR generation. GraphQL is a targeted verification call, not the scheduler.</p>
+
+<h2>1. Event flow and durable queue</h2>
+<div class="diagram">
+  <div class="box blue"><strong>GitHub webhook</strong><code>pull_request</code><br><code>check_run</code><br><code>pull_request_review</code><br><code>issue_comment</code></div>
+  <div class="arrow">→</div>
+  <div class="box blue"><strong>ViteHub webhook intake</strong>Verify signature.<br>Deduplicate by delivery ID.<br>Return HTTP 202 quickly.</div>
+  <div class="arrow">→</div>
+  <div class="box green"><strong>PR snapshot + queue item</strong>One JSON document per PR: head SHA, author, state, comments, reviews, checks, conflicts, generation, timestamps.</div>
+  <div class="arrow">→</div>
+  <div class="box green"><strong>ViteHub durable queue</strong>Oldest dirty generation first.<br>Lease prevents duplicate owners.<br>Events coalesce before claim.</div>
+  <div class="arrow">→</div>
+  <div class="box amber"><strong>Babysitter owner</strong>Claims one PR generation and receives the prepared snapshot plus checkout.</div>
+</div>
+<p class="note">A burst of five webhooks for PR #1351 becomes one queue item for generation 42. The agent sees the merged JSON and does one pass.</p>
+
+<h2>2. One agent pass</h2>
+<div class="diagram">
+  <div class="box amber"><strong>Claim</strong>Oldest dirty PR.<br>Verify lease and generation.</div><div class="arrow">→</div>
+  <div class="box amber"><strong>Inspect snapshot</strong>Use stored checks, reviews, comments and head SHA. No discovery GraphQL.</div><div class="arrow">→</div>
+  <div class="box amber"><strong>One targeted refresh</strong>Only if required data is missing or the head changed.</div><div class="arrow">→</div>
+  <div class="box blue"><strong>Act</strong>Repair CI/review/conflict, push one commit, or merge the verified SHA.</div><div class="arrow">→</div>
+  <div class="box green"><strong>Finish</strong>Persist result. Wait for the next webhook. New generation during the pass remains queued.</div>
+</div>
+
+<h2>3. Explicit state machine</h2>
+<div class="diagram">
+  <div class="box blue"><strong>dirty</strong>Webhook changed the PR.</div><div class="arrow">→</div>
+  <div class="box amber"><strong>working</strong>One lease and one agent.</div><div class="arrow">→</div>
+  <div class="box amber"><strong>waiting</strong><span class="state">checks</span><span class="state">review</span><span class="state">external CI</span></div><div class="arrow">→</div>
+  <div class="box green"><strong>ready_to_merge</strong>Exact head, author, checks and feedback satisfy policy.</div><div class="arrow">→</div>
+  <div class="box green"><strong>merged</strong>Terminal success.</div>
+</div>
+<p class="note">Closed PRs become <code>cancelled</code>. A new head while an owner is running creates a new generation and cancels stale merge work.</p>
+
+<h2>Ownership</h2>
+<table><tr><th>ViteHub generic</th><th>Babysitter GitHub adapter</th></tr>
+<tr><td>Webhook verification, delivery dedupe, durable JSON snapshots, queue ordering, coalescing, leases, retries, cancellation, wake-up and telemetry.</td><td>PR event normalization, checks/reviews/comments projection, exact-head checkout, push, merge policy, author policy and repair prompt.</td></tr></table>
+
+<h2>Pullfrog rule</h2>
+<p>Pullfrog is an input event, not a permanent polling gate. If a matching review exists, use it. If no review arrives, issue one recovery request for the exact head. If Pullfrog is unavailable and there are no actionable findings, continue to the normal merge gate instead of spending repeated full agent passes.</p>
+</body>
+</html>

@@ -1,0 +1,56 @@
+diff --git a/dist/server/github.js b/dist/server/github.js
+index 911563e363d131e6416b330ed39bc3e3f86f75ec..89570b8aafbdc4b0697e6a00419d936119d8bb70 100644
+--- a/dist/server/github.js
++++ b/dist/server/github.js
+@@ -549,25 +549,33 @@ function createGitHubHost(options) {
+ 				maxBuffer,
+ 				signal: operation.signal
+ 			};
+-			await exec("gh", [
+-				"repo",
+-				"clone",
+-				`https://github.com/${pullRequest.repository}.git`,
+-				checkout,
+-				"--",
+-				"--filter=blob:none",
+-				"--no-checkout"
++			// Preparing a checkout needs no GitHub API or synthetic PR refs.
++			// GitHub can leave refs/pull/N/head stale after a source branch push.
++			await exec("git", [
++				"clone", "--filter=blob:none", "--no-checkout", "--",
++				`https://github.com/${pullRequest.repository}.git`, checkout
+ 			], commandOptions);
+-			await exec("gh", [
+-				"pr",
+-				"checkout",
+-				String(pullRequest.number),
+-				"--repo",
+-				pullRequest.repository
+-			], {
+-				...commandOptions,
+-				cwd: checkout
+-			});
++			if (pullRequest.headRepository && !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." });
++			if (pullRequest.headRef) {
++				await exec("git", ["check-ref-format", "--branch", pullRequest.headRef], commandOptions);
++				const sourceRepository = pullRequest.headRepository || pullRequest.repository;
++				const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({
++					refresh: true, repository: sourceRepository, signal: operation.signal
++				});
++				await exec("git", ["-C", checkout, "fetch", "--no-tags", "--",
++					`https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`
++				], { ...commandOptions, env: { ...commandOptions.env, ...sourceAuth.env } });
++			} else {
++				// Read-only callers without source metadata can fetch the pinned
++				// object directly; pushing stays disabled below.
++				await exec("git", ["-C", checkout, "fetch", "--no-tags", "origin", pullRequest.headSha], commandOptions);
++			}
++			if (pullRequest.headRef) {
++				await exec("git", ["check-ref-format", "--branch", pullRequest.headRef], commandOptions);
++				await exec("git", ["-C", checkout, "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions);
++			} else {
++				await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions);
++			}
+ 			await exec("git", [
+ 				"-C",
+ 				checkout,

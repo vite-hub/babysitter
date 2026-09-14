@@ -35,11 +35,13 @@ export async function selectPullRequestJobs(
   listPullRequests: (repository: string) => Promise<PullRequest[]>,
   eligible: (key: string, fingerprint: string) => Promise<boolean>,
   policyFingerprint: string,
+  force = false,
 ) {
   const byRepository = await Promise.all(repositories.map(async (repository) => {
     try {
       const pullRequests = await listPullRequests(repository)
       return pullRequests
+        .filter(pullRequest => (pullRequest as PullRequest & { author?: { login?: string } }).author?.login === 'onmax')
         .filter(pullRequest => !hasOpenStackParent(pullRequest, pullRequests))
         .map(pullRequest => ({ pullRequest, repository }))
     }
@@ -54,7 +56,13 @@ export async function selectPullRequestJobs(
     const fingerprint = pullRequestFingerprint(repository, pullRequest, policyFingerprint)
     const key = `babysitter/${repository}/pull-requests/${pullRequest.number}`
     const completionFingerprint = successfulPassFingerprint(repository, pullRequest, policyFingerprint)
-    return completionFingerprint && await eligible(key, completionFingerprint)
+    const actionable = pullRequestCheckState(pullRequest.statusCheckRollup) === 'failed'
+      || ['DIRTY', 'BEHIND'].includes(pullRequest.mergeStateStatus)
+    // A completed parked pass must not hide work that still has a failed
+    // check or merge conflict. Use the live state fingerprint for those
+    // items so the repair scan admits them again.
+    return force
+      || (completionFingerprint && await eligible(key, actionable ? fingerprint : completionFingerprint))
       ? { completionKey: key, fingerprint, pullRequest, repository }
       : undefined
   }))

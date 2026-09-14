@@ -126,7 +126,16 @@ function cancelWhenPullRequestStops(claim: Claim, controller: AbortController, p
   return () => { stopped = true; clearInterval(interval) }
 }
 
-export function babysitterWorkload() { return { running: active.size } }
+export function babysitterWorkload() {
+  // The scheduler's in-memory set can briefly diverge from ViteHub's durable
+  // invocation state during provider startup/recovery. Report the inbox as
+  // the source of truth so open actionable PRs are visible as queued work.
+  const snapshots = pullRequestInbox.summary()
+  return {
+    running: snapshots.filter(item => item.status === 'working').length,
+    queued: snapshots.filter(item => item.status === 'ready' && item.dirty).length,
+  }
+}
 
 export async function reconcileBabysitterWork(
   reason: string,

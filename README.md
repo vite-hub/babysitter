@@ -1,51 +1,54 @@
 # Babysitter
 
-Babysitter is a [ViteHub](https://github.com/vite-hub/vitehub) agent that converges open pull requests across configured GitHub repositories in bounded repair passes. It discovers work on startup, after an owner finishes, and through a two-minute repair scan. A shared adaptive capacity gate starts only the work that the host can support and keeps the rest as pending Agent Invocations.
+Babysitter uses ViteHub agents to repair and squash-merge pull requests authored by `onmax`. GitHub webhooks update a durable SQLite inbox. Events for each PR coalesce before a worker starts. Babysitter never closes pull requests.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    wake["Startup, owner completion, or repair scan"] --> discover["Read open pull requests from GitHub"]
-    discover --> unchanged{"Observed state unchanged?"}
-    unchanged -- Yes --> wait["Wait for the next wake"]
-    unchanged -- No --> gate{"Only waiting for checks?"}
-    gate -- Yes --> wait
-    gate -- No --> checkout["Create a disposable exact-head checkout"]
-    checkout --> pending["Create a pending Agent Invocation"]
-    pending --> capacity{"Host capacity available?"}
-    capacity -- No --> pending
-    capacity -- Yes --> agent["Start one coding agent"]
-    agent --> work["Codex (or Claude Code) uses Skills and your own instructions to work on the PR"]
-    work --> outcome{"Outcome"}
-    outcome -- Repaired --> review["Push one commit and request review"]
-    review --> park["Record the observed pull request fingerprint"]
-    outcome -- Waiting --> park
-    outcome -- Ready --> merge["Merge and delete the source branch"]
-    outcome -- Obsolete --> close["Close the pull request"]
-    outcome -- External blocker --> block["Record the blocker"]
-    block --> park
-    park --> wake
-    merge --> wake
-    close --> wake
+    webhook[GitHub webhook] --> inbox[Save delivery and update PR snapshot]
+    inbox --> eligible{Actionable change?}
+    eligible -- Pending CI only --> wait[Keep state without starting an agent]
+    eligible -- Feedback or completed check --> queue[Claim oldest eligible PR generation]
+    queue --> checkout[Prepare exact-head checkout with Git]
+    checkout --> capacity[ViteHub capacity admission]
+    capacity --> agent[Agent receives complete XML context]
+    agent --> repair[Repair and push]
+    agent --> merge[Verify live merge gate and squash merge]
+    agent --> retry[Persist retry or external wait]
+    repair --> webhook
+    merge --> webhook
+    retry --> queue
 ```
 
-The [scheduler](server/babysitter.schedule.ts) selects changed PRs and applies the
-[queue policy](server/babysitter.queue.ts). It leaves a PR waiting without a model
-session when checks are pending and there is no discussion, failed check, or
-conflict to handle. Package-preview comments, Codex quota notices, and timestamp-only
-feedback edits do not wake a parked pass. Partial CI successes stay parked until
-the overall check result changes; failures remain actionable.
+The [inbox](server/babysitter.inbox.ts) stores deliveries, snapshots, generations,
+leases and retry times in `.vitehub/pull-request-inbox.sqlite`. The
+[scheduler](server/babysitter.schedule.ts) checks local eligibility every ten seconds.
+A missed-event recovery reads at most one PR per minute, at most once per PR every
+15 minutes; open-PR bootstrap repeats every 30 minutes. Stack children wait for their
+open parents. New-head or closed-PR events cancel the old worker.
 
-The [agent prompt](server/agents/babysitter/prompt.template.md) owns review and merge
-policy. Each pass makes at most one repair commit, merges ready work, closes obsolete
-work, or records the next gate. It returns validated `{ disposition, text }` output.
+Initial hydration reads paginated REST feedback and targeted GraphQL thread metadata.
+Resolution is cached and updated by thread webhooks, with targeted verification after
+changes. Queued/running CI is retained without starting another pass. Check failures,
+completion and relevant feedback wake work. Activity comments do not wake their own agent.
 
-ViteHub owns GitHub snapshots, exact-head checkouts, isolated credentials, session
-identity, activity comments, process capacity, invocation recovery, drain, and Console
-delivery. The [agent configuration](server/agents/babysitter/agent.ts) uses those APIs. See
-[ViteHub process-owned agents](https://github.com/vite-hub/vitehub/tree/main/packages/agent#process-owned-agents)
-for lifecycle and storage behavior. The data directory must belong to one process.
+The agent receives the title/body, current-head checks, human comments, all reviews
+and review comments as XML inside its prompt. Author, commit, file, lines, links and
+resolved/unresolved state remain attached to feedback. Unknown resolution is explicit.
+Unresolved and current-head feedback comes first; full history remains included.
+Code stays in Git for local inspection. Oversized prompts fail explicitly rather than
+silently discarding reviews. The agent still verifies current merge gates before merging.
+
+The [prompt](server/agents/babysitter/prompt.template.md) defines repair and merge policy.
+A pass pushes a repair, merges eligible work, retries unfinished work, or records a
+reproducible external wait. It returns validated `{ disposition, text }` output.
+
+ViteHub owns process capacity, invocation persistence/recovery, GitHub authentication,
+activity comments and Console delivery. The Node-specific inbox currently owns PR
+snapshots, eligibility and leases; it is not yet a provider for ViteHub's generic Queue
+module. The [pnpm patch](patches/@vite-hub__agent@0.0.1.patch) replaces checkout-time
+`gh` calls with Git and retains the existing host fixes. One process owns the data directory.
 
 Generic review and merge-conflict skills use pinned GitHub Sources from ViteHub.
 They are configured in the [agent definition](server/agents/babysitter/agent.ts).
@@ -105,8 +108,7 @@ To use Claude Code instead, install and authenticate its CLI. In the [agent defi
 invocations through ViteHub's `createAgentHealth`. Its Release diagnostic and each
 Agent Invocation identify the application commit embedded at build time.
 The Agent module exports health
-and Workspace inspection; `agentHostRoutes` generates their HTTP routes. `GET /api/drain` reports the process drain status. Drain active work
-before replacing a release. Build and typecheck the exact release commit, then
+and Workspace inspection; `agentHostRoutes` generates their HTTP routes. `GET /api/drain` reports the process drain status. Before an authorized restart, send `SIGUSR2` to the service main process to use ViteHub's built-in drain. Poll `/api/drain` until `status` is `drained`, then replace the release. This stops new claims while existing owners finish. Build and typecheck the exact release commit, then
 verify health and a completed pass or justified wait after restart.
 
 ViteHub writes process lifecycle diagnostics. Babysitter adds `[babysitter]` JSON
@@ -115,10 +117,69 @@ records resource samples and terminal invocation events. See the
 [ViteHub process host documentation](https://github.com/vite-hub/vitehub/tree/main/packages/agent#process-owned-agents)
 for storage recovery and shutdown.
 
-## Runtime ownership
+## Webhook and proxy configuration
 
-Babysitter keeps PR selection, actionable-change fingerprints, review policy, and the bounded repair prompt. ViteHub owns work checkpoints and retry backoff, invocation recovery, scheduled output validation, GitHub activity comments, and immutable Workspace inspection. Thrown failures receive the same cooldown as explicit retries.
+Set `BABYSITTER_PUBLIC_URL` to the service origin and configure
+`GITHUB_WEBHOOK_SECRET`. Point the repository webhook at `/webhooks/github` with:
 
-Set `BABYSITTER_PUBLIC_URL` to the public service origin so activity comments link directly to the live invocation in ViteHub Console. Enable `pull_request` events on the GitHub App and route them to `/api/_vitehub/agents/babysitter/webhooks/github`; configure the matching `GITHUB_WEBHOOK_SECRET`. The Channel claims one comment when a PR opens, showing “Waiting to start.” until execution or a known wait reason is available. One table lists current and recent session links, status, relative start times, and completed durations. Task checkboxes and the latest result appear below; previous results are collapsed. The coding agent does not edit that comment.
+- `pull_request`, `issue_comment`, `pull_request_review`, `pull_request_review_comment`
+- `pull_request_review_thread`
+- `check_run`, `check_suite`, `workflow_run`, `status`, `push`
 
-Passes return validated `{ disposition, text }` output. Completion records use ViteHub's versioned checkpoint schema. Upgrading from legacy fingerprints causes one fresh evaluation of previously parked open PRs; subsequent unchanged passes remain parked.
+The receiver verifies signatures and persists delivery IDs to ignore duplicate deliveries.
+ViteHub owns the compact activity comment; agents do not edit it directly.
+
+Pullfrog dispatches its workflow on the default branch. Use the PR head's
+`pullfrog` check to detect an active review and `pullfrog-approval`, when enabled,
+to read the verdict for the reviewed commit. Do not match the workflow SHA to the
+PR SHA or use an eyes reaction as a running signal. Automatic incremental review
+and incorporating new commits into an active review are Pullfrog settings, not a
+second GitHub Actions trigger owned by Babysitter.
+
+A mechanical follow-up can preserve prior review evidence, but an active review
+of the current head still must finish. The agent parks while only checks or review
+are pending; webhook updates resume the durable queue. It does not run `gh watch`.
+A successful repair push can finish resolving addressed threads before its claim
+ends. The scheduler verifies that head against the actual provider checkout;
+another head or a closed PR still cancels the pass.
+
+The worker environment removes source-checkout Git directory/index overrides after
+restoring the provider Git metadata. The model and cancellation watcher must use
+the same physical Git repository; authentication settings remain available.
+The provider launcher records its final Git HEAD outside the disposable workspace
+before that workspace is removed. The cancellation watcher can use this proof
+when cleanup has already started. Temporary Git verification failures receive
+three retries at ten-second intervals; a verified different head still cancels.
+Cancelled PRs receive a durable cooldown of one, two, four, then five minutes.
+New webhook events remain queued and cannot bypass that cooldown. Successful
+passes reset it. Cancellation logs retain the specific reason.
+
+Before launching a provider, the scheduler supplies cached branch rules and classic
+required-check protection, then downloads completed failed jobs through REST.
+Job logs are cached by job ID, attempt and completion time. The prompt contains
+failed-step diagnostics with explicit excerpt coverage, alongside complete reviews
+and comments. Permission errors and missing logs remain unknown evidence.
+
+Agents can return `waitForChecksHead` when no independent repair remains. The
+scheduler retains that checkpoint and coalesces intermediate CI updates without
+another invocation. New feedback, failures, conflicts, intent, base or head changes
+resume repair. Passing required checks resume the merge pass, unless the current
+head's Pullfrog check remains active. Cached evidence never authorizes a merge;
+the final merge gate still verifies live state. A required context missing from
+`gh pr checks --required` remains pending until it appears or authoritative branch
+policy proves the requirement was removed.
+
+Production GitHub CLI traffic uses `ghx.onmax.me`. Install
+[scripts/worker-ghx.sh](scripts/worker-ghx.sh) at both
+`/home/agents/.local/bin/gh` and `/home/agents/.local/worker-ghx/bin/gh`.
+Login shells may select the first path even when the driver prepends the second.
+The wrapper sets the proxy host and normalizes repository selection. The driver also
+sets `GH_REPO` per worker. Git fetch/push use the repository's Git remote.
+
+Run the regression suite with:
+
+```sh
+node --experimental-transform-types --test tests/*.test.ts
+pnpm typecheck
+pnpm build
+```
