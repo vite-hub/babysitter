@@ -74,7 +74,9 @@ const capabilities = [
   })),
   // Keep this skill colocated with the Babysitter agent so every worker
   // invocation receives the same conflict-resolution procedure as the code.
-  skills({ id: 'skills.resolving-merge-conflicts', path: 'skills/resolving-merge-conflicts', shellExecution: 'write' }),
+  skills({ id: 'skills.resolving-merge-conflicts', path: 'skills/resolving-merge-conflicts',
+    source: githubSource({ repo: 'vite-hub/babysitter', ref: 'daa9c7ca72fef22a7b139961489efc844a1e69b4', root: 'server/agents/babysitter/skills/resolving-merge-conflicts', include: ['SKILL.md', 'references/**'], materialize: 'build' }),
+    shellExecution: 'write' }),
   diagnostics({ resources: nodeRuntimeResources() }), title({
   execute: ({ input }) => {
     const context = input.context as { pullRequestTitle: string }
