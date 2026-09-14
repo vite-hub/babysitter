@@ -55,7 +55,12 @@ export const normalizePullRequest = (pr: Json): Json => ({
   updated_at: pr.updated_at ?? pr.updatedAt,
   created_at: pr.created_at ?? pr.createdAt,
 })
-export const isFeedback = (item: Json | undefined) => Boolean(item && !ownBots.has(item.user?.login)
+export const isFeedback = (item: Json | undefined) => Boolean(item && (
+  // Pullfrog requests are written by vitehub-bot, but remain actionable
+  // memory. Keeping them prevents every later pass from posting the same
+  // request for an unchanged head.
+  /@pullfrog\s+Please review this PR at exact head\s+[0-9a-f]+/i.test(String(item.body ?? ''))
+  || !ownBots.has(item.user?.login))
   && !String(item.body ?? '').includes('<!-- vitehub-agent-activity:')
   // Codex publishes a mutable issue-comment summary in addition to its
   // review objects. The review webhook is the actionable evidence; this
