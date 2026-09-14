@@ -159,6 +159,14 @@ setTimeout(() => {
   // Wake the process host often enough to drain durable ready work. The
   // scheduler still owns admission, deduplication, and CI waiting.
   setInterval(() => host.wake(), 10_000)
+  let reconciling = false
+  setInterval(() => {
+    if (reconciling) return
+    reconciling = true
+    void import('../../babysitter.schedule.ts').then(({ reconcileBabysitterWork }) =>
+      reconcileBabysitterWork('timer', { track: promise => { void promise } }),
+    ).finally(() => { reconciling = false })
+  }, 60_000)
 }, 5_000)
 
 export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
