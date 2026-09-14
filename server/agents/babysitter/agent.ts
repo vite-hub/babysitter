@@ -157,7 +157,7 @@ export const health = createAgentHealth({
 setTimeout(() => {
   host.wake()
   setInterval(() => host.wake(), 60 * 60 * 1000)
-}, 0)
+}, 5_000)
 
 export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
   if (!checkout) throw new Error('Babysitter requires a checkout.')
