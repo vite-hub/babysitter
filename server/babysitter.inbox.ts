@@ -366,6 +366,14 @@ export class PullRequestInbox {
         if (!s.lease && !legacyRetry) continue
         s.lease = null; s.leaseUntil = 0
         if (legacyRetry) this.dirty(s, 'retry-policy-recovery')
+        // Releases before the conflict wake fix could park a conflicting PR
+        // behind the duplicate-pass fingerprint guard. Requeue that durable
+        // state once when the process starts.
+        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
+        if (!s.lease && s.status === 'waiting'
+          && (s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind')) {
+          this.dirty(s, 'conflict-recovery')
+        }
         if (s.status !== 'terminal') s.status = 'ready'
         this.put(s)
       }
