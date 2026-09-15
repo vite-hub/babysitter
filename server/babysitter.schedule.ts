@@ -78,6 +78,9 @@ function isProviderRateLimit(error: unknown): boolean {
 // wait. Treating it as immediately retryable creates an agent spin loop (as
 // seen on #1350 overnight) while CI or exact-base evidence cannot change.
 function isExternalWaitResult(text: string): boolean {
+  // A cancelled GitHub job can be rerun safely. Treat it as retryable work
+  // instead of parking the PR until another webhook arrives.
+  if (/(?:cancel(?:led|lation)|superseded|aborted)/i.test(text)) return false
   return /(?:exact[- ]base|unrelated|external|pending|in progress|waiting for|no (?:independent )?repair|cannot (?:start|run)|dependencies.*unavailable)/i.test(text)
 }
 
