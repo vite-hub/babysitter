@@ -332,7 +332,9 @@ export async function reconcileBabysitterWork(
         // agent. Respect it even when the agent used `retry` to report that
         // no repository change was made; relaunching the same head burns a
         // full model session without creating any new GitHub evidence.
-        const parked = terminal || waitForChecksHead !== undefined
+        const mergeState = String(pullRequest.mergeable_state ?? '').toLowerCase()
+        const repairableMergeState = pullRequest.mergeable === false || mergeState === 'dirty' || mergeState === 'behind'
+        const parked = terminal || !repairableMergeState && waitForChecksHead !== undefined
           || disposition === 'park' && isExternalWaitResult(resultText)
           || disposition === 'retry' && isExternalWaitResult(resultText)
         outcome = parked ? 'completed' : 'retry'
