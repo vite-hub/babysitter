@@ -27,6 +27,12 @@ function stableFeedback(value: unknown): unknown {
 const reviewWithoutFindings = (value: Json) => String(value.state ?? '').toLowerCase() === 'commented'
   && (!String(value.body ?? '').trim() || /^>\s*✅\s*No new issues found\./.test(String(value.body).trimStart()))
 
+// Pullfrog replies "Addressed in <sha>" and resolves its own thread after a
+// repair. That one-line note confirms finished work; it is not a new finding.
+// A real follow-up finding leaves its thread unresolved, which still wakes.
+const reviewerAcknowledgement = (value: Json) =>
+  /^Addressed in `?[0-9a-f]{7,40}`?[^\n]*$/.test(String(value.body ?? '').split('<!-- PULLFROG_DIVIDER')[0]!.trim())
+
 /** CI-only updates may coalesce; changed feedback, intent or base still needs an agent. */
 export function repairContextKey(s: Snapshot): string {
   return hash(repairContext(s, true))
@@ -40,6 +46,9 @@ function repairContextParts(s: Snapshot): Record<string, string> {
 function repairContext(s: Snapshot, skipReviewsWithoutFindings: boolean) {
   const pr = s.pr ?? {}
   const external = (values: Record<string, Json>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !workerAuthor(value)))
+  const findings = (values: Record<string, Json>) => skipReviewsWithoutFindings
+    ? Object.fromEntries(Object.entries(external(values)).filter(([, value]) => !reviewerAcknowledgement(value)))
+    : external(values)
   const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !skipReviewsWithoutFindings || !reviewWithoutFindings(value)))
   const ownCommentIds = new Set(Object.values(s.reviewComments).filter(workerAuthor).flatMap(commentIds))
   const commentsById = new Map(Object.values(s.reviewComments).flatMap(value => commentIds(value).map(id => [id, value] as const)))
@@ -54,11 +63,12 @@ function repairContext(s: Snapshot, skipReviewsWithoutFindings: boolean) {
         return { id: value.databaseId ?? (typeof value.id === 'number' ? value.id : stored?.id ?? value.node_id ?? value.id),
           body: value.body ?? stored?.body, author: value.user?.login ?? value.author?.login ?? stored?.user?.login ?? stored?.author?.login }
       })
+      .filter(identity => !skipReviewsWithoutFindings || !reviewerAcknowledgement(identity))
     return { ...metadata, id: node_id ?? thread.id, comments: identities }
   })
   return { title: pr.title, body: pr.body, draft: pr.draft, state: pr.state,
     base: [pr.base?.sha, pr.base?.ref], comments: stableFeedback(external(s.comments)), reviews: stableFeedback(reviews),
-    reviewComments: stableFeedback(external(s.reviewComments)), threads: stableFeedback(threads) }
+    reviewComments: stableFeedback(findings(s.reviewComments)), threads: stableFeedback(threads) }
 }
 
 // Existing checkpoints retain the old hash. Accept one only when its entire

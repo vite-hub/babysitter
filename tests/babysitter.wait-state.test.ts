@@ -167,3 +167,20 @@ test('wake reasons name every blocker that forces a model pass', t => {
   s.threads[0]!.isResolved = true
   assert.deepEqual(waitBlockers(s, 'passed'), ['checks-passed'])
 })
+
+test('a reviewer acknowledging and resolving its own finding does not wake the agent', t => {
+  const { inbox, s } = setup(); t.after(() => inbox.close())
+  const finding = { id: 10, body: 'This leaks the handle.', user: { login: 'pullfrog[bot]' } }
+  s.reviewComments['10'] = finding
+  s.threads = [{ node_id: 'T1', isResolved: true, comments: { nodes: [{ databaseId: 10, body: finding.body, author: { login: 'pullfrog[bot]' } }] } }]
+  s.waitForChecks = createCheckWait(s, 'head')
+  const ack = { id: 11, body: 'Addressed in `c2cacbb` by closing the handle in finally.\n\n<!-- PULLFROG_DIVIDER_DO_NOT_REMOVE_PLZ -->\n<sup>Pullfrog</sup>', user: { login: 'pullfrog[bot]' } }
+  s.reviewComments['11'] = ack
+  s.threads[0]!.comments.nodes.push({ databaseId: 11, body: ack.body, author: { login: 'pullfrog[bot]' } })
+  assert.deepEqual(waitBlockers(s, 'pending'), [])
+  const followUp = { id: 12, body: 'The retry path still leaks the handle.\n\n<!-- PULLFROG_DIVIDER_DO_NOT_REMOVE_PLZ -->', user: { login: 'pullfrog[bot]' } }
+  s.reviewComments['12'] = followUp
+  s.threads.push({ node_id: 'T2', isResolved: false, comments: { nodes: [{ databaseId: 12, body: followUp.body, author: { login: 'pullfrog[bot]' } }] } })
+  assert.ok(waitBlockers(s, 'pending').includes('unresolved-threads'))
+  assert.ok(waitBlockers(s, 'pending').some(reason => reason.startsWith('context-changed')))
+})
