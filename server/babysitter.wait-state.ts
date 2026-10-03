@@ -45,7 +45,10 @@ function repairContextParts(s: Snapshot): Record<string, string> {
 
 function repairContext(s: Snapshot, skipReviewsWithoutFindings: boolean) {
   const pr = s.pr ?? {}
-  const external = (values: Record<string, Json>) => Object.fromEntries(Object.entries(values).filter(([, value]) => !workerAuthor(value)))
+  // A deletion leaves an authorless tombstone. The GitHub channel deletes and
+  // recreates its activity comment every pass, and removed feedback is never new work.
+  const external = (values: Record<string, Json>) => Object.fromEntries(Object.entries(values)
+    .filter(([, value]) => !workerAuthor(value) && !(skipReviewsWithoutFindings && value.deleted)))
   const findings = (values: Record<string, Json>) => skipReviewsWithoutFindings
     ? Object.fromEntries(Object.entries(external(values)).filter(([, value]) => !reviewerAcknowledgement(value)))
     : external(values)

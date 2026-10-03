@@ -184,3 +184,13 @@ test('a reviewer acknowledging and resolving its own finding does not wake the a
   assert.ok(waitBlockers(s, 'pending').includes('unresolved-threads'))
   assert.ok(waitBlockers(s, 'pending').some(reason => reason.startsWith('context-changed')))
 })
+
+test('a deleted comment does not wake the agent, while a new human comment still does', t => {
+  const { inbox, s } = setup(); t.after(() => inbox.close())
+  s.comments['20'] = { id: 20, body: '<!-- vitehub-agent-activity -->', user: { login: 'vitehub-bot[bot]' } }
+  s.waitForChecks = createCheckWait(s, 'head')
+  s.comments['20'] = { id: 20, deleted: true, updated_at: '2026-10-03T10:08:24Z' }
+  assert.deepEqual(waitBlockers(s, 'pending'), [])
+  s.comments['21'] = { id: 21, body: 'Please also cover the retry path.', user: { login: 'onmax' } }
+  assert.ok(waitBlockers(s, 'pending').some(reason => reason.startsWith('context-changed')))
+})
