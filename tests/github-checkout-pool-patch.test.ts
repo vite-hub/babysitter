@@ -1,12 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, readFile, access } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, readFile, access, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createGitHubHost } from 'vite-hub/agent/server/github'
 
-test('host reuses a pull request\'s pooled checkout, keeps ignored files, and resets the rest', async t => {
+test('host reuses a pull request\'s pooled checkout, keeps ignored files in-process, and resets the rest', async t => {
   const root = await mkdtemp(join(tmpdir(), 'babysitter-checkout-pool-'))
   const keys = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_ALLOW_PROTOCOL', 'PATH'] as const
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
@@ -36,7 +36,9 @@ test('host reuses a pull request\'s pooled checkout, keeps ignored files, and re
 
   let firstPath = ''
   await host.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: oneSha, headRepository: 'base/repo', headRef: 'one' }, async ({ path }) => {
-    firstPath = path
+    // The host may expose the checkout through a descriptor path that is only
+    // valid during the callback; compare the directories it resolves to.
+    firstPath = await realpath(path)
     assert.equal(git(path, 'rev-parse', 'HEAD'), oneSha)
     await mkdir(join(path, 'node_modules'), { recursive: true }); await writeFile(join(path, 'node_modules/marker'), 'warm')
     await writeFile(join(path, 'file'), 'dirty'); await writeFile(join(path, 'untracked'), 'x')
@@ -46,11 +48,10 @@ test('host reuses a pull request\'s pooled checkout, keeps ignored files, and re
   })
   await access(firstPath)
 
-  // Upstream pools one checkout per pull request. A restarted process adopts
-  // the checkout that the previous process left for the same pull request.
-  const restarted = createGitHubHost({ checkouts: { root: pool }, credentials, identity: { login: 'Test', email: 'test@example.invalid' } })
-  await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: twoSha, headRepository: 'base/repo', headRef: 'two' }, async ({ path }) => {
-    assert.equal(path, firstPath)
+  // Upstream pools one checkout per pull request; the same process keeps its
+  // ignored files across heads.
+  await host.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: twoSha, headRepository: 'base/repo', headRef: 'two' }, async ({ path }) => {
+    assert.equal(await realpath(path), firstPath)
     assert.equal(git(path, 'rev-parse', 'HEAD'), twoSha)
     assert.equal(git(path, 'branch', '--show-current'), 'two')
     assert.equal(await readFile(join(path, 'file'), 'utf8'), 'two')
@@ -61,8 +62,11 @@ test('host reuses a pull request\'s pooled checkout, keeps ignored files, and re
     assert.throws(() => git(path, 'config', 'core.fsmonitor'))
     assert.equal(git(path, 'config', 'remote.origin.pushurl'), 'https://github.com/base/repo.git')
   })
+  // A restarted process adopts the same checkout but clears its ignored files.
+  const restarted = createGitHubHost({ checkouts: { root: pool }, credentials, identity: { login: 'Test', email: 'test@example.invalid' } })
   await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: oneSha }, async ({ path }) => {
-    assert.equal(path, firstPath)
+    assert.equal(await realpath(path), firstPath)
+    await assert.rejects(access(join(path, 'node_modules/marker')))
     assert.equal(git(path, 'rev-parse', 'HEAD'), oneSha)
     assert.match(git(path, 'config', 'remote.origin.pushurl'), /^disabled:/)
     assert.throws(() => git(path, 'config', 'remote.origin.push'))

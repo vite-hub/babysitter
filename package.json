@@ -18,7 +18,7 @@
     "nitro": "3.0.260429-beta",
     "posthog-node": "^5.52.1",
     "vite": "^8.2.2",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@0c57108cd97f778175a016f1ff75b51cbbbd8db2"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@35e6b8182938710b2c0b33768a5f4d633044ed4b"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

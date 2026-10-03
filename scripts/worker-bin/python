@@ -1,0 +1,3 @@
+#!/bin/sh
+# Agents often call `python`; the host only ships python3.
+exec python3 "$@"
