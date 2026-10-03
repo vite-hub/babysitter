@@ -8,27 +8,19 @@ index 427d6e39b9352efab859955f362d66a8a663da5e..a10a5eaa08af2c80cfb88c4a4749b91c
  import { WorkspaceName } from "@vite-hub/workspace";
  import { Agent, ModelMessage, ToolLoopAgentSettings, ToolSet } from "ai";
  //#region src/ai-sdk.d.ts
-diff --git a/dist/babysitter-CAV3rvb6.js b/dist/babysitter-G351BtnI.js
-similarity index 98%
-rename from dist/babysitter-CAV3rvb6.js
-rename to dist/babysitter-G351BtnI.js
-index 00024782197e1854df111d94e24686dc5a490510..faf9236329b619525a59ac680d826a180e76dcc7 100644
---- a/dist/babysitter-CAV3rvb6.js
-+++ b/dist/babysitter-G351BtnI.js
-@@ -1,6 +1,6 @@
- import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
- import { n as defineChannel, r as defineChannelTrigger, x as channelEnvValue } from "./channels-Ci132KGQ.js";
--import { i as defineAgent } from "./src-6Um8vve5.js";
-+import { i as defineAgent } from "./src-CX-_DjVk.js";
- import { i as withAgentProcessHost, t as agentProcessHostIntake } from "./agent-process-host-CmNwxanU.js";
- import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
- //#region src/presets/babysitter/instructions.ts
+diff --git a/dist/babysitter-DsjDr9Tp.js b/dist/babysitter-DNS0j7bP.js
+similarity index 99%
+rename from dist/babysitter-DsjDr9Tp.js
+rename to dist/babysitter-DNS0j7bP.js
+index 7e9c6d280bf616644d11b75e6d0d03a966e25911..bdd29afd697a5e28b57d0529adcb9b9f531cb870 100644
+--- a/dist/babysitter-DsjDr9Tp.js
++++ b/dist/babysitter-DNS0j7bP.js
 @@ -147,7 +147,7 @@ const babysitterPassResultSchema = { "~standard": {
  	}
  } };
  const babysitterHost = { async create(context) {
--	const { createBabysitterProcessHost } = await import("./host-Cjo5s29Z.js");
-+	const { createBabysitterProcessHost } = await import("./host-CHPkE5YI.js");
+-	const { createBabysitterProcessHost } = await import("./host-BFckuFbP.js");
++	const { createBabysitterProcessHost } = await import("./host-BLqulDpG.js");
  	return await createBabysitterProcessHost(context);
  } };
  function plainSecret(value) {
@@ -48,47 +40,6 @@ index a8e5f89f1096688cc3f182c9084d7e9272d469de..aaf03ed1e6e19021f9496b2931db3382
  import { ViteHubError } from "@vite-hub/runtime";
  import { WorkspaceContent, WorkspaceName, WorkspaceSourceInput } from "@vite-hub/workspace";
  import { TranscriptionModel } from "ai";
-diff --git a/dist/capabilities.js b/dist/capabilities.js
-index 04735719b1169e5245685c779b36b5bf0ce0cbb9..1731c1639ad776ecfb10b9ced23bdcf2ede2b9fa 100644
---- a/dist/capabilities.js
-+++ b/dist/capabilities.js
-@@ -9,7 +9,7 @@ import { $ as requirePrimitive, F as safeAgentTelemetryMetadata, Q as primitiveH
- import { C as responseTitleFallbackContextKey, c as streamAgentOutputToEvents, g as recordAuxiliaryUsage, l as toAgentRunResult, m as modelsDevPricing, p as enrichAgentUsageCost, s as resolveAgentUsageRecord, u as toAgentStreamEvent } from "./agent-output-D1V6mrEu.js";
- import { n as toAgentUiMessageStreamResponse, r as access } from "./http-response-BrhbqSVw.js";
- import { H as getAgentChatContext, L as agentChatContextKey, f as messageChannelTitleSupportContextKey, z as chat } from "./channels-Ci132KGQ.js";
--import { a as codexLaunchArgs, c as browserRuntimeEnvironment, d as provideBrowserRuntimeEnvironment, f as activeAgentWorkspaceCommands, h as readAgentWorkspaceDiff, i as shellQuote, l as closeBrowserRuntimeSession, m as readActiveAgentWorkspaceFile, n as pullRequestCheckoutEnvironment, p as clearAgentWorkspaceDiff, r as pullRequestCheckoutPlan, s as withProviderCallbackMetadata, t as preparePullRequestCheckout, u as prepareBrowserRuntime } from "./pull-request-checkout-BkjjcpvR.js";
-+import { a as shellQuote, c as withProviderCallbackMetadata, d as prepareBrowserRuntime, f as provideBrowserRuntimeEnvironment, g as readAgentWorkspaceDiff, h as readActiveAgentWorkspaceFile, i as pullRequestRepositories, l as browserRuntimeEnvironment, m as clearAgentWorkspaceDiff, n as pullRequestCheckoutEnvironment, o as codexLaunchArgs, p as activeAgentWorkspaceCommands, r as pullRequestCheckoutPlan, t as preparePullRequestCheckout, u as closeBrowserRuntimeSession } from "./pull-request-checkout-BZ8LGLSd.js";
- import { n as agentInvocationId } from "./invocations-CSzhlbXS.js";
- import { o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
- import { n as askJev, t as normalizeAgentDriver } from "./agent-driver-D8jymr6b.js";
-@@ -2393,7 +2393,10 @@ function git(options = {}) {
- 			maxOutputLength,
- 			policy: options.policy,
- 			timeout
--		}, getSessionResolver(context), defaultGitCwd(context), async () => await pullRequestCheckoutEnvironment(context.runtimeContext?.githubIdentity, pullRequestCheckoutPlan(context.context)?.repository, void 0, pullRequestCheckoutPlan(context.context)?.headRepository)),
-+		}, getSessionResolver(context), defaultGitCwd(context), async () => {
-+			const scope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context);
-+			return await pullRequestCheckoutEnvironment(context.runtimeContext?.githubIdentity, scope?.repository, void 0, scope?.headRepository);
-+		}),
- 		close: closeSession
- 	});
- }
-diff --git a/dist/channel-replay-C7M6TJwl.js b/dist/channel-replay-Bq-1VQgt.js
-similarity index 99%
-rename from dist/channel-replay-C7M6TJwl.js
-rename to dist/channel-replay-Bq-1VQgt.js
-index 446caccd44c1d4e07113c1658c252f5ab38f4cbb..342f36487d865ae3800c4bf7fbd0e4e8c4b0e090 100644
---- a/dist/channel-replay-C7M6TJwl.js
-+++ b/dist/channel-replay-Bq-1VQgt.js
-@@ -5,7 +5,7 @@ import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
- import { w as agentToolJsonSchema } from "./capability-runtime-rNY1-Ioq.js";
- import { D as channelMessageRunId } from "./channels-Ci132KGQ.js";
- import { h as pendingAgentInvocationAnnotations, l as exclusiveAgentInvocation, t as AgentInvocationClaimConflict, u as inheritedAgentInvocationClaim } from "./invocations-CSzhlbXS.js";
--import { D as isResolvedAgentTriggerHandledInvocation, T as agentChannelOptions, d as resolveAgentTriggerInvocation, l as reserveAgentChannelItem, p as runAgent } from "./src-6Um8vve5.js";
-+import { D as isResolvedAgentTriggerHandledInvocation, T as agentChannelOptions, d as resolveAgentTriggerInvocation, l as reserveAgentChannelItem, p as runAgent } from "./src-CX-_DjVk.js";
- import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
- import { createRuntimeContext } from "@vite-hub/runtime";
- //#region src/channel-replay.ts
 diff --git a/dist/channels.d.ts b/dist/channels.d.ts
 index 65023f2962e4c50e009de7c436461bfc87698d78..c9bf0db76ad0b44355392f4a734339396462e395 100644
 --- a/dist/channels.d.ts
@@ -108,30 +59,6 @@ index 41dd5c86c77014073aecf5e5e318283830f1105c..13556e8014f11d740aac22694dfee9d2
  //#region src/internal/agent-info-cli.d.ts
  interface AgentInfoCliContext {
    env: NodeJS.ProcessEnv;
-diff --git a/dist/cli.js b/dist/cli.js
-index c5fbb32294c446e55eeb75176bc5cb7aa8545dee..7d2b9349b0ea287a3cd624c2bf2d97fe889c54b4 100644
---- a/dist/cli.js
-+++ b/dist/cli.js
-@@ -4,8 +4,8 @@ import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
- import { m as modelsDevPricing, p as enrichAgentUsageCost } from "./agent-output-D1V6mrEu.js";
- import { M as agentChannelSyncProviderHeader, N as getAgentChannelSyncDefinition, O as agentChannelHistoryHeader, k as getAgentChannelHistoryDefinition } from "./channels-Ci132KGQ.js";
- import { r as isPlainObject } from "./agent-driver-D8jymr6b.js";
--import { S as agentInvocationStreamRoute, w as readAgentInvocationStream, x as agentInvocationStreamHeader } from "./src-6Um8vve5.js";
--import { D as redactInspectionValue, E as redactInspectionText, S as discoverAgentEvalFiles, b as createAgentEvalInclude, f as VITEHUB_SERVER_DIRS, i as createViteAgentDiscoveryContext, n as resolveAgentEvalOptions, r as writeAgentEvaliteConfig, s as loadViteAgent, v as resolveViteHubProjectRoot, x as discoverAgentDefinitions } from "./evalite-config-DZ-0toRW.js";
-+import { S as agentInvocationStreamRoute, w as readAgentInvocationStream, x as agentInvocationStreamHeader } from "./src-CX-_DjVk.js";
-+import { D as redactInspectionValue, E as redactInspectionText, S as discoverAgentEvalFiles, b as createAgentEvalInclude, f as VITEHUB_SERVER_DIRS, i as createViteAgentDiscoveryContext, n as resolveAgentEvalOptions, r as writeAgentEvaliteConfig, s as loadViteAgent, v as resolveViteHubProjectRoot, x as discoverAgentDefinitions } from "./evalite-config-Cv7EnseE.js";
- import { asUnknownBoundary, hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
- import { isExecutionAuthority } from "@vite-hub/runtime";
- import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-@@ -1966,7 +1966,7 @@ function parseEvalArgs(args) {
- 	return parsed;
- }
- async function loadEvaliteRunner() {
--	const { runAgentEvalite } = await import("./evalite-runner-Cp4tD_l3.js");
-+	const { runAgentEvalite } = await import("./evalite-runner-Dr7mo5UF.js");
- 	return runAgentEvalite;
- }
- async function runAgentEvalCli(args, context, options, runner, writeConfig = writeAgentEvaliteConfig, include) {
 diff --git a/dist/diagnostics-DCHAXN0J.d.ts b/dist/diagnostics-DSxwhp5w.d.ts
 similarity index 92%
 rename from dist/diagnostics-DCHAXN0J.d.ts
@@ -157,49 +84,6 @@ index 7b9d3f966da3b68286ab7b8b4c0ea993543fc792..bbb955e27480f12a4549e221312a26cc
  import { TraceRunView } from "@vite-hub/runtime";
  import { WorkspaceName } from "@vite-hub/workspace";
  //#region src/eval.d.ts
-diff --git a/dist/eval.js b/dist/eval.js
-index 1f9ce5b1f0c7c120c06d27c0daa41ac43c3ad15c..6599e821d62979094b7505c60e9499837f51bb6a 100644
---- a/dist/eval.js
-+++ b/dist/eval.js
-@@ -1,6 +1,6 @@
- import { t as agentDiagnostics } from "./agent-diagnostics-JPe0UAuS.js";
- import { createMessage } from "./messages.js";
--import { i as defineAgent } from "./src-6Um8vve5.js";
-+import { i as defineAgent } from "./src-CX-_DjVk.js";
- import { createAgentTestRunner } from "./test.js";
- import { basename, dirname, extname, join, resolve } from "node:path";
- import { statSync } from "node:fs";
-diff --git a/dist/evalite-config-DZ-0toRW.js b/dist/evalite-config-Cv7EnseE.js
-similarity index 99%
-rename from dist/evalite-config-DZ-0toRW.js
-rename to dist/evalite-config-Cv7EnseE.js
-index 5496d46d2a5897b55c2aba1e08b93e7a33d48889..3eae8b42fb773c6596a5cedd2e853e0996001e32 100644
---- a/dist/evalite-config-DZ-0toRW.js
-+++ b/dist/evalite-config-Cv7EnseE.js
-@@ -1,7 +1,7 @@
- import { t as agentDiagnostics } from "./agent-diagnostics-JPe0UAuS.js";
- import { rt as internalErrorDiagnostics } from "./capability-runtime-rNY1-Ioq.js";
--import { b as decodeColocatedAgentSkills, d as workspaceAgentWithSourceRoot, x as withColocatedAgentSkills } from "./workspace-agent-DAN8TE97.js";
--import { t as agentWithColocatedInstructions } from "./src-6Um8vve5.js";
-+import { b as decodeColocatedAgentSkills, d as workspaceAgentWithSourceRoot, x as withColocatedAgentSkills } from "./workspace-agent-BIPh5ow-.js";
-+import { t as agentWithColocatedInstructions } from "./src-CX-_DjVk.js";
- import { t as createAgentRuntimeContext } from "./context-KghRPYRx.js";
- import { createExecutionContext } from "@vite-hub/runtime";
- import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-diff --git a/dist/evalite-runner-Cp4tD_l3.js b/dist/evalite-runner-Dr7mo5UF.js
-similarity index 98%
-rename from dist/evalite-runner-Cp4tD_l3.js
-rename to dist/evalite-runner-Dr7mo5UF.js
-index d1801f2e535e4fa2929c95021097b2fde1a671a1..08cde238d291e0ca124017c320d687ee18b59441 100644
---- a/dist/evalite-runner-Cp4tD_l3.js
-+++ b/dist/evalite-runner-Dr7mo5UF.js
-@@ -1,5 +1,5 @@
- import { t as agentDiagnostics } from "./agent-diagnostics-JPe0UAuS.js";
--import { y as agentEvalFileConvention } from "./evalite-config-DZ-0toRW.js";
-+import { y as agentEvalFileConvention } from "./evalite-config-Cv7EnseE.js";
- import { mkdir, writeFile } from "node:fs/promises";
- import path from "node:path";
- import { fileURLToPath } from "node:url";
 diff --git a/dist/eve.d.ts b/dist/eve.d.ts
 index fe84855282532a85cf72445d03c102f343ef037d..f51c01e447f759cd070f25eab7dcc5f93b418a08 100644
 --- a/dist/eve.d.ts
@@ -251,43 +135,14 @@ index 96cf7433ff0cc49dc9126d0621f553cf53262e4d..ba49cf08fe2b59ccce24d839c8a48ad0
 +import { a as agentEvlogPlugin, c as sanitizeAgentLog, i as AgentEvlogOptions, n as AgentEvlogExporter, o as createAgentEvlog, r as AgentEvlogHost, s as filterAgentObservability, t as AgentEvlog } from "./evlog-C9HhOkdK.js";
  export { AgentEvlog, AgentEvlogExporter, AgentEvlogHost, AgentEvlogOptions, type AgentEvlogStatus, agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog };
 \ No newline at end of file
-diff --git a/dist/github-inbox-ByFzJgHW.d.ts b/dist/github-inbox-JjrpLhb2.d.ts
-similarity index 99%
-rename from dist/github-inbox-ByFzJgHW.d.ts
-rename to dist/github-inbox-JjrpLhb2.d.ts
-index fa7ecf0c1f0bc1f216d2521560f2cfd5af961970..7570ae9fa4924a16a911b6e5e6c7152c2456c995 100644
---- a/dist/github-inbox-ByFzJgHW.d.ts
-+++ b/dist/github-inbox-JjrpLhb2.d.ts
-@@ -1,6 +1,6 @@
--import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CoiAcEkJ.js";
-+import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CeJgisV1.js";
- import { a as SqliteAgentStateExtension, l as SqliteAgentStateRow, o as SqliteAgentStateExtensionExecutor } from "./sqlite-BuC-W89Z.js";
--import { n as PullRequest } from "./github-pull-requests-D9gI89pc.js";
-+import { n as PullRequest } from "./github-pull-requests-CQnGZ5Zd.js";
- //#region src/server/github-inbox/budgets.d.ts
- interface ProviderBudget {
-   generation: string;
-diff --git a/dist/github-pull-requests-D9gI89pc.d.ts b/dist/github-pull-requests-CQnGZ5Zd.d.ts
-similarity index 99%
-rename from dist/github-pull-requests-D9gI89pc.d.ts
-rename to dist/github-pull-requests-CQnGZ5Zd.d.ts
-index f517faff3eedcbd529256e85135cdec886a19398..63a9cf35eea244a35d111ad675fd1bee52e399dd 100644
---- a/dist/github-pull-requests-D9gI89pc.d.ts
-+++ b/dist/github-pull-requests-CQnGZ5Zd.d.ts
-@@ -1,4 +1,4 @@
--import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CoiAcEkJ.js";
-+import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CeJgisV1.js";
- //#region src/server/github-pull-requests.d.ts
- type PullRequestFeedback = {
-   comments: string;
-diff --git a/dist/github-Bv2rIJ1S.js b/dist/github-vO3Ime0U.js
-similarity index 85%
+diff --git a/dist/github-Bv2rIJ1S.js b/dist/github-8CSPYOcs.js
+similarity index 82%
 rename from dist/github-Bv2rIJ1S.js
-rename to dist/github-vO3Ime0U.js
-index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8784c04b5 100644
+rename to dist/github-8CSPYOcs.js
+index 49509184acbd8e663a7c645904c4a06f23cfaa5a..1ea2b35ed8c257aaedf7305bb9d270a8a2a7255e 100644
 --- a/dist/github-Bv2rIJ1S.js
-+++ b/dist/github-vO3Ime0U.js
-@@ -5,13 +5,14 @@ import { Diagnostic } from "nostics";
++++ b/dist/github-8CSPYOcs.js
+@@ -5,25 +5,27 @@ import { Diagnostic } from "nostics";
  import * as v from "valibot";
  import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
  import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -302,11 +157,26 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +import { createHash, createSign, randomUUID } from "node:crypto";
  import { AsyncLocalStorage } from "node:async_hooks";
  import { promisify } from "node:util";
-+import { lstatSync, rmSync } from "node:fs";
++import { constants, lstatSync, rmSync } from "node:fs";
  //#region src/server/github-checkout.ts
  const exec$1 = promisify(execFile);
  /** Restore PR checkout history in a separate materialized provider workspace. */
-@@ -416,8 +417,303 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
+ async function prepareGitHubPullRequestWorkspace(checkout, target, options = {}) {
+ 	options.signal?.throwIfAborted();
+-	const source = await realpath(checkout);
++	const resolvedSource = await realpath(checkout);
++	const source = checkout;
+ 	const destination = await realpath(target);
+ 	const overlaps = (left, right) => {
+ 		const relation = relative(left, right);
+ 		return !relation || relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation);
+ 	};
+-	if (overlaps(source, destination) || overlaps(destination, source)) throw new Error("Provider workspace must be separate from prepared checkout.");
++	if (overlaps(resolvedSource, destination) || overlaps(destination, resolvedSource)) throw new Error("Provider workspace must be separate from prepared checkout.");
+ 	if (!(await lstat(join(source, ".git"))).isDirectory()) throw new Error("Expected independent prepared Git clone.");
+ 	const env = { ...process.env };
+ 	delete env.GIT_DIR;
+@@ -416,8 +418,354 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
  		resetAt: reset * 1e3
  	};
  }
@@ -332,13 +202,41 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +			return;
 +		}
 +	};
-+	const release = (repository, number, directory, adopted = false, submodules = []) => {
++	const evict = async (entry) => {
++		const quarantine = join(root, `.vitehub-evict-${randomUUID()}`);
++		try {
++			const visible = await lstat(entry.directory);
++			if (visible.dev !== entry.identity.dev || visible.ino !== entry.identity.ino) return;
++			await rename(entry.directory, quarantine);
++			const current = await lstat(quarantine);
++			if (current.dev !== entry.identity.dev || current.ino !== entry.identity.ino) {
++				try {
++					await lstat(entry.directory);
++				} catch (error) {
++					if (error.code === "ENOENT") await rename(quarantine, entry.directory);
++				}
++				return;
++			}
++			await rm(quarantine, {
++				force: true,
++				recursive: true
++			});
++		} catch {}
++	};
++	const release = (repository, number, directory, adopted = false, submodules = [], identity) => {
++		if (!identity) return;
 +		const poolKey = key(repository, number);
-+		idle.set(poolKey, [...idle.get(poolKey) ?? [], {
++		const entries = [...idle.get(poolKey) ?? [], {
 +			directory,
 +			adopted,
-+			submodules
-+		}]);
++			submodules,
++			identity
++		}];
++		while (entries.length > 4) {
++			const evicted = entries.shift();
++			if (evicted) evict(evicted);
++		}
++		idle.set(poolKey, entries);
 +	};
 +	const adopt = () => adopted ??= (async () => {
 +		await mkdir(root, { recursive: true });
@@ -350,9 +248,25 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +			await parent.close();
 +		}
 +		for (const entry of await readdir(root, { withFileTypes: true })) {
++			if (entry.name.startsWith(".vitehub-reset-")) {
++				await rm(join(root, entry.name), {
++					force: true,
++					recursive: true
++				}).catch(() => void 0);
++				continue;
++			}
 +			const match = /^(.+)-pr-(\d+)-[A-Za-z0-9]{6}$/.exec(entry.name);
 +			const repository = match ? decodeRepository(match[1]) : void 0;
-+			if (entry.isDirectory() && repository && match) release(repository, Number(match[2]), join(root, entry.name), true);
++			if (entry.isDirectory() && repository && match) {
++				const directory = join(root, entry.name);
++				if (await lstat(join(directory, ".git")).then((stat) => stat.isDirectory()).catch(() => false)) {
++					const identity = await lstat(directory);
++					release(repository, Number(match[2]), directory, true, [], identity);
++				} else await rm(directory, {
++					force: true,
++					recursive: true
++				}).catch(() => void 0);
++			}
 +		}
 +	})().catch((error) => {
 +		adopted = void 0;
@@ -378,18 +292,18 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +				while (checkout) {
 +					anchoredDirectory = join(anchoredRoot, basename(checkout.directory));
 +					try {
-+						await lstat(anchoredDirectory);
-+						break;
++						const current = await lstat(anchoredDirectory);
++						if (current.dev === checkout.identity.dev && current.ino === checkout.identity.ino) break;
 +					} catch (error) {
 +						if (error.code !== "ENOENT") throw error;
-+						checkout = idle.get(key(repository, number))?.pop();
 +					}
++					checkout = idle.get(key(repository, number))?.pop();
 +				}
 +				if (!checkout) anchoredDirectory = await mkdtemp(join(anchoredRoot, `${encodeRepository(repository)}-pr-${number}-`));
 +				return {
 +					directory: join(root, basename(anchoredDirectory)),
 +					anchoredDirectory,
-+					identity: await lstat(anchoredDirectory),
++					identity: checkout?.identity ?? await lstat(anchoredDirectory),
 +					anchoredRoot,
 +					reused: Boolean(checkout),
 +					adopted: checkout?.adopted ?? false,
@@ -411,7 +325,8 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +			"-C",
 +			checkout,
 +			"ls-tree",
-+			"-rz",
++			"-r",
++			"-z",
 +			"HEAD"
 +		], {
 +			env: options.env,
@@ -491,7 +406,13 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +*/
 +async function resetPooledCheckout(checkout, anchoredRoot, repository, submodules, commandOptions, discardObjects = false) {
 +	const privateRoot = await mkdtemp(join(anchoredRoot, ".vitehub-reset-"));
-+	const privateParent = await open(privateRoot, "r");
++	const privateParent = await open(privateRoot, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
++	const privateIdentity = await privateParent.stat();
++	const privatePathIdentity = await lstat(privateRoot);
++	if (privateIdentity.dev !== privatePathIdentity.dev || privateIdentity.ino !== privatePathIdentity.ino) {
++		await privateParent.close();
++		throw new Error("Pooled checkout reset directory was replaced");
++	}
 +	const anchoredPrivateRoot = `/proc/${process.pid}/fd/${privateParent.fd}`;
 +	const parkedCheckout = join(anchoredPrivateRoot, "checkout");
 +	let closed = false;
@@ -610,7 +531,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
  	const reserve = options.reserve ?? 1500;
  	const cacheMs = options.cacheMs ?? 15e3;
  	const graphQLCheckTimeout = options.graphQLCheckTimeout ?? GITHUB_GRAPHQL_CHECK_TIMEOUT_MS;
-@@ -812,8 +1108,13 @@ function createGitHubHost(options) {
+@@ -812,8 +1160,13 @@ function createGitHubHost(options) {
  		if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." });
  		for (const repository of [pullRequest.repository, pullRequest.headRepository]) if (repository !== void 0 && !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." });
  		if (pullRequest.headRepository && !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." });
@@ -625,19 +546,39 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
  		try {
  			const baseAuth = await access({
  				refresh: true,
-@@ -834,7 +1135,10 @@ function createGitHubHost(options) {
+@@ -834,14 +1187,23 @@ function createGitHubHost(options) {
  				await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions);
  				if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." });
  			}
 -			await exec("git", [
+-				"clone",
+-				"--filter=blob:none",
+-				"--no-checkout",
+-				"--",
+-				`https://github.com/${pullRequest.repository}.git`,
+-				checkout
+-			], commandOptions);
 +			if (pooled?.reused) {
 +				reset = await resetPooledCheckout(checkout, pooled.anchoredRoot, pullRequest.repository, pooled.submodules, commandOptions, pooled.adopted);
 +				checkout = reset.directory;
-+			} else await exec("git", [
- 				"clone",
- 				"--filter=blob:none",
- 				"--no-checkout",
-@@ -867,7 +1171,10 @@ function createGitHubHost(options) {
++			} else {
++				if (pooled) {
++					const allocated = await lstat(pooled.anchoredDirectory);
++					if (!allocated.isDirectory() || allocated.dev !== pooled.identity.dev || allocated.ino !== pooled.identity.ino) throw new Error("Pooled checkout directory was replaced");
++				}
++				await exec("git", [
++					"clone",
++					"--filter=blob:none",
++					"--no-checkout",
++					"--",
++					`https://github.com/${pullRequest.repository}.git`,
++					checkout
++				], commandOptions);
++			}
+ 			if (pullRequest.headRef) {
+ 				const sourceRepository = pullRequest.headRepository ?? pullRequest.repository;
+ 				const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({
+@@ -867,7 +1229,10 @@ function createGitHubHost(options) {
  				await exec("git", [
  					"-C",
  					checkout,
@@ -648,7 +589,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
  					"-B",
  					pullRequest.headRef,
  					"FETCH_HEAD"
-@@ -885,11 +1192,29 @@ function createGitHubHost(options) {
+@@ -885,11 +1250,29 @@ function createGitHubHost(options) {
  				await exec("git", [
  					"-C",
  					checkout,
@@ -678,7 +619,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
  			await exec("git", [
  				"-C",
  				checkout,
-@@ -925,7 +1250,29 @@ function createGitHubHost(options) {
+@@ -925,8 +1308,40 @@ function createGitHubHost(options) {
  				"HEAD"
  			], commandOptions)).stdout.trim();
  			if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` });
@@ -694,6 +635,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +				checkout = pooled.anchoredDirectory;
 +			}
  			operation.signal.throwIfAborted();
+-			const prepareWorkspace = async (target) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal });
 +			await pooled?.validate();
 +			if (pooled) {
 +				const retained = await lstat(pooled.anchoredDirectory);
@@ -705,10 +647,21 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +			}
 +			const publicCheckout = pooled?.anchoredDirectory ?? checkout;
 +			keepCheckout = Boolean(checkoutPool);
- 			const prepareWorkspace = async (target) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal });
++			const prepareWorkspace = async (target) => {
++				if (!pooled) return await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal });
++				const directory = await open(checkout, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
++				try {
++					const current = await directory.stat();
++					if (checkoutIdentity && (current.dev !== checkoutIdentity.dev || current.ino !== checkoutIdentity.ino)) throw new Error("Pooled checkout was replaced");
++					await prepareGitHubPullRequestWorkspace(`/proc/${process.pid}/fd/${directory.fd}`, target, { signal: operation.signal });
++				} finally {
++					await directory.close();
++				}
++			};
  			let pushHead = pullRequest.headSha;
  			const push = async (target = checkout, options = {}) => {
-@@ -1019,20 +1366,46 @@ function createGitHubHost(options) {
+ 				const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal;
+@@ -1019,20 +1434,46 @@ function createGitHubHost(options) {
  			};
  			return await checkoutScope.run({
  				...baseAuth,
@@ -737,7 +690,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
 +						throw error;
 +					});
 +					retainedCheckout = Boolean(retained?.isDirectory() && retained.dev === checkoutIdentity.dev && retained.ino === checkoutIdentity.ino);
-+					if (retainedCheckout) checkoutPool.release(pullRequest.repository, pullRequest.number, pooled.directory, false, submodules);
++					if (retainedCheckout) checkoutPool.release(pullRequest.repository, pullRequest.number, pooled.directory, false, submodules, checkoutIdentity);
 +				}
 +				if (!retainedCheckout) {
 +					const discard = pooled?.anchoredDirectory ?? checkout;
@@ -761,85 +714,55 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8
  		}
  	}
  	const host = {
-diff --git a/dist/host-Cjo5s29Z.js b/dist/host-CHPkE5YI.js
-similarity index 95%
-rename from dist/host-Cjo5s29Z.js
-rename to dist/host-CHPkE5YI.js
-index 7cfa998065bfdc0579caeaf6cc7a54afb1edcaab..06cff5174dbb8fbb9ae13e58bb65c3087ead827c 100644
---- a/dist/host-Cjo5s29Z.js
-+++ b/dist/host-CHPkE5YI.js
-@@ -1,13 +1,13 @@
- import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
- import { createMessage } from "./messages.js";
--import { l as defineCapability } from "./capability-runtime-rNY1-Ioq.js";
-+import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from "./capability-runtime-rNY1-Ioq.js";
- import { b as channelEnv } from "./channels-Ci132KGQ.js";
--import { w as getAgentLayerOptions } from "./workspace-agent-DAN8TE97.js";
--import { i as defineAgent, p as runAgent } from "./src-6Um8vve5.js";
-+import { C as asMetadataTarget, E as getAgentLayerOptions, w as copyDefinitionDecorations } from "./workspace-agent-BIPh5ow-.js";
-+import { i as defineAgent, p as runAgent } from "./src-CX-_DjVk.js";
+diff --git a/dist/github-inbox-ByFzJgHW.d.ts b/dist/github-inbox-JjrpLhb2.d.ts
+similarity index 99%
+rename from dist/github-inbox-ByFzJgHW.d.ts
+rename to dist/github-inbox-JjrpLhb2.d.ts
+index fa7ecf0c1f0bc1f216d2521560f2cfd5af961970..7570ae9fa4924a16a911b6e5e6c7152c2456c995 100644
+--- a/dist/github-inbox-ByFzJgHW.d.ts
++++ b/dist/github-inbox-JjrpLhb2.d.ts
+@@ -1,6 +1,6 @@
+-import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CoiAcEkJ.js";
++import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CeJgisV1.js";
+ import { a as SqliteAgentStateExtension, l as SqliteAgentStateRow, o as SqliteAgentStateExtensionExecutor } from "./sqlite-BuC-W89Z.js";
+-import { n as PullRequest } from "./github-pull-requests-D9gI89pc.js";
++import { n as PullRequest } from "./github-pull-requests-CQnGZ5Zd.js";
+ //#region src/server/github-inbox/budgets.d.ts
+ interface ProviderBudget {
+   generation: string;
+diff --git a/dist/github-pull-requests-D9gI89pc.d.ts b/dist/github-pull-requests-CQnGZ5Zd.d.ts
+similarity index 99%
+rename from dist/github-pull-requests-D9gI89pc.d.ts
+rename to dist/github-pull-requests-CQnGZ5Zd.d.ts
+index f517faff3eedcbd529256e85135cdec886a19398..63a9cf35eea244a35d111ad675fd1bee52e399dd 100644
+--- a/dist/github-pull-requests-D9gI89pc.d.ts
++++ b/dist/github-pull-requests-CQnGZ5Zd.d.ts
+@@ -1,4 +1,4 @@
+-import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CoiAcEkJ.js";
++import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CeJgisV1.js";
+ //#region src/server/github-pull-requests.d.ts
+ type PullRequestFeedback = {
+   comments: string;
+diff --git a/dist/host-BFckuFbP.js b/dist/host-BLqulDpG.js
+similarity index 99%
+rename from dist/host-BFckuFbP.js
+rename to dist/host-BLqulDpG.js
+index 41565a2f7db6b3b35cc1461ccb69a6228f6f636c..60decf551de393c08f4c62c3186e4822d90ba155 100644
+--- a/dist/host-BFckuFbP.js
++++ b/dist/host-BLqulDpG.js
+@@ -5,9 +5,9 @@ import { b as channelEnv } from "./channels-Ci132KGQ.js";
+ import { C as asMetadataTarget, E as getAgentLayerOptions, w as copyDefinitionDecorations } from "./workspace-agent-BIPh5ow-.js";
+ import { i as defineAgent, p as runAgent } from "./src-CX-_DjVk.js";
  import { i as createProcessAgentHost } from "./process-CpQszRqn.js";
--import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-CAV3rvb6.js";
-+import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-G351BtnI.js";
+-import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-DsjDr9Tp.js";
++import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-DNS0j7bP.js";
  import { r as registerAgentProcessHostIntake } from "./agent-process-host-CmNwxanU.js";
 -import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-Bv2rIJ1S.js";
-+import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-vO3Ime0U.js";
++import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-8CSPYOcs.js";
  import { a as snapshotPrompt, f as reconcileOneSnapshot, h as normalizePullRequest, i as assertPromptFits, l as probeChangedSnapshots, n as createClaimStopCheck, o as detectChangedPullRequests, p as PullRequestInbox, r as snapshotPullRequest, s as hydrateSnapshot, u as readPullRequestThreads } from "./github-inbox-DSQKtzl_.js";
  import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
  import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
-@@ -870,14 +870,37 @@ function createBabysitterRuntime(options) {
- 					const workerDriver = driver;
- 					const activityEnabled = !!verifiedHostIdentity;
- 					const workerName = "babysitter-worker";
-+					const baseSettings = getAgentLayerOptions(baseAgent);
-+					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
-+					const { channels: _baseChannels, github: _baseGitHub, ...workerSettings } = baseSettings;
-+					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
-+					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-+						if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
-+						const sanitized = { ...channel };
-+						Reflect.deleteProperty(sanitized, Symbol.for("vitehub.githubChannelIdentity"));
-+						return [name, sanitized];
-+					}));
-+					const baseCapabilities = workerSettings.capabilities;
-+					const repair = repairCapability(operations, merge.mode === "auto");
-+					const workerCapabilities = typeof baseCapabilities === "function" ? async (context) => [...(await resolveAgentCapabilityDefinitions(baseCapabilities, context)).filter((capability) => capability.id !== "babysitter.github"), repair] : [...(Array.isArray(baseCapabilities) ? baseCapabilities : []).filter((capability) => capability.id !== "babysitter.github"), repair];
-+					copyDefinitionDecorations(asMetadataTarget(baseAgent), asMetadataTarget(workerSettings));
-+					const workerChannel = { ...github.channel({
-+						activity: activityEnabled,
-+						pullRequest: {
-+							filter: presetOptions.filter,
-+							workspace: false
-+						}
-+					}) };
-+					Reflect.deleteProperty(workerChannel, Symbol.for("vitehub.githubChannelIdentity"));
-+					const baseWorkspace = isRuntimeRecord(workerSettings.workspace) ? workerSettings.workspace : {};
- 					const agent = defineAgent({
--						extends: baseAgent,
-+						...workerSettings,
- 						name: workerName,
--						channels: { github: github.channel({
--							activity: activityEnabled,
--							pullRequest: { filter: presetOptions.filter }
--						}) },
--						capabilities: [repairCapability(operations, merge.mode === "auto")],
-+						channels: {
-+							...workerBaseChannels,
-+							github: workerChannel
-+						},
-+						capabilities: workerCapabilities,
- 						driver: {
- 							...workerDriver,
- 							permissions: "allow-edits",
-@@ -896,6 +919,7 @@ function createBabysitterRuntime(options) {
- 							}
- 						},
- 						workspace: {
-+							...baseWorkspace,
- 							commit: false,
- 							mode: "write",
- 							store: {
-@@ -1074,7 +1098,8 @@ async function createBabysitterProcessHost(context) {
+@@ -1109,7 +1109,8 @@ async function createBabysitterProcessHost(context) {
  	const identity = await credentials.identity();
  	const github = createGitHubHost({
  		credentials: credentials.credentials,
@@ -878,19 +801,6 @@ index b88e9b93339e9ae37c9f2aaf8a7b681a939bb9ea..c2a433fa9326763b5ec8ad1e67ca9a45
  import { t as agentWithSkills } from "./colocated-agent-skills-GuRte96k.js";
  export { type AgentAccessInvocationContextValue, type AgentAccessWorkspaceScopeContext, AgentActivity, type AgentActor, type AgentAdapter, type AgentAdapterFactory, type AgentAdapterInstructions, type AgentAdapterInstructionsPart, type AgentAdapterInstructionsValue, type AgentAdapterMetadataContext, type AgentAdapterResult, type AgentAdapterRunContext, type AgentAskDriver, type AgentAskQuestions, type AgentAskQuestionsResolver, type AgentBoxDefinition, type AgentCallSettingsInstrumentation, type AgentCallSettingsInstrumentationContext, type AgentCallbackContext, type AgentCapabilities, type AgentCapabilitiesInput, type AgentCapabilitiesList, type AgentCapabilitiesResolver, type AgentCapabilitiesResolverContext, type AgentCapabilityCliCommand, type AgentCapabilityCliContribution, type AgentCapabilityCliExecutionInput, type AgentCapabilityCliExecutionResult, type AgentCapabilityCliOutputDefinition, type AgentCapabilityCliOutputFormat, type AgentCapabilityCliResolver, type AgentCapabilityCliRunContext, type AgentCapabilityCliStandardSchemaResultFailure, type AgentCapabilityCliStandardSchemaResultSuccess, type AgentCapabilityCliStandardSchemaV1, type AgentCapabilityContext, type AgentCapabilityDefinition, type AgentCapabilityHandle, type AgentCapabilityHookName, type AgentCapabilityHooks, type AgentCapabilityInput, type AgentCapabilityInspection, type AgentCapabilityInspectionBinding, type AgentCapabilityInspectionDefinition, type AgentCapabilityInspectionElement, type AgentCapabilityInspectionView, type AgentCapabilityMode, type AgentCapabilityPhase, type AgentCapabilityRuntimeContext, type AgentChannelContext, type AgentChannelDefinition, type AgentChannelDelivery, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectIntentOptions, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryEffectPayload, type AgentChannelDeliveryEvent, type AgentChannelDeliveryEventInput, type AgentChannelDeliveryEventType, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectCallback, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDeliveryFinishEffectResult, type AgentChannelDeliveryInspection, type AgentChannelDeliveryReactionInput, type AgentChannelDeliveryReactionPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelDeliveryStatus, type AgentChannelDeliveryStatusInput, type AgentChannelDeliveryStatusPayload, type AgentChannelDeliveryStatusState, type AgentChannelFactory, type AgentChannelHistory, type AgentChannelHistoryCollection, type AgentChannelHistoryQuery, type AgentChannelInput, type AgentChannelInputs, type AgentChannelMessage, type AgentChannelMessageCalls, type AgentChannelMessageContext, type AgentChannelMessageDefinition, type AgentChannelMessageMethod, type AgentChannelMessageMethodHandler, type AgentChannelMessageMethods, type AgentChannelMessageOf, type AgentChannelReplyCalls, type AgentChannelTriggerContext, type AgentChannelWebhookRegistrationDefinition, type AgentChannels, type AgentChatAgentHookArgs, type AgentChatContext, AgentChatData, type AgentChatErrorHookArgs, type AgentChatEventHookArgs, type AgentChatEventHooks, type AgentChatFinishExtension, type AgentChatMessage, type AgentChatMessageHookArgs, type AgentChatOptions, type AgentChatPlatformAdapter, type AgentChatPlatformResolver, type AgentChatPlatformsResolver, type AgentChatRunContext, type AgentChatSendMessage, type AgentChatSessionOptions, type AgentChatTriggerHistory, type AgentDataCarrier, type AgentDefinition, type AgentDefinitionCliOptions, type AgentDefinitionHooks, type AgentDeliveryArtifact, type AgentDeliveryArtifactPlacement, type AgentDevLoopAgentSummary, type AgentDevLoopDiscoveryResponse, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentDriverCapacitySample, type AgentDriverCapacitySampleContext, type AgentDriverContribution, type AgentDriverContributionKind, type AgentDriverKind, type AgentErrorHook, type AgentErrorHookEvent, type AgentExecution, type AgentFinishEvent, type AgentFinishExtensionValues, type AgentFinishExtensions, type AgentFinishHook, type AgentFinishHookEvent, type AgentGatewayModel, type AgentGitHub, type AgentGitHubAccess, type AgentGitHubMessageCalls, type AgentHookObserver, type AgentHookObserverEvent, type AgentHookObserverHooks, type AgentHookOutcome, type AgentHookOwner, type AgentHostIdentity, type AgentInput, type AgentInputHook, type AgentInspectionCapabilityMetadata, type AgentInspectionConfigMetadata, type AgentInspectionConfigValue, type AgentInspectionDriverMetadata, type AgentInspectionFileTreeItem, type AgentInspectionMetadata, type AgentInspectionModelExecutionMetadata, type AgentInspectionModelMetadata, type AgentInspectionProviderMetadata, type AgentInspectionToolDefinition, type AgentInspectionValue, type AgentInstructionsContent, type AgentIntegrationOption, type AgentIntegrationsOptions, type AgentInterceptContext, type AgentInterceptHandler, type AgentInvocationAnnotationValue, type AgentInvocationContextStore, type AgentInvocationContextValues, type AgentInvocationControlOutcome, type AgentInvocationControlResult, type AgentInvocationController, type AgentInvocationDeleteOutcome, type AgentInvocationExtensions, type AgentInvocationHooks, type AgentInvocationInputMode, type AgentInvocationInputSupport, type AgentInvocationInspection, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationObservationOptions, type AgentInvocationPruneOptions, type AgentInvocationPruneResult, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationRerunInput, type AgentInvocationRerunUnavailableReason, type AgentInvocationRetentionOptions, type AgentInvocationSnapshot, type AgentInvocationStatus, type AgentInvocationStore, type AgentInvocationStreamErrorEvent, type AgentInvocationStreamEvent, type AgentInvocationSummary, type AgentInvocations, type AgentInvoker, type AgentInvokerMeta, type AgentInvokerOptions, type AgentInvokerProfile, type AgentInvokerResolveContext, type AgentMessageChannelSettings, type AgentMessageConcurrency, type AgentMessageDeliveryKind, type AgentMessageFilter, type AgentMessageFilterContext, type AgentMessageLockScope, AgentMessagePhase, type AgentModelDriver, type AgentModelExecutionInstrumentation, type AgentModelExecutionOptions, type AgentModelInput, type AgentModelInstrumentation, type AgentModelInstrumentationContext, type AgentModelResolver, type AgentModelResolverContext, type AgentModuleOptions, type AgentOutputDefinition, type AgentOutputExtensionEvent, type AgentOutputExtensionProvider, type AgentOutputExtensionValues, type AgentOutputExtensions, type AgentOutputRenderer, type AgentPresetOptions, type AgentProviderCredentialContext, type AgentProviderCredentialResolver, type AgentProviderCredentialValue, type AgentProviderDriverOptions, type AgentProviderEnvironment, type AgentProviderEnvironmentResolver, type AgentProviderExitContext, type AgentProviderLaunchCommand, type AgentProviderLaunchContext, type AgentProviderLaunchResolver, type AgentProviderPermissions, type AgentProviderSealedCredential, type AgentProviderStatus, type AgentProviderUsageLimits, type AgentProviderWorkingDirectoryResolver, type AgentProvidersOptions, type AgentPublicError, type AgentPublicErrorCode, type AgentPublicErrorDetails, type AgentRegistry, type AgentRegistryHandlerOptions, type AgentRegistryModule, type AgentRunCallbackContext, type AgentRunContext, type AgentRunDriver, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEvents, type AgentRunHandler, type AgentRunInput, type AgentRunInputContextValues, type AgentRunMetadata, type AgentRunResult, type AgentRuntime, type AgentRuntimeBinding, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentRuntimeHooks, type AgentRuntimeName, type AgentSandboxProviderOptions, type AgentSchedulerProviderOptions, type AgentSettings, type AgentSourceProvenance, type AgentStateProviderOptions, type AgentTelemetry, type AgentTelemetryContentOptions, type AgentTelemetryExportContext, type AgentTelemetryLogsExportContext, type AgentTelemetryRegistration, type AgentTelemetryTracesExportContext, type AgentToolDefinition, type AgentToolInspection, type AgentToolPolicyContext, type AgentToolPolicyDecision, type AgentToolResolver, type AgentToolSchema, type AgentToolSet, type AgentToolStandardSchema, type AgentToolStep, type AgentToolTransform, type AgentTriggerContext, type AgentTriggerDefinition, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUIMessageStreamProjectionResolver, type AgentUsage, type AgentUsageCost, type AgentUsageCredentialSource, type AgentUsageRecord, type AgentWaitUntil, type AgentWebhookRegistrationDefinition, type AgentWebhookVerificationResult, type AgentWorkflowRuntimeBinding, ApprovalDecisionPart, ApprovalRequestPart, type AskAnswer, type AskAnswers, type AskChanceAnswer, type AskChanceCriteria, type AskChanceQuestion, type AskChoiceAnswer, type AskChoiceCriteria, type AskChoiceLabels, type AskChoiceQuestion, type AskEntry, type AskIfQuestion, type AskJson, type AskQuestion, type AskQuestions, type AskScoreAnswer, type AskScoreCriteria, type AskScoreQuestion, type AskSwitchQuestion, AttachmentData, AttachmentPart, AudioData, AudioPart, type BuiltInAgentDriver, type BuiltInAgentDriverName, type ClaudeCodeDriverOptions, type CodexDriverOptions, type CodexReasoningEffort, type CodexReasoningSummary, type ConfiguredAgentDefinition, CreateMessageOptions, type CustomAgentDriver, DataPart, DefineAgent, type DiscoveredAgentDefinition, ErrorPart, FilePart, ImagePart, type MaybePromise, type MaybeResolvable, Message, MessageMetadata, MessagePart, MessageRole, type PublishedAgentDeliveryArtifact, type Resolvable, type ResolvedAgentModuleOptions, type ResolvedAgentRuntimeContext, type ResolvedAgentStateProviderOptions, type ResolvedAgentTriggerDefinition, type ResolvedAgentTriggerHandledInvocation, type ResolvedAgentTriggerInvocation, type ResolvedAgentTriggerInvocationResult, RunAgentOptions, RunEvent, ScheduleRunContextLike, SerializedMessages, SourcePart, StreamEvent, TextPart, ToolCallPart, ToolInvocation, ToolInvocationState, ToolResultPart, type WorkspaceAgentDefaults, type WorkspaceAgentDefinition, type WorkspaceAgentOptions, type WorkspaceAgentWorkspaceConfig, type WorkspaceAgentWorkspaceOptions, agentChatContextKey, agentInvocationId, agentInvocationRerunInput, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, agentWithSkills, appendMessageText, applyAgentToolPolicies, applyStreamEvent, ask, attachmentStringByteLength, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, inspectAgentTools, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, portableAgentWorkflowInput, publishAgentActivity, readAgentInvocationStream, reserveAgentChannelItem, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
 \ No newline at end of file
-diff --git a/dist/index.js b/dist/index.js
-index 4e51de7c0c3676b4e00727dcc10a98500626f343..c4f8104dfc7385e3a19f0d9048271639dc70ec87 100644
---- a/dist/index.js
-+++ b/dist/index.js
-@@ -4,6 +4,6 @@ import { C as inspectAgentTools, D as applyAgentToolPolicies, j as withAgentTool
- import { H as getAgentChatContext, L as agentChatContextKey, ot as defineFinishEffect } from "./channels-Ci132KGQ.js";
- import { n as agentInvocationId, r as agentInvocationRerunInput } from "./invocations-CSzhlbXS.js";
- import { x as ask } from "./scheduled-turn-DndJkVpg.js";
--import { _ as agentWithSkills, a as materializeAgentInspectionSourceMetadata, l as workspaceAgentOwnsWorkspaceDefinition, o as resolveAgentInspectionMetadata, p as workspaceDefinitionFromOptions, t as createAgentInspectionMetadata } from "./workspace-agent-DAN8TE97.js";
--import { A as verifyAgentWebhookRequest, C as createAgentInvocationStreamResponse, D as isResolvedAgentTriggerHandledInvocation, S as agentInvocationStreamRoute, _ as streamAgent, a as getAgent, b as workflow, c as publishAgentActivity, d as resolveAgentTriggerInvocation, f as resolveAgentTriggers, g as startAgentInvocation, h as runAgentTrigger, i as defineAgent, l as reserveAgentChannelItem, m as runAgentInline, n as claudeCodeDriver, o as getAgentFromRegistry, p as runAgent, r as codexDriver, s as portableAgentWorkflowInput, t as agentWithColocatedInstructions, u as resolveAgent, v as streamAgentInline, w as readAgentInvocationStream, y as streamAgentTrigger } from "./src-6Um8vve5.js";
-+import { _ as agentWithSkills, a as materializeAgentInspectionSourceMetadata, l as workspaceAgentOwnsWorkspaceDefinition, o as resolveAgentInspectionMetadata, p as workspaceDefinitionFromOptions, t as createAgentInspectionMetadata } from "./workspace-agent-BIPh5ow-.js";
-+import { A as verifyAgentWebhookRequest, C as createAgentInvocationStreamResponse, D as isResolvedAgentTriggerHandledInvocation, S as agentInvocationStreamRoute, _ as streamAgent, a as getAgent, b as workflow, c as publishAgentActivity, d as resolveAgentTriggerInvocation, f as resolveAgentTriggers, g as startAgentInvocation, h as runAgentTrigger, i as defineAgent, l as reserveAgentChannelItem, m as runAgentInline, n as claudeCodeDriver, o as getAgentFromRegistry, p as runAgent, r as codexDriver, s as portableAgentWorkflowInput, t as agentWithColocatedInstructions, u as resolveAgent, v as streamAgentInline, w as readAgentInvocationStream, y as streamAgentTrigger } from "./src-CX-_DjVk.js";
- export { agentChatContextKey, agentInvocationId, agentInvocationRerunInput, agentInvocationStreamRoute, agentInvokerContextKey, agentWithColocatedInstructions, agentWithSkills, appendMessageText, applyAgentToolPolicies, applyStreamEvent, ask, attachmentStringByteLength, attachmentStringBytes, claudeCodeDriver, codexDriver, collectStreamEvents, createAgentChatData, createAgentInspectionMetadata, createAgentInvocationStreamResponse, createMessage, currentInputAttachments, defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, deserializeMessages, getAgent, getAgentChatContext, getAgentFromRegistry, getMessageText, getToolInvocations, inspectAgentTools, isAttachmentData, isAttachmentPart, isResolvedAgentTriggerHandledInvocation, isTextAttachmentMediaType, materializeAgentInspectionSourceMetadata, materializeMessageAttachmentData, memoizeMessageAttachmentData, portableAgentWorkflowInput, publishAgentActivity, readAgentInvocationStream, reserveAgentChannelItem, resolveAgent, resolveAgentInspectionMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, resolveAttachmentData, runAgent, runAgentInline, runAgentTrigger, serializeMessages, startAgentInvocation, streamAgent, streamAgentInline, streamAgentTrigger, validateMessage, verifyAgentWebhookRequest, withAgentToolStepReporting, workflow, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions };
 diff --git a/dist/invocations/d1.d.ts b/dist/invocations/d1.d.ts
 index a11c05a72dfed24c2852787227391b592419d298..83e84ffcf0aba57e75a718f1e01d9a7f330c6776 100644
 --- a/dist/invocations/d1.d.ts
@@ -1020,12 +930,12 @@ index cb82de400190b011df7d6885358f727b46ea365d..f63ab9e6f6e46ad9cf0351b9244080ad
  type BabysitterMergeMethod = "squash" | "merge" | "rebase";
  interface BabysitterMergeReadinessInput {
 diff --git a/dist/presets/babysitter.js b/dist/presets/babysitter.js
-index e0c5957bc71c0e8d22eac932f62ffebfb387a9ae..e50b6716068cceedcfa120317673898011b6fdb1 100644
+index feec0523d21433d450f3c0bb09592c8c2cfb7dcc..26df0183f21d275af148869e3dafd8d3d76faec6 100644
 --- a/dist/presets/babysitter.js
 +++ b/dist/presets/babysitter.js
 @@ -1,2 +1,2 @@
--import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-CAV3rvb6.js";
-+import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-G351BtnI.js";
+-import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-DsjDr9Tp.js";
++import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-DNS0j7bP.js";
  export { babysitter, babysitterPassResultSchema };
 diff --git a/dist/presets/workspace.d.ts b/dist/presets/workspace.d.ts
 index f9c6a7ea8ce9b40682147ffa3302e0861891c2b6..ac9b5e3a356a029156576178356ec81a83332e76 100644
@@ -1039,16 +949,6 @@ index f9c6a7ea8ce9b40682147ffa3302e0861891c2b6..ac9b5e3a356a029156576178356ec81a
  //#region src/presets/workspace.d.ts
  /** Read mounted Sources and cite files at their verified GitHub revision. */
  declare const workspace: WorkspaceAgentDefinition;
-diff --git a/dist/presets/workspace.js b/dist/presets/workspace.js
-index 91ff7aa5c6c2e040da5d6a91d1c1e76b9b46bf25..f2724781f395aaa445f31fabc4124892764766d3 100644
---- a/dist/presets/workspace.js
-+++ b/dist/presets/workspace.js
-@@ -1,4 +1,4 @@
--import { i as defineAgent } from "../src-6Um8vve5.js";
-+import { i as defineAgent } from "../src-CX-_DjVk.js";
- //#region src/presets/workspace.ts
- function sourceProvenanceInstructions(provenance) {
- 	if (!provenance.length) return;
 diff --git a/dist/provider-agent.d.ts b/dist/provider-agent.d.ts
 index 578f9da107c65b80cc242a13ba1214975c3a6ce1..1c2f851705b09d8caf1f76cd8c130574106457e3 100644
 --- a/dist/provider-agent.d.ts
@@ -1060,19 +960,10 @@ index 578f9da107c65b80cc242a13ba1214975c3a6ce1..1c2f851705b09d8caf1f76cd8c130574
  import { BoxDefinition, BoxToolchain } from "@vite-hub/box";
  //#region src/provider-agent.d.ts
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index bb1db0172914cba8a0d0e76fc4d88fc85c18b891..a5721377045f87747d9e4968661d25c0c06d097b 100644
+index 19dcdf91065807a81845967912c490ea3465977f..a5721377045f87747d9e4968661d25c0c06d097b 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
-@@ -7,14 +7,14 @@ import { d as markAuxiliaryMessageChannelInstructionContext, l as isAuxiliaryAge
- import { C as inspectAgentTools, E as agentToolPolicyApproveSymbol, L as updateAgentTelemetryConfiguration, W as agentInvocationCallbackContextValues, it as hasTrustedWorkspaceAccessScope, w as agentToolJsonSchema } from "./capability-runtime-rNY1-Ioq.js";
- import { c as streamAgentOutputToEvents, i as appendLatestFinalText } from "./agent-output-D1V6mrEu.js";
- import { t as agentOutputInstructions } from "./agent-structured-output-Cn6T8_cl.js";
--import { _ as setActiveAgentWorkspaceFiles, a as codexLaunchArgs, c as browserRuntimeEnvironment, g as setActiveAgentWorkspaceCommands, n as pullRequestCheckoutEnvironment, o as providerCallbackMetadata, r as pullRequestCheckoutPlan, s as withProviderCallbackMetadata, t as preparePullRequestCheckout, v as setAgentWorkspaceDiff } from "./pull-request-checkout-BkjjcpvR.js";
--import { f as workspaceAutoCommitDisabled, m as workspaceDefinitionWithAutoCommitRules, v as colocatedAgentSkillsContextKey } from "./workspace-agent-DAN8TE97.js";
-+import { _ as setActiveAgentWorkspaceCommands, c as withProviderCallbackMetadata, i as pullRequestRepositories, l as browserRuntimeEnvironment, n as pullRequestCheckoutEnvironment, o as codexLaunchArgs, r as pullRequestCheckoutPlan, s as providerCallbackMetadata, t as preparePullRequestCheckout, v as setActiveAgentWorkspaceFiles, y as setAgentWorkspaceDiff } from "./pull-request-checkout-BZ8LGLSd.js";
-+import { f as workspaceAutoCommitDisabled, m as workspaceDefinitionWithAutoCommitRules, v as colocatedAgentSkillsContextKey } from "./workspace-agent-BIPh5ow-.js";
- import { o as registerAgentInvocationInputHandler, t as ownedAgentInvocationControlId } from "./agent-invocation-response-owner-BJjGK8gX.js";
- import { t as resolveInstalledProviderExecutable } from "./provider-runtime-packages-I_0-cHE4.js";
+@@ -14,7 +14,7 @@ import { t as resolveInstalledProviderExecutable } from "./provider-runtime-pack
  import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
  import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime";
  import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata";
@@ -1090,74 +981,6 @@ index bb1db0172914cba8a0d0e76fc4d88fc85c18b891..a5721377045f87747d9e4968661d25c0
  	const names = [...new Set(paths.map((path) => relative(root, path).replaceAll("\\", "/")))];
  	if (names.some((name) => /[\r\n]/.test(name))) throw new Error("Generated provider Git paths must not contain line breaks.");
  	const trackedEntries = (await git([
-@@ -3183,8 +3183,8 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
- 			...providerMetadataContext(context),
- 			abortSignal: effectiveSignal
- 		};
--		const githubCheckoutPlan = pullRequestCheckoutPlan(context.context);
--		const githubEnvironment = auxiliary || !context.runtime.githubIdentity ? void 0 : await waitForProviderOperation(pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubCheckoutPlan?.repository, effectiveSignal, githubCheckoutPlan?.headRepository), effectiveSignal);
-+		const githubScope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context);
-+		const githubEnvironment = auxiliary || !context.runtime.githubIdentity ? void 0 : await waitForProviderOperation(pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubScope?.repository, effectiveSignal, githubScope?.headRepository), effectiveSignal);
- 		const configuredEnvironmentOverrides = options.env === void 0 ? void 0 : normalizedProviderEnvironment(await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.env, resolverContext)), effectiveSignal));
- 		const providerEnvironmentOverrides = githubEnvironment ? {
- 			...githubEnvironment,
-diff --git a/dist/pull-request-checkout-BkjjcpvR.js b/dist/pull-request-checkout-BZ8LGLSd.js
-similarity index 94%
-rename from dist/pull-request-checkout-BkjjcpvR.js
-rename to dist/pull-request-checkout-BZ8LGLSd.js
-index e1d90112dbff7ba58ad400fa2152d86046ae27dd..b1a8ed6d796337b9eccc3391121a806f55fe64bf 100644
---- a/dist/pull-request-checkout-BkjjcpvR.js
-+++ b/dist/pull-request-checkout-BZ8LGLSd.js
-@@ -818,6 +818,27 @@ function pullRequestCheckoutPlan(context) {
- 	if (headRepository && headRepository.toLowerCase() !== repository.toLowerCase()) plan.headRepository = headRepository;
- 	return plan;
- }
-+/**
-+* Repositories a GitHub pull request run acts on, even when it opts out of the
-+* managed checkout. Babysitter supplies flat repository fields for its prepared
-+* checkout. Credentials stay scoped so multi-installation GitHub Apps can resolve access.
-+*/
-+function pullRequestRepositories(context) {
-+	const raw = context?.get("pullRequest");
-+	const pullRequest = isRecord(raw) && isRecord(raw.pullRequest) ? raw.pullRequest : isRecord(raw) ? raw : void 0;
-+	const provider = isRecord(raw) ? raw.provider : void 0;
-+	if (isRuntimeString(provider) && provider !== "github") return;
-+	const source = isRecord(pullRequest?.source) ? pullRequest.source : void 0;
-+	const head = isRecord(pullRequest?.head) ? pullRequest.head : void 0;
-+	const repositoryRecord = isRecord(raw) && isRecord(raw.repository) ? raw.repository : void 0;
-+	const repository = safeRepository(source?.repo) || safeRepository(isRecord(raw) ? raw.repository : void 0) || safeRepository(repositoryRecord?.fullName) || safeRepository(context?.get("pullRequestRepository"));
-+	if (!repository) return;
-+	const headRepository = safeRepository(head?.repo) || safeRepository(context?.get("pullRequestSourceRepository"));
-+	return headRepository && headRepository.toLowerCase() !== repository.toLowerCase() ? {
-+		headRepository,
-+		repository
-+	} : { repository };
-+}
- /** Resolve base access and add environment-only credentials for a fork push remote. */
- async function pullRequestCheckoutEnvironment(github, repository, abortSignal, headRepository) {
- 	if (!github) return {};
-@@ -905,4 +926,4 @@ async function preparePullRequestCheckout(session, plan, options = {}) {
- 	return true;
- }
- //#endregion
--export { setActiveAgentWorkspaceFiles as _, codexLaunchArgs as a, browserRuntimeEnvironment as c, provideBrowserRuntimeEnvironment as d, activeAgentWorkspaceCommands as f, setActiveAgentWorkspaceCommands as g, readAgentWorkspaceDiff as h, shellQuote as i, closeBrowserRuntimeSession as l, readActiveAgentWorkspaceFile as m, pullRequestCheckoutEnvironment as n, providerCallbackMetadata as o, clearAgentWorkspaceDiff as p, pullRequestCheckoutPlan as r, withProviderCallbackMetadata as s, preparePullRequestCheckout as t, prepareBrowserRuntime as u, setAgentWorkspaceDiff as v };
-+export { setActiveAgentWorkspaceCommands as _, shellQuote as a, withProviderCallbackMetadata as c, prepareBrowserRuntime as d, provideBrowserRuntimeEnvironment as f, readAgentWorkspaceDiff as g, readActiveAgentWorkspaceFile as h, pullRequestRepositories as i, browserRuntimeEnvironment as l, clearAgentWorkspaceDiff as m, pullRequestCheckoutEnvironment as n, codexLaunchArgs as o, activeAgentWorkspaceCommands as p, pullRequestCheckoutPlan as r, providerCallbackMetadata as s, preparePullRequestCheckout as t, closeBrowserRuntimeSession as u, setActiveAgentWorkspaceFiles as v, setAgentWorkspaceDiff as y };
-diff --git a/dist/routes-CIcRHrtS.js b/dist/routes-BrYqiQzq.js
-similarity index 99%
-rename from dist/routes-CIcRHrtS.js
-rename to dist/routes-BrYqiQzq.js
-index 5143259984dc056c8b99a338d3815723e6be8b53..9a5c0ea41277b3e4e8e233e0d654cad4e46e621b 100644
---- a/dist/routes-CIcRHrtS.js
-+++ b/dist/routes-BrYqiQzq.js
-@@ -15,7 +15,7 @@ import { a as agentChannelDeliverySourceValue, b as setAgentChannelDeliveryWorkf
- import { u as createAgentUIMessageStreamResponse } from "./scheduled-turn-DndJkVpg.js";
- import { a as loadConfiguredAgentWorkflowCapabilities, i as loadAgentWorkflowRuntimeStateModule } from "./workflow-runtime-loaders-oJWHdgq5.js";
- import { a as withParsedAgentMessageMeta, i as restoreParsedAgentMessageMeta, l as portableWorkflowCapabilityMask, r as parsedAgentMessageMetaState, t as hasParsedAgentMessageMeta } from "./message-meta-BaVSv50G.js";
--import { A as verifyAgentWebhookRequest, D as isResolvedAgentTriggerHandledInvocation, E as bindAgentChannelTriggerState, M as isAmbiguousAgentWorkflowStartFailure, N as awaitAgentInvocationResult, O as resolveAgentTriggerInvocation, _ as streamAgent, d as resolveAgentTriggerInvocation$1, f as resolveAgentTriggers, g as startAgentInvocation, k as resolveAgentTriggerInvocationResult, m as runAgentInline, p as runAgent, s as portableAgentWorkflowInput, y as streamAgentTrigger } from "./src-6Um8vve5.js";
-+import { A as verifyAgentWebhookRequest, D as isResolvedAgentTriggerHandledInvocation, E as bindAgentChannelTriggerState, M as isAmbiguousAgentWorkflowStartFailure, N as awaitAgentInvocationResult, O as resolveAgentTriggerInvocation, _ as streamAgent, d as resolveAgentTriggerInvocation$1, f as resolveAgentTriggers, g as startAgentInvocation, k as resolveAgentTriggerInvocationResult, m as runAgentInline, p as runAgent, s as portableAgentWorkflowInput, y as streamAgentTrigger } from "./src-CX-_DjVk.js";
- import { a as registerActiveAgentInvocation, n as withAgentInvocationResponseOwner, r as activeAgentInvocation, s as sendAgentInvocationInput } from "./agent-invocation-response-owner-BJjGK8gX.js";
- import { n as requireAtomicAgentStateQueue } from "./state-queue-B6JgC4NX.js";
- import { n as hasAgentWebhookQueue, t as createAgentWebhookQueue } from "./webhook-queue-Cx3b8ulp.js";
 diff --git a/dist/runtime/process.d.ts b/dist/runtime/process.d.ts
 index c9fbed1748c9ccfe9c85154abcb58bb3c24541f9..c9670e31f0f6f9a17158c3e313b9e5c235e5b7f3 100644
 --- a/dist/runtime/process.d.ts
@@ -1180,19 +1003,6 @@ index 6e12d89dbc7a93c565b9f861930ce5867407d286..41884f734390e5009add73f6f20f3ad5
  import { n as decodeColocatedAgentSkills } from "../colocated-agent-skills-GuRte96k.js";
  import { WorkflowExecutionContext } from "@vite-hub/workflow";
  //#region src/runtime/workflow.d.ts
-diff --git a/dist/runtime/workflow.js b/dist/runtime/workflow.js
-index bbc3bb855501e0b7c6e1fdedd61c7a1d2b5963fa..a0040c8cfb756459e3b1c0fa911516695f851401 100644
---- a/dist/runtime/workflow.js
-+++ b/dist/runtime/workflow.js
-@@ -9,7 +9,7 @@ import { n as getCloudflareEnv, t as getActiveCloudflareEnv } from "../cloudflar
- import { S as withAgentChannelDeliveryOwnershipVerifier, _ as resumeAgentChannelDeliveryWorkflowOwnership, d as isAgentChannelDeliveryWorkflowBinding, s as agentChannelDeliveryWorkflowContextKey, v as resumeWorkflowAgentChannelDelivery, x as withAgentChannelDelivery } from "../channel-delivery-DupVsgQe.js";
- import { a as loadConfiguredAgentWorkflowCapabilities, i as loadAgentWorkflowRuntimeStateModule, r as loadAgentWorkflowModule } from "../workflow-runtime-loaders-oJWHdgq5.js";
- import { c as cloneWorkflowJsonValue, f as setWorkflowJournalName, i as restoreParsedAgentMessageMeta, s as markParsedAgentWorkflowInput, t as hasParsedAgentMessageMeta, u as workflowBytesToBase64 } from "../message-meta-BaVSv50G.js";
--import { b as decodeColocatedAgentSkills, d as workspaceAgentWithSourceRoot, x as withColocatedAgentSkills } from "../workspace-agent-DAN8TE97.js";
-+import { b as decodeColocatedAgentSkills, d as workspaceAgentWithSourceRoot, x as withColocatedAgentSkills } from "../workspace-agent-BIPh5ow-.js";
- import { t as createAgentRuntimeContext } from "../context-KghRPYRx.js";
- import { t as agentWorkflowRetryRegistrar } from "../workflow-retry-DrZSbibq.js";
- import { createExecutionContext, getViteHubErrorShape } from "@vite-hub/runtime";
 diff --git a/dist/server/github-inbox.d.ts b/dist/server/github-inbox.d.ts
 index b1dc59ed9fe87c4551a975a78faaed2c061a4261..710fa9613c329472d341752cf2cfcc030ccde8e5 100644
 --- a/dist/server/github-inbox.d.ts
@@ -1216,12 +1026,12 @@ index 70dacea260de99d5af6bf4f187a84268ef4dcc71..e856f854564ac42d2b6fcc587dd19383
  interface GitHubWorkspaceRevision {
    repository: string;
 diff --git a/dist/server/github.js b/dist/server/github.js
-index cf109d10a019213639c629c7d216af8354e10772..842d61b32fe7b8cfadce38ec2f10371e8282c4fe 100644
+index cf109d10a019213639c629c7d216af8354e10772..55fad2070cd038277faeab4c198efb6eb35df36c 100644
 --- a/dist/server/github.js
 +++ b/dist/server/github.js
 @@ -1,2 +1,2 @@
 -import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-Bv2rIJ1S.js";
-+import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-vO3Ime0U.js";
++import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-8CSPYOcs.js";
  export { createGitHubAppCredentials, createGitHubHost, createGitHubInvocationWorkspaceHandler, createGitHubPullRequestOperations, createGitHubPullRequestRun, createGitHubPullRequests, createGitHubRequiredCheckPolicyReader, createGitHubWorkspaceInspector, evaluateGitHubRequiredChecks, parseGraphQLRateLimit, parseRequiredChecks, prepareGitHubPullRequestWorkspace, pullRequestCheckState };
 diff --git a/dist/server/internal.d.ts b/dist/server/internal.d.ts
 index 35db9b6ab3dba12331fea742ee58f3ef838cc1d7..f2c096e8270e9c7f27ba435a9fa5d2c91ce21b20 100644
@@ -1238,25 +1048,6 @@ index 35db9b6ab3dba12331fea742ee58f3ef838cc1d7..f2c096e8270e9c7f27ba435a9fa5d2c9
  import { resetPublicUrlAgentNames } from "@vite-hub/runtime";
  //#region src/server/scheduled-turn.d.ts
  interface ScheduledAgentTargetRunContext {
-diff --git a/dist/server/internal.js b/dist/server/internal.js
-index e40f6a115edbd69bb3e8835aa08f1137d2f79186..8c7f0eb8bed3638e75f01d5e7618caa69cadb650 100644
---- a/dist/server/internal.js
-+++ b/dist/server/internal.js
-@@ -1,10 +1,10 @@
- import { t as agentDiagnostics } from "../agent-diagnostics-JPe0UAuS.js";
- import { r as observabilityStatus } from "../observability-host-C7bKha8a.js";
- import { o as setAgentWorkflowCapabilityLoaders, s as setAgentWorkflowRuntimeLoaders } from "../workflow-runtime-loaders-oJWHdgq5.js";
--import { A as resetPublicUrlAgentNames, O as markDiscoveredAgentName, T as inheritAgentLayerOptions, b as decodeColocatedAgentSkills, r as markDiscoveredWorkspaceAgentDefinitionRegistered, x as withColocatedAgentSkills } from "../workspace-agent-DAN8TE97.js";
--import { F as resolveAgentHealth, P as createAgentHealthHandler, p as runAgent } from "../src-6Um8vve5.js";
--import { a as hasChannelChatRoute, i as createTelegramPollingRouteHandler, n as createChannelWebhookRouteHandler, o as installAgentChannelDeliveryWorkflowResolver, r as createDiscordGatewayRouteHandler, s as setAgentChannelDeliveryWorkflowStateResolver, t as createChannelChatRouteHandler } from "../routes-CIcRHrtS.js";
--import { i as handleChannelReplayRequest } from "../channel-replay-C7M6TJwl.js";
-+import { A as markDiscoveredAgentName, D as inheritAgentLayerOptions, M as resetPublicUrlAgentNames, b as decodeColocatedAgentSkills, r as markDiscoveredWorkspaceAgentDefinitionRegistered, x as withColocatedAgentSkills } from "../workspace-agent-BIPh5ow-.js";
-+import { F as resolveAgentHealth, P as createAgentHealthHandler, p as runAgent } from "../src-CX-_DjVk.js";
-+import { a as hasChannelChatRoute, i as createTelegramPollingRouteHandler, n as createChannelWebhookRouteHandler, o as installAgentChannelDeliveryWorkflowResolver, r as createDiscordGatewayRouteHandler, s as setAgentChannelDeliveryWorkflowStateResolver, t as createChannelChatRouteHandler } from "../routes-BrYqiQzq.js";
-+import { i as handleChannelReplayRequest } from "../channel-replay-Bq-1VQgt.js";
- //#region src/server/scheduled-turn.ts
- function defineScheduledAgentTarget(agent, runtimeContext = {}) {
- 	return {
 diff --git a/dist/server/workspace.d.ts b/dist/server/workspace.d.ts
 index 9d4e1d8e0850920d22409414e166f880785c835d..fe38f93dc8320755c6c85e5aa97192eeccc5b25b 100644
 --- a/dist/server/workspace.d.ts
@@ -1269,16 +1060,6 @@ index 9d4e1d8e0850920d22409414e166f880785c835d..fe38f93dc8320755c6c85e5aa97192ee
  import { WorkspaceName } from "@vite-hub/workspace";
  import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime";
  //#region src/server/workspace.d.ts
-diff --git a/dist/server/workspace.js b/dist/server/workspace.js
-index c2bb2d2d68b4ae6218dc0783eb90a4b21e426221..2460ac0a2970555fa413648a0337f54fda50ce44 100644
---- a/dist/server/workspace.js
-+++ b/dist/server/workspace.js
-@@ -1,4 +1,4 @@
--import { d as workspaceAgentWithSourceRoot, g as workspaceNameFromOptions, i as markWorkspaceAgentDefinitionRegistered, l as workspaceAgentOwnsWorkspaceDefinition } from "../workspace-agent-DAN8TE97.js";
-+import { d as workspaceAgentWithSourceRoot, g as workspaceNameFromOptions, i as markWorkspaceAgentDefinitionRegistered, l as workspaceAgentOwnsWorkspaceDefinition } from "../workspace-agent-BIPh5ow-.js";
- import { registerWorkspace, registerWorkspace as registerWorkspace$1, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime";
- //#region src/server/workspace.ts
- function registerWorkspaceAgent(agent, options = {}) {
 diff --git a/dist/server.d.ts b/dist/server.d.ts
 index d4493bdb689c0589e4d0f0a991a2235ad9fbcb55..4aa7b9dc0a5b7e314a444e737f63dcd9184179ec 100644
 --- a/dist/server.d.ts
@@ -1288,50 +1069,6 @@ index d4493bdb689c0589e4d0f0a991a2235ad9fbcb55..4aa7b9dc0a5b7e314a444e737f63dcd9
 +import { $c as AgentRunEventStore, $o as createAgentConsoleDelivery, Ac as AgentInvocations, Ao as AgentHealthOptions, Dc as AgentInvocationStoreCreateResult, Do as getAgentHostWorkspaceInspector, Ec as AgentInvocationStoreCreateInput, Eo as agentHostWorkspaceRoute, Fc as createMemoryAgentInvocationStore, Fs as AgentHealthHandlerOptions, Ic as defineAgentInvocations, Is as AgentHealthReport, Jc as summarizeAgentInvocationWorkload, Kc as failInterruptedAgentInvocations, Lc as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, Ls as AgentHealthStatus, Mc as agentInvocationId, Mo as createAgentHealth, Oc as AgentInvocationStoreUpdateInput, Oo as registerAgentHostWorkspaceInspector, Pc as applyAgentInvocationStoreUpdate, Qc as AgentRunEventReadOptions, Qo as AgentConsoleDelivery, Qs as ChannelHistoryDescription, Rs as createAgentHealthHandler, Tc as AgentInvocationStore, To as AgentHostWorkspaceInspector, Xc as AgentRunEventInput, Yc as AgentRunEvent, Zc as AgentRunEventPublisher, Zo as createAgentStatusReader, _c as AgentInvocationObservationOptions, _s as AgentTelegramPollingRouteOptions, ac as describeChannelHistory, al as defineAgentRunEvents, as as AgentChannelChatRouteInputOptions, bc as AgentInvocationRecord, bs as createDiscordGatewayRouteHandler, cc as channelMessageRunId, cs as AgentChannelChatRouteResumableContext, ds as AgentChannelChatRouteStandardSchemaResultFailure, ec as ReplayChannelItem, el as AgentRunEventStoreResolveContext, es as AgentChannelChatRouteAdmissionContext, fc as AgentInvocationAnnotationValue, fs as AgentChannelChatRouteStandardSchemaResultSuccess, gc as AgentInvocationListResult, gs as AgentDiscordGatewayRouteOptions, hc as AgentInvocationListOptions, hs as AgentChannelWebhookRouteOptions, ic as channelReplayRunId, il as AgentRunEventsOptions, is as AgentChannelChatRouteHandlerOptions, jc as AgentInvocationsOptions, jo as AgentHealthReport$1, kc as AgentInvocationSummary, ko as AgentHealthDiagnostic, ls as AgentChannelChatRouteResumableOptions, ms as AgentChannelChatRouteTrustedInputField, nc as ReplayChannelOptions, nl as AgentRunEventSubscribeOptions, ns as AgentChannelChatRouteBody, os as AgentChannelChatRouteMapInputContext, ps as AgentChannelChatRouteStandardSchemaV1, qc as readAgentInvocationWorkload, rc as ReplayChannelResult, rl as AgentRunEvents, rs as AgentChannelChatRouteContext, sc as replayChannel, ss as AgentChannelChatRouteRequestOptions, tc as ReplayChannelItemStatus, tl as AgentRunEventStoreResolver, ts as AgentChannelChatRouteAdmissionOptions, us as AgentChannelChatRouteResumableRequestBody, wc as AgentInvocationRetentionOptions, xc as AgentInvocationRecordStatus, xs as createTelegramPollingRouteHandler, zs as resolveAgentHealth } from "./types-CeJgisV1.js";
  export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, type AgentChannelChatRouteAdmissionContext, type AgentChannelChatRouteAdmissionOptions, type AgentChannelChatRouteBody, type AgentChannelChatRouteContext, type AgentChannelChatRouteHandlerOptions, type AgentChannelChatRouteInputOptions, type AgentChannelChatRouteMapInputContext, type AgentChannelChatRouteRequestOptions, type AgentChannelChatRouteResumableContext, type AgentChannelChatRouteResumableOptions, type AgentChannelChatRouteResumableRequestBody, type AgentChannelChatRouteStandardSchemaResultFailure, type AgentChannelChatRouteStandardSchemaResultSuccess, type AgentChannelChatRouteStandardSchemaV1, type AgentChannelChatRouteTrustedInputField, type AgentChannelWebhookRouteOptions, type AgentConsoleDelivery, type AgentHealthReport as AgentDefinitionHealthReport, type AgentDiscordGatewayRouteOptions, type AgentHealthDiagnostic, type AgentHealthHandlerOptions, type AgentHealthOptions, type AgentHealthReport$1 as AgentHealthReport, type AgentHealthStatus, type AgentHostWorkspaceInspector, type AgentInvocationAnnotationValue, type AgentInvocationListOptions, type AgentInvocationListResult, type AgentInvocationObservationOptions, type AgentInvocationRecord, type AgentInvocationRecordStatus, type AgentInvocationRetentionOptions, type AgentInvocationStore, type AgentInvocationStoreCreateInput, type AgentInvocationStoreCreateResult, type AgentInvocationStoreUpdateInput, type AgentInvocationSummary, type AgentInvocations, type AgentInvocationsOptions, type AgentRunEvent, type AgentRunEventInput, type AgentRunEventPublisher, type AgentRunEventReadOptions, type AgentRunEventStore, type AgentRunEventStoreResolveContext, type AgentRunEventStoreResolver, type AgentRunEventSubscribeOptions, type AgentRunEvents, type AgentRunEventsOptions, type AgentTelegramPollingRouteOptions, type ChannelHistoryDescription, type ReplayChannelItem, type ReplayChannelItemStatus, type ReplayChannelOptions, type ReplayChannelResult, agentHostWorkspaceRoute, agentInvocationId, applyAgentInvocationStoreUpdate, channelMessageRunId, channelReplayRunId, createAgentConsoleDelivery, createAgentHealth, createAgentHealthHandler, createAgentStatusReader, createDiscordGatewayRouteHandler, createMemoryAgentInvocationStore, createTelegramPollingRouteHandler, defineAgentInvocations, defineAgentRunEvents, describeChannelHistory, failInterruptedAgentInvocations, getAgentHostWorkspaceInspector, readAgentInvocationWorkload, registerAgentHostWorkspaceInspector, replayChannel, resolveAgentHealth, summarizeAgentInvocationWorkload };
 \ No newline at end of file
-diff --git a/dist/server.js b/dist/server.js
-index 535b32132f64256b8ab977ce744d486576630a15..efae7b9a72400564d5a01e43dc50477b86b4136b 100644
---- a/dist/server.js
-+++ b/dist/server.js
-@@ -1,10 +1,10 @@
- import { D as channelMessageRunId } from "./channels-Ci132KGQ.js";
- import { _ as failInterruptedAgentInvocations, b as summarizeAgentInvocationWorkload, c as defineAgentInvocations, i as applyAgentInvocationStoreUpdate, n as agentInvocationId, s as createMemoryAgentInvocationStore, x as AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, y as readAgentInvocationWorkload } from "./invocations-CSzhlbXS.js";
- import { t as otlp } from "./otlp-B4qHeakX.js";
--import { t as createAgentInspectionMetadata } from "./workspace-agent-DAN8TE97.js";
--import { F as resolveAgentHealth, P as createAgentHealthHandler, j as defineAgentRunEvents } from "./src-6Um8vve5.js";
--import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-CIcRHrtS.js";
--import { a as replayChannel, r as describeChannelHistory, t as channelReplayRunId } from "./channel-replay-C7M6TJwl.js";
-+import { t as createAgentInspectionMetadata } from "./workspace-agent-BIPh5ow-.js";
-+import { F as resolveAgentHealth, P as createAgentHealthHandler, j as defineAgentRunEvents } from "./src-CX-_DjVk.js";
-+import { i as createTelegramPollingRouteHandler, r as createDiscordGatewayRouteHandler } from "./routes-BrYqiQzq.js";
-+import { a as replayChannel, r as describeChannelHistory, t as channelReplayRunId } from "./channel-replay-Bq-1VQgt.js";
- import { n as getAgentHostWorkspaceInspector, r as registerAgentHostWorkspaceInspector, t as agentHostWorkspaceRoute } from "./host-workspace-B7bONSxp.js";
- import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
- import { createExecutionContext } from "@vite-hub/runtime";
-diff --git a/dist/src-6Um8vve5.js b/dist/src-CX-_DjVk.js
-similarity index 99%
-rename from dist/src-6Um8vve5.js
-rename to dist/src-CX-_DjVk.js
-index 529d67bbffdc410b81f71721c4b15b60595d2368..f44a776ea883e1a6c3c7cdf82b69dac363921fed 100644
---- a/dist/src-6Um8vve5.js
-+++ b/dist/src-CX-_DjVk.js
-@@ -17,7 +17,7 @@ import { d as isAgentChannelDeliveryWorkflowBinding, n as agentChannelDeliveryOw
- import { _ as uiMessageTextDelta, d as finalizeUiMessageStreamOutput, f as isUIMessageStreamResponse, g as uiMessageStreamFromResponse, i as scheduledAgentNameContextKey, l as cancellableAsyncIterableSource, m as normalizeUiMessageStream, n as parseScheduledAgentTurnInput, o as scheduledAgentTurnContextKey, p as isUIMessageStreamResult, r as scheduledAgentChannelIdsContextKey, u as createAgentUIMessageStreamResponse, v as withReadableStreamCleanup, y as agentOutputEventObserverContextKey } from "./scheduled-turn-DndJkVpg.js";
- import { i as loadAgentWorkflowRuntimeStateModule, r as loadAgentWorkflowModule } from "./workflow-runtime-loaders-oJWHdgq5.js";
- import { a as withParsedAgentMessageMeta, c as cloneWorkflowJsonValue, d as readWorkflowJournalName, l as portableWorkflowCapabilityMask, n as parseAgentMessageMeta, o as consumeParsedAgentWorkflowInput, r as parsedAgentMessageMetaState, u as workflowBytesToBase64 } from "./message-meta-BaVSv50G.js";
--import { C as createConfiguredAgentDefinition, D as resolveAgentLayerOptions, E as rememberAgentLayerOptions, S as agentLayerMetadata, c as resolveWorkspaceInstructionBindings, f as workspaceAutoCommitDisabled, g as workspaceNameFromOptions, h as workspaceModeFromOptions, j as agentDefinitionSourceSymbol, k as readDiscoveredAgentName, l as workspaceAgentOwnsWorkspaceDefinition, m as workspaceDefinitionWithAutoCommitRules, n as isWorkspaceAgentOptions, p as workspaceDefinitionFromOptions, s as resolveWorkspaceAgentDefaultInstructions, u as workspaceAgentUsesRegisteredDefinition, v as colocatedAgentSkillsContextKey, y as colocatedAgentSkillsSymbol } from "./workspace-agent-DAN8TE97.js";
-+import { N as agentDefinitionSourceSymbol, O as rememberAgentLayerOptions, S as agentLayerMetadata, T as createConfiguredAgentDefinition, c as resolveWorkspaceInstructionBindings, f as workspaceAutoCommitDisabled, g as workspaceNameFromOptions, h as workspaceModeFromOptions, j as readDiscoveredAgentName, k as resolveAgentLayerOptions, l as workspaceAgentOwnsWorkspaceDefinition, m as workspaceDefinitionWithAutoCommitRules, n as isWorkspaceAgentOptions, p as workspaceDefinitionFromOptions, s as resolveWorkspaceAgentDefaultInstructions, u as workspaceAgentUsesRegisteredDefinition, v as colocatedAgentSkillsContextKey, y as colocatedAgentSkillsSymbol } from "./workspace-agent-BIPh5ow-.js";
- import { i as agentInvocationInputSupport, n as withAgentInvocationResponseOwner, s as sendAgentInvocationInput } from "./agent-invocation-response-owner-BJjGK8gX.js";
- import { Diagnostic } from "nostics";
- import { asUnknownBoundary, hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type";
-@@ -436,7 +436,7 @@ function agentChannelTriggerState(request, channelId) {
- 	return bound?.channelId === channelId ? bound.binding : void 0;
- }
- async function dispatchAgentChannelItems(agent, context, channelId, items, options) {
--	const { dispatchChannelItems } = await import("./channel-replay-C7M6TJwl.js").then((n) => n.n);
-+	const { dispatchChannelItems } = await import("./channel-replay-Bq-1VQgt.js").then((n) => n.n);
- 	return await dispatchChannelItems(agent, context, channelId, items, options);
- }
- function assertTriggerName(name, owner) {
 diff --git a/dist/test.d.ts b/dist/test.d.ts
 index 9a12be55c7cb7d17056b45000114158d6c724cc8..4cf6fa177aeb0ece1c8ac8b747d15e5a5cb03e10 100644
 --- a/dist/test.d.ts
@@ -1344,18 +1081,6 @@ index 9a12be55c7cb7d17056b45000114158d6c724cc8..4cf6fa177aeb0ece1c8ac8b747d15e5a
  import { TraceRunView } from "@vite-hub/runtime";
  import { WorkspaceName } from "@vite-hub/workspace";
  //#region src/runtime/context.d.ts
-diff --git a/dist/test.js b/dist/test.js
-index e90b40b02d4269a3dd5fcc8c6a6b88e749d1d830..b6cc07e44b07f3f414381e6ed984651c89a1e9fb 100644
---- a/dist/test.js
-+++ b/dist/test.js
-@@ -1,6 +1,6 @@
- import { t as agentDiagnostics } from "./agent-diagnostics-JPe0UAuS.js";
- import { s as resolveAgentUsageRecord } from "./agent-output-D1V6mrEu.js";
--import { i as defineAgent, m as runAgentInline } from "./src-6Um8vve5.js";
-+import { i as defineAgent, m as runAgentInline } from "./src-CX-_DjVk.js";
- import { t as createAgentRuntimeContext } from "./context-KghRPYRx.js";
- import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime";
- import { registerWorkspace } from "@vite-hub/workspace/test";
 diff --git a/dist/types-CoiAcEkJ.d.ts b/dist/types-CeJgisV1.d.ts
 similarity index 99%
 rename from dist/types-CoiAcEkJ.d.ts
@@ -1402,28 +1127,6 @@ index 5839f38afd161443418ac4a646eba3572b09196e..db188c33340100b6a19044e624e32b12
  import { Plugin } from "vite";
  //#region src/vite/colocated-agent-skills.d.ts
  interface EncodedColocatedAgentSkillSource {
-diff --git a/dist/vite.js b/dist/vite.js
-index b0b0564ac52c2b80819830d46836ae9b5b7afaac..9a88fcdaaf8377eb76efe2604670cc1b7857cb5e 100644
---- a/dist/vite.js
-+++ b/dist/vite.js
-@@ -6,13 +6,13 @@ import { c as streamAgentOutputToEvents, x as isPortableAgentWorkflowCapability
- import { u as uiMessagesToAgentMessages } from "./chat-message-input-BMsmRGHe.js";
- import { A as channelDeliveryHandlers, y as builtInChannelEnv } from "./channels-Ci132KGQ.js";
- import { r as isPlainObject } from "./agent-driver-D8jymr6b.js";
--import { g as workspaceNameFromOptions, h as workspaceModeFromOptions, l as workspaceAgentOwnsWorkspaceDefinition, o as resolveAgentInspectionMetadata, r as markDiscoveredWorkspaceAgentDefinitionRegistered } from "./workspace-agent-DAN8TE97.js";
--import { C as createAgentInvocationStreamResponse, D as isResolvedAgentTriggerHandledInvocation, S as agentInvocationStreamRoute, _ as streamAgent, d as resolveAgentTriggerInvocation, f as resolveAgentTriggers, m as runAgentInline, x as agentInvocationStreamHeader } from "./src-6Um8vve5.js";
-+import { g as workspaceNameFromOptions, h as workspaceModeFromOptions, l as workspaceAgentOwnsWorkspaceDefinition, o as resolveAgentInspectionMetadata, r as markDiscoveredWorkspaceAgentDefinitionRegistered } from "./workspace-agent-BIPh5ow-.js";
-+import { C as createAgentInvocationStreamResponse, D as isResolvedAgentTriggerHandledInvocation, S as agentInvocationStreamRoute, _ as streamAgent, d as resolveAgentTriggerInvocation, f as resolveAgentTriggers, m as runAgentInline, x as agentInvocationStreamHeader } from "./src-CX-_DjVk.js";
- import { n as resolveProviderRuntimePackages } from "./provider-runtime-packages-I_0-cHE4.js";
- import { a as installCloudflareAgentStateEntrypoint, n as defaultCloudflareAgentStateBinding, t as configureCloudflareAgentState } from "./cloudflare-Byc1Q3aR.js";
--import { A as relative$1, C as discoverProcessHostAgentNames, O as summarizeDefinitions, S as discoverAgentEvalFiles, T as createImportPath, _ as resolveViteHubGeneratedRoot, a as createViteAgentRuntimeContext, c as writeViteResponse, d as readColocatedAgentInstructions, g as isServerEnvironment, h as hasNitroConfigContext, i as createViteAgentDiscoveryContext, j as resolve$1, k as dirname$1, l as readColocatedAgentSkills, m as generatedViteHubWatchIgnoredAddition, n as resolveAgentEvalOptions, o as createViteWorkspaceAgentLoader, p as createNoExternalAddition, r as writeAgentEvaliteConfig, s as loadViteAgent, t as removeAgentEvaliteConfig, u as resolveColocatedAgentSkillsRoot, v as resolveViteHubProjectRoot, w as tokenizeAgentSource, x as discoverAgentDefinitions } from "./evalite-config-DZ-0toRW.js";
-+import { A as relative$1, C as discoverProcessHostAgentNames, O as summarizeDefinitions, S as discoverAgentEvalFiles, T as createImportPath, _ as resolveViteHubGeneratedRoot, a as createViteAgentRuntimeContext, c as writeViteResponse, d as readColocatedAgentInstructions, g as isServerEnvironment, h as hasNitroConfigContext, i as createViteAgentDiscoveryContext, j as resolve$1, k as dirname$1, l as readColocatedAgentSkills, m as generatedViteHubWatchIgnoredAddition, n as resolveAgentEvalOptions, o as createViteWorkspaceAgentLoader, p as createNoExternalAddition, r as writeAgentEvaliteConfig, s as loadViteAgent, t as removeAgentEvaliteConfig, u as resolveColocatedAgentSkillsRoot, v as resolveViteHubProjectRoot, w as tokenizeAgentSource, x as discoverAgentDefinitions } from "./evalite-config-Cv7EnseE.js";
- import { a as defaultAgentInspectionRoute, i as defaultAgentDiscordGatewayRoute, l as validateAgentStaticRoute, n as agentRouteUsesParam, o as defaultAgentWebhookRoute, r as defaultAgentChatRoute, s as normalizeAgentRoute } from "./routes-CHwZ91UL.js";
--import { i as handleChannelReplayRequest } from "./channel-replay-C7M6TJwl.js";
-+import { i as handleChannelReplayRequest } from "./channel-replay-Bq-1VQgt.js";
- import { t as agentHostWorkspaceRoute } from "./host-workspace-B7bONSxp.js";
- import { createRequire } from "node:module";
- import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
 diff --git a/dist/vue.d.ts b/dist/vue.d.ts
 index b4bc25f94fec99ca0a5030bda3830c1626ce3bfa..e04981da66eb37bf9c181351a69f6967300ca319 100644
 --- a/dist/vue.d.ts
@@ -1434,19 +1137,6 @@ index b4bc25f94fec99ca0a5030bda3830c1626ce3bfa..e04981da66eb37bf9c181351a69f6967
  import { TraceEventLogEntry } from "@vite-hub/runtime";
  import { UseChatHelpers, UseChatHelpers as UseChatHelpers$1 } from "@ai-sdk/vue";
  import { ChatInit, UIMessage } from "ai";
-diff --git a/dist/workspace-agent-DAN8TE97.js b/dist/workspace-agent-BIPh5ow-.js
-similarity index 98%
-rename from dist/workspace-agent-DAN8TE97.js
-rename to dist/workspace-agent-BIPh5ow-.js
-index 7fa717b4ad69835f36dc91ad58d0340d100042a7..10428c2597e32c2d62c84999987cd05221b962bf 100644
---- a/dist/workspace-agent-DAN8TE97.js
-+++ b/dist/workspace-agent-BIPh5ow-.js
-@@ -1908,4 +1908,4 @@ async function materializeAgentInspectionSourceMetadata(definition, options = {}
- 	});
- }
- //#endregion
--export { resetPublicUrlAgentNames as A, createConfiguredAgentDefinition as C, resolveAgentLayerOptions as D, rememberAgentLayerOptions as E, markDiscoveredAgentName as O, agentLayerMetadata as S, inheritAgentLayerOptions as T, agentWithSkills as _, materializeAgentInspectionSourceMetadata as a, decodeColocatedAgentSkills as b, resolveWorkspaceInstructionBindings as c, workspaceAgentWithSourceRoot as d, workspaceAutoCommitDisabled as f, workspaceNameFromOptions as g, workspaceModeFromOptions as h, markWorkspaceAgentDefinitionRegistered as i, agentDefinitionSourceSymbol as j, readDiscoveredAgentName as k, workspaceAgentOwnsWorkspaceDefinition as l, workspaceDefinitionWithAutoCommitRules as m, isWorkspaceAgentOptions as n, resolveAgentInspectionMetadata as o, workspaceDefinitionFromOptions as p, markDiscoveredWorkspaceAgentDefinitionRegistered as r, resolveWorkspaceAgentDefaultInstructions as s, createAgentInspectionMetadata as t, workspaceAgentUsesRegisteredDefinition as u, colocatedAgentSkillsContextKey as v, getAgentLayerOptions as w, withColocatedAgentSkills as x, colocatedAgentSkillsSymbol as y };
-+export { markDiscoveredAgentName as A, asMetadataTarget as C, inheritAgentLayerOptions as D, getAgentLayerOptions as E, resetPublicUrlAgentNames as M, agentDefinitionSourceSymbol as N, rememberAgentLayerOptions as O, agentLayerMetadata as S, createConfiguredAgentDefinition as T, agentWithSkills as _, materializeAgentInspectionSourceMetadata as a, decodeColocatedAgentSkills as b, resolveWorkspaceInstructionBindings as c, workspaceAgentWithSourceRoot as d, workspaceAutoCommitDisabled as f, workspaceNameFromOptions as g, workspaceModeFromOptions as h, markWorkspaceAgentDefinitionRegistered as i, readDiscoveredAgentName as j, resolveAgentLayerOptions as k, workspaceAgentOwnsWorkspaceDefinition as l, workspaceDefinitionWithAutoCommitRules as m, isWorkspaceAgentOptions as n, resolveAgentInspectionMetadata as o, workspaceDefinitionFromOptions as p, markDiscoveredWorkspaceAgentDefinitionRegistered as r, resolveWorkspaceAgentDefaultInstructions as s, createAgentInspectionMetadata as t, workspaceAgentUsesRegisteredDefinition as u, colocatedAgentSkillsContextKey as v, copyDefinitionDecorations as w, withColocatedAgentSkills as x, colocatedAgentSkillsSymbol as y };
 diff --git a/dist/workspace-agent-BFtAKbks.d.ts b/dist/workspace-agent-BkiznzMU.d.ts
 similarity index 99%
 rename from dist/workspace-agent-BFtAKbks.d.ts
