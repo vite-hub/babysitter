@@ -12,7 +12,7 @@ flowchart TD
     eligible -- Feedback or completed check --> queue[Claim oldest eligible PR generation]
     queue --> checkout[Prepare exact-head checkout with Git]
     checkout --> capacity[ViteHub capacity admission]
-    capacity --> agent[Agent receives complete XML context]
+    capacity --> agent[Agent receives short PR task]
     agent --> repair[Repair and push]
     agent --> merge[Verify live merge gate and squash merge]
     agent --> retry[Persist retry or external wait]
@@ -33,22 +33,23 @@ Resolution is cached and updated by thread webhooks, with targeted verification 
 changes. Queued/running CI is retained without starting another pass. Check failures,
 completion and relevant feedback wake work. Activity comments do not wake their own agent.
 
-The agent receives the title/body, current-head checks, human comments, all reviews
-and review comments as XML inside its prompt. Author, commit, file, lines, links and
-resolved/unresolved state remain attached to feedback. Unknown resolution is explicit.
-Unresolved and current-head feedback comes first; full history remains included.
-Code stays in Git for local inspection. Oversized prompts fail explicitly rather than
-silently discarding reviews. The agent still verifies current merge gates before merging.
+The agent receives a short [task prompt](server/agents/babysitter/prompt.template.md)
+identifying the PR, branch and prepared commit, with instructions to address feedback,
+make CI green and resolve conflicts. It reads current feedback and CI details from
+GitHub as needed. Snapshot history stays in the durable inbox instead of the prompt.
 
-The [prompt](server/agents/babysitter/prompt.template.md) defines repair and merge policy.
+The [worker instructions](server/agents/babysitter/instructions.ts) define permissions,
+merge gates and the result format. Each pass reads the prepared repository's current
+`AGENTS.md` and composes it with those instructions.
 A pass pushes a repair, merges eligible work, retries unfinished work, or records a
 reproducible external wait. It returns validated `{ disposition, text }` output.
 
 ViteHub owns process capacity, invocation persistence/recovery, GitHub authentication,
 activity comments and Console delivery. The Node-specific inbox currently owns PR
 snapshots, eligibility and leases; it is not yet a provider for ViteHub's generic Queue
-module. The [pnpm patch](patches/@vite-hub__agent@0.0.1.patch) replaces checkout-time
-`gh` calls with Git and retains the existing host fixes. One process owns the data directory.
+module. Babysitter consumes the latest ViteHub `main` preview from `pkg.pr.new`, so
+upstream fixes are used without local dependency patches. One process owns the data
+directory.
 
 Generic review and merge-conflict skills use pinned GitHub Sources from ViteHub.
 They are configured in the [agent definition](server/agents/babysitter/agent.ts).
@@ -58,18 +59,18 @@ They are configured in the [agent definition](server/agents/babysitter/agent.ts)
 Before/after images and demonstration videos are optional for Babysitter, including when a watched repository's general contribution rules require them. Only a current maintainer request for media on a specific pull request makes it required. Babysitter removes blockers and pending-upload notes based only on the generic media rule. Checks and actionable review findings still control the merge gate.
 
 > [!WARNING]
-> Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [agent prompt](server/agents/babysitter/prompt.template.md) before running it.
+> Babysitter uses your host and credentials to edit code, push branches, change pull requests, and merge them. Read the [worker instructions](server/agents/babysitter/instructions.ts) before running it.
 
 - Node.js 24 or newer
 - Corepack, which activates Babysitter's pinned pnpm version
 - `git` and a GitHub repository you want Babysitter to watch. Babysitter launches the owner in an exact-head checkout without installing the watched project's dependencies; adapt the [agent prompt](server/agents/babysitter/prompt.template.md) if the owner needs package-manager-specific setup.
-- [`gh`](https://cli.github.com/) CLI. For production, configure a GitHub App with Contents, Issues, and Pull requests read/write access plus Actions, Checks, Commit statuses, and Metadata read access. Install it on every repository Babysitter watches. Local development can fall back to `GITHUB_TOKEN` or an authenticated `gh` CLI.
+- [`gh`](https://cli.github.com/) CLI. Configure the `vitehub-bot` GitHub App with Contents, Issues, and Pull requests read/write access plus Actions, Checks, Commit statuses, and Metadata read access. Install it on every repository Babysitter watches and every source fork it needs to push.
 - An authenticated coding-agent CLI. ViteHub [Agent Drivers](https://vitehub.dev/docs/agents/agent-drivers) support both Codex and Claude Code. [Codex](https://github.com/openai/codex) is recommended because its non-interactive `codex exec` command is designed for programmatic use; this repository uses Codex by default.
 - `bubblewrap` on Linux. Codex can fall back to its bundled copy, but installing the host package removes the fallback warning and makes the sandbox prerequisite explicit.
 
 ## Start Babysitter
 
-1. Read and adapt the [agent prompt](server/agents/babysitter/prompt.template.md) so its permissions, review policy, and merge rules match your repository.
+1. Read and adapt the [worker instructions](server/agents/babysitter/instructions.ts) so its permissions, review policy, and merge rules match your repository.
 
 2. Install the dependencies and start Babysitter with repository names. `BABYSITTER_REPOS` accepts comma- or space-separated `OWNER/REPOSITORY` values. `BABYSITTER_MAX_OWNERS` sets the global hard ceiling and defaults to `1`. Adaptive admission can run fewer owners, but never more. The singular `BABYSITTER_REPO` remains supported and defaults to `vite-hub/vitehub` when the plural setting is empty.
 
@@ -90,7 +91,13 @@ Before/after images and demonstration videos are optional for Babysitter, includ
    pnpm dev
    ```
 
-   Repositories outside `GITHUB_APP_OWNER` keep using `GITHUB_TOKEN` or the host's existing `gh` login, so one Babysitter can retain queues that span accounts.
+   For repositories owned by another account or organization, install the same App there and provide the owner-to-installation mapping:
+
+   ```sh
+   GITHUB_APP_INSTALLATIONS='{"vite-hub":156121915,"nuxt-modules":159985432}'
+   ```
+
+   Babysitter uses the matching installation for each repository, including GitHub activity comments and worker commands. Repositories without an App installation remain waiting with a recorded blocker. The service rejects personal GitHub tokens at startup.
 
    To mirror invocation sessions and export completed OTLP traces to ViteHub Console, set its base URL and bearer token:
 
@@ -154,11 +161,10 @@ Cancelled PRs receive a durable cooldown of one, two, four, then five minutes.
 New webhook events remain queued and cannot bypass that cooldown. Successful
 passes reset it. Cancellation logs retain the specific reason.
 
-Before launching a provider, the scheduler supplies cached branch rules and classic
-required-check protection, then downloads completed failed jobs through REST.
-Job logs are cached by job ID, attempt and completion time. The prompt contains
-failed-step diagnostics with explicit excerpt coverage, alongside complete reviews
-and comments. Permission errors and missing logs remain unknown evidence.
+Before launching a provider, the scheduler evaluates cached branch rules and classic
+required-check protection to decide whether repair or a continued wait is needed.
+The worker retrieves failed-job logs when diagnosing CI, rather than receiving them
+and the full review history inline on every pass.
 
 Agents can return `waitForChecksHead` when no independent repair remains. The
 scheduler retains that checkpoint and coalesces intermediate CI updates without

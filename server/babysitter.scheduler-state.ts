@@ -1,5 +1,22 @@
 import type { PullRequest } from './babysitter.queue.ts'
 import type { Claim, Snapshot } from './babysitter.inbox.ts'
+import { createCheckWait, type CheckWait } from './babysitter.wait-state.ts'
+
+export async function runWithClaimWatch<T>(watch: (() => void) & { acceptedHead(): string | undefined }, run: () => Promise<T>, recordHead: (head: string | undefined) => void): Promise<T> {
+  try {
+    return await run()
+  } finally {
+    try { recordHead(watch.acceptedHead()) }
+    finally { watch() }
+  }
+}
+
+/** A timeout can retain a proved repair without consuming later feedback. */
+export function timeoutRepairWait(error: unknown, claim: Claim, current: Snapshot | undefined, acceptedHead: string | undefined): CheckWait | undefined {
+  if (!(error instanceof Error) || error.name !== 'TimeoutError' || !acceptedHead) return
+  if (current?.pr?.state !== 'open' || claimStopReason(claim, current, acceptedHead)) return
+  return createCheckWait(claim.snapshot, acceptedHead)
+}
 
 /** REST fields are authoritative; older persisted GraphQL aliases may be stale. */
 export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
@@ -43,7 +60,7 @@ export function createClaimStopCheck(
   let acceptedSelfHead: string | undefined
   let pendingHead: string | undefined, failures = 0, nextRead = 0
   const clock = options.clock ?? Date.now
-  return async (): Promise<string | undefined> => {
+  const check = async (): Promise<string | undefined> => {
     const current = readCurrent()
     const reason = claimStopReason(claim, current, acceptedSelfHead)
     if (reason !== 'Pull request head changed.') return reason
@@ -67,4 +84,14 @@ export function createClaimStopCheck(
     nextRead = clock() + (options.retryMs ?? 10_000)
     return undefined
   }
+  // The disposable provider and its exit proof may disappear before the
+  // scheduler records the result. Reuse only a head this watcher actually
+  // accepted, while the same open PR and lease still match that head.
+  return Object.assign(check, {
+    acceptedHead(): string | undefined {
+      const current = readCurrent()
+      if (acceptedSelfHead && current?.pr?.state === 'open' && claimStopReason(claim, current, acceptedSelfHead) === undefined)
+        return acceptedSelfHead
+    },
+  })
 }

@@ -244,3 +244,220 @@ test('closing webhook clears cancellation cooldown without waiting for another o
   assert.equal(inbox.get(repository, 7)?.cancellationStreak, 0)
   assert.equal(inbox.get(repository, 7)?.cancellationUntil, 0)
 })
+
+test('three no-op retries stop an unchanged head', () => {
+  let now = 0
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now); inbox.seed(repository, pr())
+  for (let i = 0; i < 3; i++) {
+    const claim = inbox.claim(1)[0]!; assert.ok(claim)
+    inbox.finish(claim, { text: 'No independent work completed.', retry: true, noOp: true })
+    now += 31 * 60_000
+  }
+  assert.equal(inbox.get(repository, 7)?.status, 'waiting')
+  inbox.close()
+})
+
+test('fresh feedback, completed CI, or a base push resumes a head with exhausted no-op retries', () => {
+  const events: [string, object][] = [
+    ['issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(99) }],
+    ['check_run', { action: 'completed', check_run: { id: 99, head_sha: 'a', status: 'completed', conclusion: 'failure' } }],
+    ['push', { ref: 'refs/heads/main', after: 'new-base' }],
+  ]
+  for (const [event, payload] of events) {
+    let now = 0
+    const inbox = new PullRequestInbox(':memory:', [repository], () => now)
+    try {
+      inbox.seed(repository, pr())
+      for (let i = 0; i < 3; i++) {
+        inbox.finish(inbox.claim(1)[0]!, { text: 'No work completed.', retry: true, noOp: true })
+        now += 31 * 60_000
+      }
+      assert.equal(inbox.claim(1).length, 0, `${event}: unchanged state stays parked`)
+      post(inbox, 'fresh-evidence', event, payload)
+      const [claim] = inbox.claim(1)
+      assert.ok(claim, `${event}: fresh evidence must resume work`)
+      assert.equal(claim.snapshot.pr?.head.sha, 'a')
+      inbox.finish(claim, { text: 'First retry on fresh evidence.', retry: true, noOp: true })
+      now += 31 * 60_000
+      assert.equal(inbox.claim(1).length, 1, `${event}: fresh evidence gets a new retry budget`)
+    } finally { inbox.close() }
+  }
+})
+
+test('equivalent feedback delivery leaves the exhausted no-op budget parked', () => {
+  let now = 0
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now)
+  try {
+    inbox.seed(repository, pr())
+    const payload = { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() }
+    post(inbox, 'original-feedback', 'issue_comment', payload)
+    for (let i = 0; i < 3; i++) {
+      inbox.finish(inbox.claim(1)[0]!, { text: 'No work completed.', retry: true, noOp: true })
+      now += 31 * 60_000
+    }
+    const generation = inbox.get(repository, 7)!.generation
+    post(inbox, 'replayed-feedback', 'issue_comment', {
+      ...payload, comment: { ...payload.comment, updated_at: '2026-09-13T12:00:00Z' },
+    })
+    assert.equal(inbox.get(repository, 7)!.generation, generation)
+    assert.equal(inbox.claim(1).length, 0)
+  } finally { inbox.close() }
+})
+
+test('fresh evidence during the third no-op pass receives its full retry budget', () => {
+  let now = 0
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now)
+  try {
+    inbox.seed(repository, pr())
+    for (let i = 0; i < 2; i++) {
+      inbox.finish(inbox.claim(1)[0]!, { text: 'No repair.', retry: true, noOp: true })
+      now += 31 * 60_000
+    }
+    const third = inbox.claim(1)[0]!
+    post(inbox, 'new-task', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+    inbox.finish(third, { text: 'Old task had no repair.', retry: true, noOp: true })
+    for (let i = 0; i < 3; i++) {
+      const claim = inbox.claim(1)[0]
+      assert.ok(claim, `fresh task retry ${i + 1} is available`)
+      inbox.finish(claim, { text: 'Fresh task has no repair.', retry: true, noOp: true })
+      now += 31 * 60_000
+    }
+    assert.equal(inbox.claim(1).length, 0)
+  } finally { inbox.close() }
+})
+
+test('new work received during a claim queues behind older unclaimed work', () => {
+  let now = 0
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now)
+  try {
+    inbox.seed(repository, pr())
+    const first = inbox.claim(1)[0]!
+    now = 100
+    inbox.seed(repository, pr({ number: 8, head: { sha: 'b', ref: 'other' } }))
+    now = 200
+    post(inbox, 'new-7', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+    now = 300
+    post(inbox, 'more-7', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment(2) })
+    inbox.finish(first, { text: 'Handled the claimed generation.' })
+    assert.equal(inbox.get(repository, 7)?.dirtyAt, 200)
+    assert.deepEqual(inbox.claim(2).map(claim => claim.snapshot.number), [8, 7])
+  } finally { inbox.close() }
+})
+
+test('lease owner requests refresh despite newer generations and revisions', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const first = inbox.claim(1)[0]!
+  assert.ok(inbox.hydrate(first, { hydrated: true, refresh: false, feedbackRefresh: false }))
+  post(inbox, 'concurrent-feedback', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: comment() })
+  const before = inbox.get(repository, 7)!
+  assert.equal(inbox.hydrate(first, { refresh: true }), false)
+  assert.equal(inbox.requestRefresh(first), true)
+  const refreshed = inbox.get(repository, 7)!
+  assert.equal(refreshed.refresh, true)
+  assert.equal(refreshed.feedbackRefresh, true)
+  assert.equal(refreshed.revision, (before.revision ?? 0) + 1)
+  assert.equal(refreshed.generation, before.generation)
+  inbox.release(first)
+  const second = inbox.claim(1)[0]!
+  assert.ok(inbox.hydrate(second, { refresh: false, feedbackRefresh: false }))
+  assert.equal(inbox.requestRefresh(first), false)
+  assert.equal(inbox.get(repository, 7)?.refresh, false)
+})
+
+test('head and base matching reaches open PRs in the event repository only', t => {
+  const inbox = memory(t), otherRepository = 'vite-hub/other'
+  inbox.seed(repository, pr())
+  inbox.seed(repository, pr({ number: 8, head: { sha: 'a', ref: 'another' } }))
+  inbox.seed(repository, pr({ number: 9, state: 'closed' }))
+  inbox.seed(otherRepository, pr())
+  for (const claim of inbox.claim(2)) inbox.finish(claim, { text: 'Waiting for evidence.' })
+  const otherGeneration = inbox.get(otherRepository, 7)!.generation
+  const closedGeneration = inbox.get(repository, 9)!.generation
+  assert.deepEqual(post(inbox, 'shared-head-ci', 'check_run', {
+    action: 'completed', check_run: { id: 99, head_sha: 'a', status: 'completed', conclusion: 'failure' },
+  }).queued.sort(), [7, 8])
+  for (const claim of inbox.claim(2)) inbox.finish(claim, { text: 'Waiting for base.' })
+  assert.deepEqual(post(inbox, 'shared-base-push', 'push', { ref: 'refs/heads/main' }).queued.sort(), [7, 8])
+  assert.equal(inbox.get(otherRepository, 7)!.generation, otherGeneration)
+  assert.equal(inbox.get(repository, 9)!.generation, closedGeneration)
+  assert.equal(inbox.all().length, 3)
+  assert.deepEqual(inbox.summary().map(item => item.repository), [repository, repository, repository])
+})
+
+test('stack child becomes claimable after its open parent closes', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  inbox.seed(repository, pr({ number: 8, head: { sha: 'b', ref: 'child' }, base: { sha: 'a', ref: 'fix' } }))
+  const claims = inbox.claim(2)
+  assert.deepEqual(claims.map(claim => claim.snapshot.number), [7])
+  inbox.finish(claims[0]!, { text: 'Waiting on parent.' })
+  assert.equal(inbox.claim(1).length, 0)
+  post(inbox, 'parent-closed', 'pull_request', { action: 'closed', pull_request: pr({ state: 'closed', updated_at: '2026-09-13T12:00:00Z' }) })
+  assert.equal(inbox.claim(1)[0]?.snapshot.number, 8)
+})
+
+test('summary and claim reflect mutations, keep caller changes isolated, and recover rollback', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const initial = inbox.summary()[0]!
+  initial.reasons.push('caller-only')
+  initial.status = 'terminal'
+  assert.equal(inbox.summary()[0]?.status, 'ready')
+  assert.deepEqual(inbox.summary()[0]?.reasons, ['bootstrap'])
+  post(inbox, 'new-head', 'pull_request', { action: 'synchronize', pull_request: pr({ head: { sha: 'b', ref: 'fix' } }) })
+  assert.equal(inbox.summary()[0]?.head, 'b')
+  const [claim] = inbox.claim(1)
+  assert.ok(claim)
+  assert.equal(inbox.summary()[0]?.status, 'working')
+  assert.ok(inbox.hydrate(claim, { lastResult: 'Fresh hydration.' }))
+  assert.equal(inbox.summary()[0]?.lastResult, 'Fresh hydration.')
+  // A caller-side failure after writing must roll the database projection back.
+  Object.freeze(claim.snapshot)
+  assert.throws(() => inbox.hydrate(claim, { lastResult: 'Rolled back.' }), TypeError)
+  assert.equal(inbox.summary()[0]?.lastResult, 'Fresh hydration.')
+  inbox.finish(claim, { text: 'Durably waiting.' })
+  assert.equal(inbox.summary()[0]?.status, 'waiting')
+  assert.equal(inbox.summary()[0]?.lastResult, 'Durably waiting.')
+  assert.equal(inbox.claim(1).length, 0)
+})
+
+test('startup recovers dirty legacy no-op latches without waking handled waits or clearing cooldowns', () => {
+  let now = 0
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now)
+  try {
+    inbox.seed(repository, pr())
+    inbox.seed(repository, pr({ number: 8, head: { sha: 'b', ref: 'other' } }))
+    const [dirty, handled] = inbox.claim(2)
+    assert.ok(dirty); assert.ok(handled)
+    inbox.hydrate(dirty, { noOpHead: 'a', noOpAttempts: 3, nextAt: 100, cancellationUntil: 200 })
+    inbox.release(dirty)
+    inbox.hydrate(handled, { noOpHead: 'b', noOpAttempts: 3 })
+    inbox.finish(handled, { text: 'No more independent work.' })
+    assert.equal(inbox.claim(2).length, 0)
+    const generation = inbox.get(repository, 7)!.generation
+    inbox.recoverLeases()
+    assert.equal(inbox.get(repository, 7)?.generation, generation)
+    assert.equal(inbox.get(repository, 7)?.nextAt, 100)
+    assert.equal(inbox.get(repository, 7)?.cancellationUntil, 200)
+    assert.equal(inbox.get(repository, 8)?.status, 'waiting')
+    assert.equal(inbox.get(repository, 8)?.noOpAttempts, 3)
+    now = 150
+    assert.equal(inbox.claim(2).length, 0)
+    now = 200
+    assert.deepEqual(inbox.claim(2).map(claim => claim.snapshot.number), [7])
+  } finally { inbox.close() }
+})
+
+test('a PR woken on its parked repair head is claimed before older ready work', t => {
+  let now = 1_000
+  const inbox = new PullRequestInbox(':memory:', [repository], () => now++); t.after(() => inbox.close())
+  inbox.seed(repository, pr({ number: 7 })); inbox.seed(repository, pr({ number: 8, head: { sha: 'b', ref: 'other' } }))
+  for (const claim of inbox.claim(2)) inbox.finish(claim, claim.snapshot.number === 7
+    ? { text: 'Pushed a repair.', waitForChecks: { headSha: 'a', contextKey: 'k', knownFailures: [] } }
+    : { text: 'done' })
+  post(inbox, 'c1', 'issue_comment', { action: 'created', issue: { number: 8, pull_request: {} }, comment: comment(1) })
+  post(inbox, 'check', 'check_run', { action: 'completed', check_run: { id: 1, head_sha: 'a', conclusion: 'success' } })
+  assert.equal(inbox.get(repository, 8)!.dirtyAt < inbox.get(repository, 7)!.dirtyAt, true)
+  assert.deepEqual(inbox.claim(1).map(claim => claim.snapshot.number), [7])
+})

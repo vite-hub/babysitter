@@ -24,7 +24,6 @@ export default defineConfig({
         owner: env({ default: 'vite-hub', source: env.source('GITHUB_APP_OWNER') }),
         privateKey: env({ optional: true, secret: true, source: env.source('GITHUB_APP_PRIVATE_KEY') }),
         webhookSecret: env({ optional: true, secret: true, source: env.source('GITHUB_WEBHOOK_SECRET') }),
-        token: env({ optional: true, secret: true, source: env.source('GITHUB_TOKEN') }),
       },
       console: {
         url: env({ optional: true, source: env.source('VITEHUB_CONSOLE_URL') }),

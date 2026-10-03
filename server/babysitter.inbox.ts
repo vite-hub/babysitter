@@ -11,10 +11,10 @@ export type Snapshot = {
   waitForChecks?: CheckWait
   requiredCheckEvidence?: Json
   repository: string; number: number; pr: Json | null
-  lastPassFingerprint?: string
   generation: number; handled: number; dirtyAt: number; nextAt: number; revision?: number
+  nextDirtyAt?: number
   status: 'ready' | 'working' | 'waiting' | 'attention' | 'terminal'
-  lease: string | null; leaseUntil: number; attempts: number
+  lease: string | null; leaseUntil: number; attempts: number; noOpHead?: string; noOpAttempts?: number
   cancellationStreak?: number; cancellationUntil?: number
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, Json>; reviews: Record<string, Json>
@@ -23,25 +23,25 @@ export type Snapshot = {
   ciEvidence?: Json[]
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot }
-const ownBots = new Set(['vitehub-bot', 'vitehub-bot[bot]', 'pkg-pr-new[bot]'])
+type SnapshotSummary = Pick<Snapshot, 'repository' | 'number' | 'generation' | 'handled' | 'status' | 'reasons' | 'attempts' | 'nextAt' | 'lastResult'> & {
+  head?: string; baseRef?: string; headRef?: string; state?: string; dirty: boolean
+  cancellationStreak: number; cancellationUntil: number
+}
+type QueueRow = Omit<SnapshotSummary, 'dirty'> & Pick<Snapshot, 'dirtyAt' | 'lease' | 'leaseUntil' | 'noOpHead'> & {
+  noOpAttempts: number; hasPr?: number; author?: string; waitHead?: string
+}
+const ownBots = new Set(['vitehub-bot', 'vitehub-bot[bot]', 'pkg-pr-new[bot]', 'chatgpt-codex-connector[bot]'])
 const reviewBots = /pullfrog|codex|coderabbit|copilot|greptile|cursor|claude|gemini|qodo|sourcery/i
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const stamp = (value: Json) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
-function passFingerprint(s: Snapshot): string {
-  const stable = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(stable)
-    if (!value || typeof value !== 'object') return value
-    return Object.fromEntries(Object.entries(value as Json)
-      .filter(([key]) => !/(?:^|_)(?:updated|created|started|completed|received|timestamp)(?:At|_at)?$/.test(key)
-        && key !== 'url' && key !== 'html_url')
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => [key, stable(item)]))
-  }
-  return digest({
-    head: s.pr?.head?.sha, base: s.pr?.base?.sha, mergeable: s.pr?.mergeable,
-    mergeableState: s.pr?.mergeable_state, comments: stable(s.comments), reviews: stable(s.reviews),
-    reviewComments: stable(s.reviewComments), threads: stable(s.threads), checks: stable(s.checks), statuses: stable(s.statuses),
-  })
+const queueFields = {
+  head: '$.pr.head.sha', baseRef: '$.pr.base.ref', headRef: '$.pr.head.ref', state: '$.pr.state',
+  generation: '$.generation', handled: '$.handled', status: '$.status', reasons: '$.reasons',
+  attempts: '$.attempts', nextAt: '$.nextAt', cancellationStreak: '$.cancellationStreak',
+  cancellationUntil: '$.cancellationUntil', lastResult: '$.lastResult', dirtyAt: '$.dirtyAt',
+  lease: '$.lease', leaseUntil: '$.leaseUntil', noOpAttempts: '$.noOpAttempts',
+  noOpHead: '$.noOpHead', hasPr: '$.pr.number', author: '$.pr.user.login',
+  waitHead: '$.waitForChecks.headSha',
 }
 // REST webhooks and ViteHub's discovery response use different field names.
 // Persist one shape so authored PRs and head-matched checks can be claimed.
@@ -55,46 +55,46 @@ export const normalizePullRequest = (pr: Json): Json => ({
   updated_at: pr.updated_at ?? pr.updatedAt,
   created_at: pr.created_at ?? pr.createdAt,
 })
-export const isFeedback = (item: Json | undefined) => Boolean(item && (
-  // Pullfrog requests are written by vitehub-bot, but remain actionable
-  // memory. Keeping them prevents every later pass from posting the same
-  // request for an unchanged head.
-  /@pullfrog\s+Please review this PR at exact head\s+[0-9a-f]+/i.test(String(item.body ?? ''))
-  || !ownBots.has(item.user?.login))
+export const isFeedback = (item: Json | undefined) => Boolean(item && !ownBots.has(item.user?.login)
   && !String(item.body ?? '').includes('<!-- vitehub-agent-activity:')
   // Codex publishes a mutable issue-comment summary in addition to its
   // review objects. The review webhook is the actionable evidence; this
   // status projection must not wake the repair agent on every edit.
   && !String(item.body ?? '').includes('<!-- codex-pull-request-review-summary -->')
-  && !String(item.body ?? '').startsWith('You have reached your Codex usage limits for code reviews.')
+  && !/^\s*(?:You have reached your Codex usage limits for code reviews\.|Codex usage limits have been reached for code reviews\.)/i.test(String(item.body ?? ''))
   && (item.user?.type !== 'Bot' || reviewBots.test(item.user?.login ?? '')))
 
 
 export class PullRequestInbox {
   private db: DatabaseSync
+  private queueMetadata?: QueueRow[]
   constructor(path: string, private repositories: string[], private clock: () => number = Date.now) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = new DatabaseSync(path)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS pr_snapshots (repository TEXT, number INTEGER, value TEXT NOT NULL, PRIMARY KEY(repository,number));
       CREATE TABLE IF NOT EXISTS deliveries (id TEXT PRIMARY KEY, event TEXT, received INTEGER, payload TEXT, result TEXT);
-      CREATE TABLE IF NOT EXISTS inbox_meta (key TEXT PRIMARY KEY, value TEXT);`)
+      CREATE TABLE IF NOT EXISTS inbox_meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE INDEX IF NOT EXISTS pr_snapshots_open_head ON pr_snapshots(repository,json_extract(value,'$.pr.head.sha')) WHERE json_extract(value,'$.pr.state')='open';
+      CREATE INDEX IF NOT EXISTS pr_snapshots_open_base ON pr_snapshots(repository,json_extract(value,'$.pr.base.ref')) WHERE json_extract(value,'$.pr.state')='open';`)
   }
   close() { this.db.close() }
   private transaction<T>(run: () => T): T {
     this.db.exec('BEGIN IMMEDIATE')
     try { const result = run(); this.db.exec('COMMIT'); return result }
-    catch (error) { this.db.exec('ROLLBACK'); throw error }
+    catch (error) { this.queueMetadata = undefined; this.db.exec('ROLLBACK'); throw error }
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
     return row ? JSON.parse(row.value as string) : undefined
   }
   all(): Snapshot[] {
-    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => JSON.parse(row.value as string))
-      .filter(s => this.repositories.includes(s.repository))
+    if (!this.repositories.length) return []
+    return this.db.prepare(`SELECT value FROM pr_snapshots WHERE repository IN (${this.repositories.map(() => '?').join(',')})`)
+      .all(...this.repositories).map(row => JSON.parse(row.value as string))
   }
   private put(s: Snapshot) {
+    this.queueMetadata = undefined
     this.db.prepare('INSERT OR REPLACE INTO pr_snapshots VALUES (?,?,?)').run(s.repository, s.number, JSON.stringify(s))
   }
   private empty(repository: string, number: number): Snapshot {
@@ -109,7 +109,11 @@ export class PullRequestInbox {
   setMeta(key: string, value: unknown) { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
   private dirty(s: Snapshot, reason: string) {
     if (s.generation === s.handled) s.dirtyAt = this.clock()
+    if (s.lease && s.nextDirtyAt === undefined) s.nextDirtyAt = this.clock()
     s.generation++; s.nextAt = 0; s.attempts = 0
+    // Bound retries for unchanged evidence, not every future task on this
+    // commit. Semantic changes can need repair without changing the PR head.
+    s.noOpHead = undefined; s.noOpAttempts = 0
     s.revision = (s.revision ?? 0) + 1
     if (!s.lease) s.status = 'ready'
     s.reasons = [...new Set([...s.reasons, reason])]
@@ -177,9 +181,10 @@ export class PullRequestInbox {
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)
       for (const pr of check?.pull_requests ?? []) if (pr.number) numbers.add(pr.number)
-      for (const s of this.all()) if (s.repository === repository && s.pr?.state === 'open') {
-        if (sha && s.pr.head?.sha === sha) numbers.add(s.number)
-        if (event === 'push' && payload.ref === `refs/heads/${s.pr.base?.ref}`) numbers.add(s.number)
+      if (sha) for (const row of this.db.prepare("SELECT number FROM pr_snapshots WHERE repository=? AND json_extract(value,'$.pr.state')='open' AND json_extract(value,'$.pr.head.sha')=?").all(repository, sha)) numbers.add(Number(row.number))
+      if (event === 'push' && String(payload.ref).startsWith('refs/heads/')) {
+        const branch = String(payload.ref).slice('refs/heads/'.length)
+        for (const row of this.db.prepare("SELECT number FROM pr_snapshots WHERE repository=? AND json_extract(value,'$.pr.state')='open' AND json_extract(value,'$.pr.base.ref')=?").all(repository, branch)) numbers.add(Number(row.number))
       }
       for (const number of numbers) {
         const s = this.get(repository, number) ?? this.empty(repository, number)
@@ -272,24 +277,18 @@ export class PullRequestInbox {
   }
   claim(limit: number): Claim[] {
     return this.transaction(() => {
-      const now = this.clock(), all = this.all(), claims: Claim[] = []
-      for (const s of all.sort((a,b) => a.dirtyAt - b.dirtyAt || a.number - b.number)) {
+      const now = this.clock(), all = this.queueRows(), claims: Claim[] = []
+      // A PR woken on the head it parked on after a repair usually needs only
+      // verification and a merge. Serve it before older, untouched work.
+      const resumed = (item: QueueRow) => item.waitHead !== undefined && item.waitHead === item.head ? 0 : 1
+      for (const item of all.toSorted((a,b) => resumed(a) - resumed(b) || a.dirtyAt - b.dirtyAt || a.number - b.number)) {
         if (claims.length >= limit) break
-        if (s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now || (s.cancellationUntil ?? 0) > now) continue
-        // A waiting result is keyed to the complete durable PR state. Ignore
-        // duplicate deliveries that recreate the same generation, and mark
-        // that generation handled so it cannot spin back into the queue.
-        // A prior pass may have parked a clean, unchanged head while CI or a
-        // review is pending. Never suppress a PR that is conflicting or
-        // behind, because those states are repair work.
-        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
-        const repairableMergeState = s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind'
-        if (s.status === 'ready' && !repairableMergeState && s.waitForChecks && s.lastPassFingerprint === passFingerprint(s)) {
-          s.status = 'waiting'; s.handled = s.generation; s.reasons = []; this.put(s); continue
-        }
-        if (s.pr && s.pr.user?.login !== 'onmax') continue
-        // Stacked PRs may run in parallel. Each worker checks the current base
-        // and head before editing, and GitHub remains the merge gate.
+        if (item.lease && item.leaseUntil > now || item.status === 'terminal' || item.generation <= item.handled || item.nextAt > now || item.cancellationUntil > now || item.noOpAttempts >= 3 && item.noOpHead === item.head) continue
+        if (item.hasPr && item.author !== 'onmax') continue
+        // Stack children remain local; a parent merge's base push wakes them.
+        if (item.baseRef && all.some(parent => parent.repository === item.repository && parent.number !== item.number && String(parent.state).toLowerCase() === 'open' && parent.headRef === item.baseRef)) continue
+        const s = this.get(item.repository, item.number)!
+        s.nextDirtyAt = undefined
         s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'
         this.put(s); claims.push({ token: s.lease, generation: s.generation, snapshot: structuredClone(s) })
       }
@@ -302,6 +301,14 @@ export class PullRequestInbox {
       if (!s || s.lease !== claim.token || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
       if (patch.pr) patch = { ...patch, pr: normalizePullRequest(patch.pr) }
       Object.assign(s, patch); this.put(s); Object.assign(claim.snapshot, patch); return true
+    })
+  }
+  requestRefresh(claim: Claim) {
+    return this.transaction(() => {
+      const s = this.get(claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token) return false
+      s.refresh = true; s.feedbackRefresh = true; s.revision = (s.revision ?? 0) + 1
+      this.put(s); return true
     })
   }
   refreshThreads(observed: Snapshot, threads: Json[]) {
@@ -322,17 +329,17 @@ export class PullRequestInbox {
     return this.transaction(() => {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token) return false
-      s.lease = null; s.leaseUntil = 0
+      s.lease = null; s.leaseUntil = 0; s.nextDirtyAt = undefined
       if (s.status !== 'terminal') s.status = 'ready'
       this.put(s); return true
     })
   }
-  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; cancelled?: boolean; waitForChecks?: CheckWait }) {
+  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; cancelled?: boolean; waitForChecks?: CheckWait; noOp?: boolean }) {
     return this.transaction(() => {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token) return false
       s.lease = null; s.leaseUntil = 0; s.lastResult = result.text
-      s.lastPassFingerprint = passFingerprint(claim.snapshot)
+      if (result.noOp && s.generation === claim.generation && s.pr?.head?.sha === claim.snapshot.pr?.head?.sha) { s.noOpHead = s.pr!.head.sha; s.noOpAttempts = (s.noOpAttempts ?? 0) + 1 } else if (s.pr?.head?.sha !== claim.snapshot.pr?.head?.sha) { s.noOpHead = undefined; s.noOpAttempts = 0 }
       s.waitForChecks = result.cancelled || result.terminal ? undefined : result.waitForChecks
       if (result.cancelled) {
         s.cancellationStreak = (s.cancellationStreak ?? 0) + 1
@@ -344,15 +351,20 @@ export class PullRequestInbox {
         s.status = 'terminal'; s.handled = s.generation
         s.cancellationStreak = 0; s.cancellationUntil = 0
       }
-      else if (s.generation !== claim.generation) { s.status = 'ready'; s.handled = Math.max(s.handled, claim.generation); s.nextAt = 0 }
+      else if (s.generation !== claim.generation) { s.status = 'ready'; s.handled = Math.max(s.handled, claim.generation); s.nextAt = 0; s.dirtyAt = s.nextDirtyAt ?? s.dirtyAt }
       else if (result.cancelled) { s.status = 'ready'; s.nextAt = 0 }
       else if (result.retry) {
         s.attempts++
-        // Escalate the delay, not a permanent dead end. A new event resets
-        // this retry delay and still preempts the unchanged generation.
-        s.status = 'ready'; s.nextAt = this.clock() + Math.min(30 * 60_000, 60_000 * 2 ** Math.min(s.attempts, 5))
+        if (result.noOp && (s.noOpAttempts ?? 0) >= 3) {
+          s.status = 'waiting'; s.handled = s.generation; s.nextAt = 0; s.reasons = ['no-op-budget-exhausted']
+        } else {
+          // Escalate the delay, not a permanent dead end. A new event resets
+          // this retry delay and still preempts the unchanged generation.
+          s.status = 'ready'; s.nextAt = this.clock() + Math.min(30 * 60_000, 60_000 * 2 ** Math.min(s.attempts, 5))
+        }
       }
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
+      s.nextDirtyAt = undefined
       this.put(s); return true
     })
   }
@@ -360,29 +372,45 @@ export class PullRequestInbox {
     // Called once by the process owning this database, after the old process exits.
     this.transaction(() => {
       for (const s of this.all()) {
-        const mergeState = String(s.pr?.mergeable_state ?? '').toLowerCase()
-        if (!s.lease && s.status === 'waiting'
-          && (s.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind')) {
-          this.dirty(s, 'conflict-recovery')
-        }
         // Older releases permanently parked retryable failures after three
         // attempts. Resume that legacy state once under bounded retries.
         const legacyRetry = s.status === 'attention'
-        if (!s.lease && !legacyRetry) continue
-        s.lease = null; s.leaseUntil = 0
+        // Before fresh generations reset the no-op budget, a new event could
+        // make a PR ready while its previous exhausted budget still barred it.
+        const strandedNoOp = s.status === 'ready' && s.generation > s.handled
+          && (s.noOpAttempts ?? 0) >= 3 && s.noOpHead === s.pr?.head?.sha
+        if (!s.lease && !legacyRetry && !strandedNoOp) continue
+        s.lease = null; s.leaseUntil = 0; s.nextDirtyAt = undefined
         if (legacyRetry) this.dirty(s, 'retry-policy-recovery')
-        // Releases before the conflict wake fix could park a conflicting PR
-        // behind the duplicate-pass fingerprint guard. Requeue that durable
-        // state once when the process starts.
+        if (strandedNoOp) { s.noOpHead = undefined; s.noOpAttempts = 0 }
         if (s.status !== 'terminal') s.status = 'ready'
         this.put(s)
       }
     })
   }
-  summary() {
-    return this.all().map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha,
-      generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-      dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt,
-      cancellationStreak: s.cancellationStreak ?? 0, cancellationUntil: s.cancellationUntil ?? 0, lastResult: s.lastResult }))
+  private queueRows(): QueueRow[] {
+    if (this.queueMetadata) return this.queueMetadata
+    if (!this.repositories.length) return []
+    // One multi-path extraction parses each stored document once. Separate
+    // JSON calls repeatedly parse large historical review/check payloads.
+    const fields = Object.keys(queueFields), paths = Object.values(queueFields)
+    this.queueMetadata = this.db.prepare(`SELECT repository,number,json_extract(value,${paths.map(() => '?').join(',')}) AS metadata
+      FROM pr_snapshots WHERE repository IN (${this.repositories.map(() => '?').join(',')})`)
+      .all(...paths, ...this.repositories).map(row => {
+        const values = JSON.parse(row.metadata as string)
+        const item = Object.fromEntries(fields.map((field, index) => [field, values[index]]))
+        return { ...item, repository: row.repository, number: Number(row.number),
+          cancellationStreak: item.cancellationStreak ?? 0, cancellationUntil: item.cancellationUntil ?? 0,
+          noOpAttempts: item.noOpAttempts ?? 0 } as QueueRow
+      })
+    return this.queueMetadata
+  }
+  summary(): SnapshotSummary[] {
+    return this.queueRows().map(({ dirtyAt, lease, leaseUntil, noOpAttempts, noOpHead, hasPr, author, ...item }) => ({
+      ...item, head: item.head ?? undefined, baseRef: item.baseRef ?? undefined,
+      headRef: item.headRef ?? undefined, state: item.state ?? undefined, lastResult: item.lastResult ?? undefined,
+      reasons: [...item.reasons],
+      dirty: item.generation > item.handled,
+    }))
   }
 }

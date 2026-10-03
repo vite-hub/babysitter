@@ -1,0 +1,5 @@
+#!/bin/sh
+# Workers sometimes replace NODE_OPTIONS (for example to raise the heap), which
+# dropped the heavy-command gate. Load it on every Node start instead.
+gate="$(dirname "$(readlink -f "$0")")/../heavy-command-gate.cjs"
+exec /usr/local/bin/node --require "$gate" "$@"

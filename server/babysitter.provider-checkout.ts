@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { cp, lstat, realpath, rm, writeFile, readFile } from 'node:fs/promises'
+import { cp, lstat, readdir, realpath, rm, writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -24,6 +24,10 @@ export async function prepareProviderGit(checkout: string, target: string) {
 
 /** Capture local Git proof before the disposable provider workspace is removed. */
 export async function createProviderProofLaunch(checkout: string, target: string, command: string) {
+  // Reused checkouts keep .git between passes. Drop earlier launchers and proofs.
+  const gitDirectory = join(checkout, '.git')
+  await Promise.all((await readdir(gitDirectory)).filter(name => name.startsWith('babysitter-provider-'))
+    .map(name => rm(join(gitDirectory, name), { force: true })))
   const id = randomUUID()
   const proofPath = join(checkout, '.git', `babysitter-provider-head-${id}.json`)
   const scriptPath = join(checkout, '.git', `babysitter-provider-launch-${id}.mjs`)
@@ -86,4 +90,15 @@ export function providerGitEnvironment(environment: Record<string, string | unde
   const ownCheckout = { ...environment }
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete ownCheckout[key]
   return ownCheckout
+}
+
+/** pnpm keeps a copy of the lockfile it installed. Equal files mean node_modules is current. */
+export async function dependencyState(checkout: string): Promise<'current' | 'stale' | 'missing' | 'unknown'> {
+  const [wanted, installed] = await Promise.all([
+    readFile(join(checkout, 'pnpm-lock.yaml')).catch(() => undefined),
+    readFile(join(checkout, 'node_modules', '.pnpm', 'lock.yaml')).catch(() => undefined),
+  ])
+  if (!wanted) return 'unknown'
+  if (!installed) return 'missing'
+  return wanted.equals(installed) ? 'current' : 'stale'
 }

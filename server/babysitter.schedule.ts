@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { join } from 'node:path'
+import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { createGitHubPullRequestRun } from 'vite-hub/agent/server/github'
 import { createMessage, runScheduledAgent } from 'vite-hub/agent'
@@ -6,9 +8,13 @@ import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
 import { github, consoleClient, host, telemetry, createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
 import renderPrompt from './agents/babysitter/prompt.template.md'
-import { readProviderHeadProof, selectProviderHeadProof } from './babysitter.provider-checkout.ts'
-import { snapshotPrompt, assertPromptFits } from './babysitter.snapshot-prompt.ts'
+import { dependencyState, readProviderHeadProof, selectProviderHeadProof } from './babysitter.provider-checkout.ts'
+import { assertPromptFits, projectSnapshotContext } from './babysitter.snapshot-prompt.ts'
+import { directMergeReadiness, liveMergeReadiness } from './babysitter.direct-merge.ts'
+import { stackRetargetBase } from './babysitter.stack-base.ts'
+import type { Json } from './babysitter.inbox.ts'
 
+import { isProviderRateLimit, runWithProviderRetry as retryProvider } from './babysitter.provider-retry.ts'
 const schedulerAgent = { agent_name: 'babysitter-scheduler', agent_role: 'scheduler' } as const
 
 function schedulerEvent(name: string, properties: Record<string, unknown> = {}) {
@@ -23,12 +29,22 @@ function schedulerError(name: string, error: unknown, properties: Record<string,
 import { resolveMaxOwners, resolveRepositories } from './babysitter.queue.ts'
 import { type Claim } from './babysitter.inbox.ts'
 import { pullRequestInbox } from './babysitter.inbox-runtime.ts'
-import { snapshotPullRequest, createClaimStopCheck } from './babysitter.scheduler-state.ts'
+import { snapshotPullRequest, createClaimStopCheck, runWithClaimWatch, timeoutRepairWait } from './babysitter.scheduler-state.ts'
 import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads } from './babysitter.snapshot-sync.ts'
-import { hydrateFailedCiEvidence } from './babysitter.ci-evidence.ts'
 import { createRequiredPolicyReader, classifyRequiredChecks } from './babysitter.required-policy.ts'
-import { createCheckWait, shouldKeepWaiting } from './babysitter.wait-state.ts'
-import { resolveWaitHead } from './babysitter.pass-result.ts'
+import { createCheckWait, waitBlockers } from './babysitter.wait-state.ts'
+import { classifyPassScheduling, isExternalWaitResult, pushedRepairWaitHead, resolveExternalWaitHead, resolveWaitHead } from './babysitter.pass-result.ts'
+import { credentialsForRepository, GitHubAppInstallationRequired } from './babysitter.github-credentials.ts'
+import { isPullRequestHeadMismatch, recoverPullRequestHead } from './babysitter.head-recovery.ts'
+
+function missingAppInstallation(repository: string): string | undefined {
+  try {
+    credentialsForRepository(useServerEnv().github, repository, process.env.GITHUB_APP_INSTALLATIONS)
+  } catch (error) {
+    if (error instanceof GitHubAppInstallationRequired) return error.message
+    throw error
+  }
+}
 const active = new Set<string>()
 const execFileAsync = promisify(execFile)
 async function readRest(path: string, projection = '.[]') {
@@ -47,11 +63,6 @@ const readRequiredPolicy = createRequiredPolicyReader(async path => {
   }
 })
 
-async function readCiLog(path: string, repository: string) {
-  const result = await github.command(['api', '--allow-escape-sequences', path], { repository })
-  return result.stdout
-}
-
 async function readThreads(repository: string, number: number) {
   return readPullRequestThreads(async (query, variables) => {
     const args = ['api', 'graphql', '-f', `query=${query}`]
@@ -64,42 +75,44 @@ async function readThreads(repository: string, number: number) {
   }, repository, number)
 }
 
+/** Move a stacked PR to the default branch once its parent merged into a branch that is kept. */
+async function retargetMergedStackBase(repository: string, number: number, pr: Json | undefined): Promise<{ from: string; to: string } | undefined> {
+  const base = pr?.base?.ref, owner = pr?.base?.repo?.owner?.login
+  if (!base || !owner || base === pr?.base?.repo?.default_branch) return
+  const parents = await readRest(`repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${base}`)}&per_page=10`)
+  const to = stackRetargetBase(pr, parents)
+  if (!to) return
+  await github.command(['api', '-X', 'PATCH', `repos/${repository}/pulls/${number}`, '-f', `base=${to}`], { repository })
+  return { from: base, to }
+}
+
+/** Merge a PR that every gate reports ready. Any doubt returns a reason for a worker pass. */
+async function mergeReadyPullRequest(repository: string, number: number, head: string): Promise<{ merged: true } | { merged: false; reason: string }> {
+  try {
+    const [live] = await readRest(`repos/${repository}/pulls/${number}`, '.')
+    const decision = liveMergeReadiness(live ?? {}, head)
+    if (!decision.ready) return { merged: false, reason: decision.reason }
+    await github.command(['api', '-X', 'PUT', `repos/${repository}/pulls/${number}/merge`, '-f', 'merge_method=squash', '-f', `sha=${head}`], { repository })
+    return { merged: true }
+  } catch (error) {
+    return { merged: false, reason: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200) }
+  }
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
     || error instanceof Error && error.name === 'AbortError'
 }
 
-function isProviderRateLimit(error: unknown): boolean {
-  const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? '')}` : String(error)
-  return /\b429\b|too many requests|rate limit/i.test(text)
+function runWithProviderRetry<T>(run: () => Promise<T>): Promise<T> {
+  return retryProvider(run, () => {
+    pullRequestInbox.setMeta('provider-quota-blocked-until', Date.now() + 60 * 60_000)
+  })
 }
 
-// A retry that only reports an external/pending gate must become a durable
-// wait. Treating it as immediately retryable creates an agent spin loop (as
-// seen on #1350 overnight) while CI or exact-base evidence cannot change.
-function isExternalWaitResult(text: string): boolean {
-  // A cancelled GitHub job can be rerun safely. Treat it as retryable work
-  // instead of parking the PR until another webhook arrives.
-  if (/(?:cancel(?:led|lation)|superseded|aborted)/i.test(text)) return false
-  return /(?:exact[- ]base|unrelated|external|pending|in progress|waiting for|no (?:independent )?repair|cannot (?:start|run)|dependencies.*unavailable)/i.test(text)
-}
+const POST_PUSH_GRACE_MS = 3 * 60_000
 
-async function runWithProviderRetry<T>(run: () => Promise<T>): Promise<T> {
-  let lastError: unknown
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      return await run()
-    }
-    catch (error) {
-      lastError = error
-      if (!isProviderRateLimit(error) || attempt === 3) throw error
-      await new Promise(resolve => setTimeout(resolve, 10_000))
-    }
-  }
-  throw lastError
-}
-
-function cancelWhenPullRequestStops(claim: Claim, controller: AbortController, providerDirectory: () => string | undefined, providerProof: () => string | undefined): () => void {
+function cancelWhenPullRequestStops(claim: Claim, controller: AbortController, providerDirectory: () => string | undefined, providerProof: () => string | undefined) {
   let stopped = false, polling = false
   const check = createClaimStopCheck(claim,
     () => pullRequestInbox.get(claim.snapshot.repository, claim.snapshot.number),
@@ -112,12 +125,21 @@ function cancelWhenPullRequestStops(claim: Claim, controller: AbortController, p
       schedulerEvent('babysitter.head.proof', { repository: claim.snapshot.repository, pull_request: claim.snapshot.number, source: proof.source, head: proof.head ?? null, provider_directory: cwd, error_code: proof.errorCode })
       return proof.head
     })
+  let acceptedAt: number | undefined
   const poll = async () => {
     if (stopped || polling || controller.signal.aborted) return
     polling = true
     try {
       const reason = await check()
       if (reason && !stopped) controller.abort(new DOMException(reason, 'AbortError'))
+      else if (!stopped && check.acceptedHead()) {
+        // A proved repair push starts new checks and reviews. Their webhooks
+        // resume the PR, so a worker that keeps watching them only holds a
+        // slot. The timeout path records the pushed head as a check wait.
+        acceptedAt ??= Date.now()
+        if (Date.now() - acceptedAt >= POST_PUSH_GRACE_MS)
+          controller.abort(new DOMException('Repair pushed; waiting for check and review webhooks.', 'TimeoutError'))
+      }
     } catch {
       if (!stopped) controller.abort(new DOMException('Unable to verify active pull request state.', 'AbortError'))
     } finally { polling = false }
@@ -126,7 +148,7 @@ function cancelWhenPullRequestStops(claim: Claim, controller: AbortController, p
   // change, to distinguish the provider's repair push from an external push.
   const interval = setInterval(() => { void poll() }, 2000)
   void poll()
-  return () => { stopped = true; clearInterval(interval) }
+  return Object.assign(() => { stopped = true; clearInterval(interval) }, { acceptedHead: check.acceptedHead })
 }
 
 export function babysitterWorkload() {
@@ -134,11 +156,14 @@ export function babysitterWorkload() {
   // invocation state during provider startup/recovery. Report the inbox as
   // the source of truth so open actionable PRs are visible as queued work.
   const snapshots = pullRequestInbox.summary()
+  const ready = snapshots.filter(item => item.status === 'ready' && item.generation > item.handled)
+  const queued = ready.filter(item => !item.baseRef || !snapshots.some(parent =>
+    parent.repository === item.repository && parent.number !== item.number
+    && String(parent.state).toLowerCase() === 'open'
+    && parent.headRef === item.baseRef)).length
   return {
     running: snapshots.filter(item => item.status === 'working').length,
-    // Durable PR work includes ready repairs and waiting PRs. Waiting work
-    // has no live host invocation, but it must remain visible in the queue.
-    queued: snapshots.filter(item => item.status === 'ready' || item.status === 'waiting').length,
+    queued,
   }
 }
 
@@ -161,6 +186,8 @@ export async function reconcileBabysitterWork(
   // let the durable inbox claim work and only fail after spending an agent
   // session.  Probe once per short interval, then leave all claims parked
   // until the provider is reachable again.
+  const providerBlock = pullRequestInbox.meta<number>('provider-quota-blocked-until') ?? 0
+  if (providerBlock > Date.now()) return
   const providerProbeKey = 'provider-access-probe-v1'
   const providerProbe = pullRequestInbox.meta<{ checkedAt: number; ok: boolean; error?: string }>(providerProbeKey)
   const probeFresh = providerProbe && Date.now() - providerProbe.checkedAt < 30_000
@@ -171,6 +198,7 @@ export async function reconcileBabysitterWork(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       pullRequestInbox.setMeta(providerProbeKey, { checkedAt: Date.now(), ok: false, error: message.slice(0, 500) })
+      if (isProviderRateLimit(error)) pullRequestInbox.setMeta('provider-quota-blocked-until', Date.now() + 60 * 60_000)
       schedulerError('babysitter.provider.unavailable', error, { reason: 'admission-probe' })
       return
     }
@@ -221,12 +249,27 @@ export async function reconcileBabysitterWork(
     let disposition: PassResult['disposition'] | undefined
     let resultText = ''
     let waitForChecksHead: string | undefined
+    let ownedProviderHead: string | undefined
+    let acceptedProviderHead: string | undefined
     schedulerEvent('babysitter.owner.started', { maxOwners: ownerLimit, ...owner })
     try {
+        const missingBaseInstallation = missingAppInstallation(repository)
+        if (missingBaseInstallation) {
+          pullRequestInbox.finish(inboxClaim, { text: missingBaseInstallation })
+          schedulerEvent('babysitter.owner.waiting', { reason: 'github-app-installation-required', ...owner })
+          return
+        }
         // Unknown PRs (a comment arriving before opened) need exactly one
         // targeted REST hydration. Normal webhook claims use the local head.
         if (!await hydrateSnapshot(pullRequestInbox, inboxClaim, readRest, readThreads)) {
           pullRequestInbox.release(inboxClaim)
+          return
+        }
+        const staleBase = await retargetMergedStackBase(repository, number, inboxClaim.snapshot.pr)
+        if (staleBase) {
+          // GitHub sends a pull_request edited webhook for the new base; that pass works on it.
+          pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${staleBase.from} to ${staleBase.to} after the parent pull request merged.` })
+          schedulerEvent('babysitter.stack.retargeted', { ...owner, from: staleBase.from, to: staleBase.to })
           return
         }
         if (inboxClaim.snapshot.pr?.user?.login !== 'onmax' || inboxClaim.snapshot.pr?.state !== 'open') {
@@ -239,18 +282,33 @@ export async function reconcileBabysitterWork(
           pullRequestInbox.release(inboxClaim)
           return
         }
-        if (shouldKeepWaiting(inboxClaim.snapshot, required.state)) {
+        const mergeDecision = directMergeReadiness(inboxClaim.snapshot, required.state)
+        if (mergeDecision.ready) {
+          const merged = await mergeReadyPullRequest(repository, number, mergeDecision.head)
+          if (merged.merged) {
+            pullRequestInbox.finish(inboxClaim, { text: `Merged ${mergeDecision.head} directly: required checks, Pullfrog approval, and review threads were clear.`, terminal: true })
+            schedulerEvent('babysitter.owner.merged', { ...owner, head_sha: mergeDecision.head, avoided_invocation: true })
+            return
+          }
+          schedulerEvent('babysitter.direct_merge.skipped', { ...owner, reason: merged.reason })
+        }
+        const wakeReasons = waitBlockers(inboxClaim.snapshot, required.state)
+        if (!wakeReasons.length) {
           outcome = 'waiting'
           pullRequestInbox.finish(inboxClaim, { text: inboxClaim.snapshot.lastResult ?? 'Waiting for checks; no new repair work.', waitForChecks: inboxClaim.snapshot.waitForChecks })
           schedulerEvent('babysitter.preflight.waiting', { ...owner, head_sha: inboxClaim.snapshot.pr.head.sha, required_state: required.state, avoided_invocation: true })
           return
         }
-        if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, { readJson: readRest, readLog: readCiLog })) {
-          pullRequestInbox.release(inboxClaim)
+        // Record why the wait could not suppress this generation, so idle
+        // model passes can be traced to their cause.
+        schedulerEvent('babysitter.preflight.wake', { ...owner, head_sha: inboxClaim.snapshot.pr.head.sha, required_state: required.state, reasons: wakeReasons, triggers: inboxClaim.snapshot.reasons })
+        const pullRequest = snapshotPullRequest(inboxClaim.snapshot)
+        const missingHeadInstallation = missingAppInstallation(pullRequest.headRepository?.nameWithOwner || repository)
+        if (missingHeadInstallation) {
+          pullRequestInbox.finish(inboxClaim, { text: missingHeadInstallation })
+          schedulerEvent('babysitter.owner.waiting', { reason: 'github-app-installation-required', ...owner })
           return
         }
-        const pullRequest = snapshotPullRequest(inboxClaim.snapshot)
-        const webhookSnapshot = inboxClaim.snapshot
         await github.withPullRequestCheckout({
           headRef: pullRequest.headRefName,
           headRepository: pullRequest.headRepository?.nameWithOwner,
@@ -263,6 +321,9 @@ export async function reconcileBabysitterWork(
             pull_request: pullRequest.number,
             head_sha: pullRequest.headRefOid,
           })
+          // Give the worker the hydrated PR state up front, so it does not
+          // spend model turns paginating threads, reviews, and checks.
+          await writeFile(join(checkout, '.git', 'babysitter-pr-context.json'), JSON.stringify({ ...projectSnapshotContext(inboxClaim.snapshot), dependencies: await dependencyState(checkout) }, null, 1))
           const context = {
             preparedCheckout: checkout,
             pullRequestHead: pullRequest.headRefOid,
@@ -278,11 +339,9 @@ export async function reconcileBabysitterWork(
             providerDirectory = cwd; providerProof = proofPath
             schedulerEvent('babysitter.provider.prepared', { repository, pull_request: pullRequest.number, provider_directory: cwd })
           })
-          const prompt = await renderPrompt({ context })
-          const snapshotContext = snapshotPrompt(webhookSnapshot)
-          const userMessage = `${prompt}\n\n${snapshotContext}`
+          const userMessage = await renderPrompt({ context })
           assertPromptFits(userMessage)
-          schedulerEvent('babysitter.context.prepared', { repository, pull_request: number, characters: snapshotContext.length, format: 'xml' })
+          schedulerEvent('babysitter.context.prepared', { repository, pull_request: number, characters: userMessage.length, format: 'task' })
           const passController = new AbortController()
           const githubRun = await createGitHubPullRequestRun(repository, pullRequest, {
             agentName: 'babysitter', runId, publicUrl,
@@ -305,7 +364,7 @@ export async function reconcileBabysitterWork(
             trigger: { event: 'pull_request' as const, action: 'synchronize' as const, actor: { login: 'vitehub-bot[bot]' }, args: '', command: '', comment: { id: 0 } },
           }
           const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => providerProof)
-          const result = await runWithProviderRetry(() => runScheduledAgent(agent, {
+          const result = await runWithClaimWatch(stopPullRequestWatch, () => runWithProviderRetry(() => runScheduledAgent(agent, {
             ...schedule,
             runId,
           }, {
@@ -315,15 +374,20 @@ export async function reconcileBabysitterWork(
             abortSignal: AbortSignal.any([AbortSignal.timeout(60 * 60 * 1000), passController.signal]),
             context: { ...context, pullRequest: pullRequestInvocation },
             messages: [createMessage({ role: 'user', text: userMessage })],
-          })).finally(stopPullRequestWatch)
+          })), head => { acceptedProviderHead = head })
           disposition = (result as PassResult).disposition
           resultText = (result as PassResult).text
-          waitForChecksHead = resolveWaitHead((result as PassResult).waitForChecksHead, await readProviderHeadProof(providerProof, providerDirectory), pullRequest.headRefOid)
+          ownedProviderHead = await readProviderHeadProof(providerProof, providerDirectory) ?? stopPullRequestWatch.acceptedHead()
+          waitForChecksHead = resolveWaitHead((result as PassResult).waitForChecksHead, ownedProviderHead, pullRequest.headRefOid)
 
         })
 
         const current = pullRequestInbox.get(repository, number)
         const terminal = current?.status === 'terminal'
+        // A worker that pushed a repair and still reports `retry` would run again
+        // on the same pending CI. The pushed head's check and review webhooks
+        // resume the PR, so park on that head.
+        if (!terminal) waitForChecksHead ??= pushedRepairWaitHead(ownedProviderHead, pullRequest.headRefOid, current?.pr?.head?.sha)
         // A model's bare `park` is not enough to put a failing PR to sleep.
         // CI failures are actionable work: agents must get another pass to
         // repair them. Park only when the result explicitly describes an
@@ -335,15 +399,12 @@ export async function reconcileBabysitterWork(
         // agent. Respect it even when the agent used `retry` to report that
         // no repository change was made; relaunching the same head burns a
         // full model session without creating any new GitHub evidence.
-        const mergeState = String(inboxClaim.snapshot.pr?.mergeable_state ?? '').toLowerCase()
-        const repairableMergeState = inboxClaim.snapshot.pr?.mergeable === false || mergeState === 'dirty' || mergeState === 'behind'
-        const parked = terminal || !repairableMergeState && waitForChecksHead !== undefined
-          || disposition === 'park' && isExternalWaitResult(resultText)
-          || disposition === 'retry' && isExternalWaitResult(resultText)
+        const { parked, noOp } = classifyPassScheduling({ disposition, text: resultText, waitForChecksHead, terminal })
         outcome = parked ? 'completed' : 'retry'
-        const waitHead = waitForChecksHead ?? (parked && !terminal && isExternalWaitResult(resultText) ? pullRequest.headRefOid : undefined)
+        const waitHead = waitForChecksHead ?? (parked && !terminal && isExternalWaitResult(resultText)
+          ? resolveExternalWaitHead(ownedProviderHead, pullRequest.headRefOid, current?.pr?.head?.sha) : undefined)
         pullRequestInbox.finish(inboxClaim, { text: resultText, retry: !parked, terminal,
-          waitForChecks: parked && !terminal && waitHead ? createCheckWait(inboxClaim.snapshot, waitHead) : undefined })
+          waitForChecks: parked && !terminal && waitHead ? createCheckWait(inboxClaim.snapshot, waitHead) : undefined, noOp })
     }
     catch (error) {
       if (isAbortError(error)) {
@@ -359,13 +420,29 @@ export async function reconcileBabysitterWork(
         schedulerEvent('babysitter.owner.deferred', { reason: 'github-rate-limit', ...owner })
       }
       else {
-        outcome = 'failed'
-        if (/AGENT_R0767|head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) {
-          pullRequestInbox.hydrate(inboxClaim, { refresh: true })
+        if (isPullRequestHeadMismatch(error)) {
+          const recovery = await recoverPullRequestHead(pullRequestInbox, inboxClaim, readRest)
+          const terminal = pullRequestInbox.get(repository, number)?.status === 'terminal'
+          const reason = error instanceof Error ? error.message : String(error)
+          if (recovery.synchronizationWait && !terminal) {
+            pullRequestInbox.finish(inboxClaim, { text: recovery.synchronizationWait.text })
+            outcome = 'waiting'
+            schedulerEvent('babysitter.owner.waiting', { reason: 'github-head-synchronization', ...owner,
+              pr_head: recovery.synchronizationWait.prHead, branch_head: recovery.synchronizationWait.branchHead,
+              source_repository: recovery.synchronizationWait.sourceRepository, source_branch: recovery.synchronizationWait.sourceBranch })
+            return
+          }
+          pullRequestInbox.finish(inboxClaim, { text: reason, retry: !terminal, terminal, cancelled: !terminal })
+          outcome = 'completed'
+          schedulerEvent('babysitter.owner.cancelled', { reason, ...owner, head_refreshed: recovery.refreshed,
+            ...(recovery.error ? { refresh_error: recovery.error } : {}) })
+          return
         }
+        outcome = 'failed'
         pullRequestInbox.finish(inboxClaim, {
           text: error instanceof Error ? error.message : String(error),
           retry: true,
+          waitForChecks: timeoutRepairWait(error, inboxClaim, pullRequestInbox.get(repository, number), acceptedProviderHead),
         })
         schedulerError('babysitter.owner.failed', error, owner)
       }
@@ -377,10 +454,7 @@ export async function reconcileBabysitterWork(
         ...owner,
       })
       active.delete(`${repository}#${number}`)
-      // The process host may coalesce a wake while this batch is still
-      // completing. Schedule the next admission after releasing the lease so
-      // ready PRs continue draining up to the configured capacity.
-      setTimeout(() => host.wake(), 100)
+      host.wake()
     }
   })).then(() => {}).finally(() => {
     schedulerEvent('babysitter.batch.finished', {
