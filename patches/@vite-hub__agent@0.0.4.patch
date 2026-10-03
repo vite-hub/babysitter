@@ -247,7 +247,7 @@ index 63cfb67b6f7c6532a31a2396e87b8ac6b66cfdf3..b76c62f1b5f99e6a088b59f81e65c175
  import { ViteHubError } from "@vite-hub/runtime";
  import { WorkspaceContent, WorkspaceName, WorkspaceSourceInput } from "@vite-hub/workspace";
 diff --git a/dist/capabilities.js b/dist/capabilities.js
-index 0293e6607166913afc6a66872976cc8c9813e788..6eafb3ed4f1ade22ef12396f823efe9eeeec1190 100644
+index 0293e6607166913afc6a66872976cc8c9813e788..d902996e3cd2644f038379d278c3ee8d0dde870c 100644
 --- a/dist/capabilities.js
 +++ b/dist/capabilities.js
 @@ -1,24 +1,24 @@
@@ -273,7 +273,7 @@ index 0293e6607166913afc6a66872976cc8c9813e788..6eafb3ed4f1ade22ef12396f823efe9e
 +import { C as responseTitleFallbackContextKey, c as streamAgentOutputToEvents, g as recordAuxiliaryUsage, l as toAgentRunResult, m as modelsDevPricing, p as enrichAgentUsageCost, s as resolveAgentUsageRecord, u as toAgentStreamEvent } from "./agent-output-C5my3Gdz.js";
 +import { n as toAgentUiMessageStreamResponse, r as access } from "./http-response-BtnSV4bO.js";
 +import { H as getAgentChatContext, L as agentChatContextKey, f as messageChannelTitleSupportContextKey, z as chat } from "./channels-BrwXd7AK.js";
-+import { a as codexLaunchArgs, c as browserRuntimeEnvironment, d as provideBrowserRuntimeEnvironment, f as activeAgentWorkspaceCommands, h as readAgentWorkspaceDiff, i as shellQuote, l as closeBrowserRuntimeSession, m as readActiveAgentWorkspaceFile, n as pullRequestCheckoutEnvironment, p as clearAgentWorkspaceDiff, r as pullRequestCheckoutPlan, s as withProviderCallbackMetadata, t as preparePullRequestCheckout, u as prepareBrowserRuntime } from "./pull-request-checkout-dSU2gkG4.js";
++import { a as shellQuote, c as withProviderCallbackMetadata, d as prepareBrowserRuntime, f as provideBrowserRuntimeEnvironment, g as readAgentWorkspaceDiff, h as readActiveAgentWorkspaceFile, l as browserRuntimeEnvironment, m as clearAgentWorkspaceDiff, n as pullRequestCheckoutEnvironment, o as codexLaunchArgs, p as activeAgentWorkspaceCommands, r as pullRequestCheckoutPlan, t as preparePullRequestCheckout, u as closeBrowserRuntimeSession } from "./pull-request-checkout-r5nO2W4N.js";
 +import { n as agentInvocationId } from "./invocations-BWLjNFj8.js";
  import { o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
 -import { n as askJev, t as normalizeAgentDriver } from "./agent-driver-SHCjOIaV.js";
@@ -1521,7 +1521,7 @@ index c2e327e575eeb357594114d0454643ad9033bd30..54ec745ccb1738f0829d43d620278333
  //#endregion
 \ No newline at end of file
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 1c72625fb7672f6d877572e3be1d6bc0fb08d91f..9c2caeb900285be49fbe78c502ff30f00448c79b 100644
+index 1c72625fb7672f6d877572e3be1d6bc0fb08d91f..24dcfc5b605d5581a72bafa44994da8901e99fb7 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
 @@ -1,16 +1,16 @@
@@ -1544,7 +1544,7 @@ index 1c72625fb7672f6d877572e3be1d6bc0fb08d91f..9c2caeb900285be49fbe78c502ff30f0
 +import { C as inspectAgentTools, E as agentToolPolicyApproveSymbol, L as updateAgentTelemetryConfiguration, W as agentInvocationCallbackContextValues, it as hasTrustedWorkspaceAccessScope, w as agentToolJsonSchema } from "./capability-runtime-B_IB_ZnG.js";
 +import { c as streamAgentOutputToEvents, i as appendLatestFinalText } from "./agent-output-C5my3Gdz.js";
 +import { t as agentOutputInstructions } from "./agent-structured-output-B7aE7o_Q.js";
-+import { _ as setActiveAgentWorkspaceFiles, a as codexLaunchArgs, c as browserRuntimeEnvironment, g as setActiveAgentWorkspaceCommands, n as pullRequestCheckoutEnvironment, o as providerCallbackMetadata, r as pullRequestCheckoutPlan, s as withProviderCallbackMetadata, t as preparePullRequestCheckout, v as setAgentWorkspaceDiff } from "./pull-request-checkout-dSU2gkG4.js";
++import { _ as setActiveAgentWorkspaceCommands, c as withProviderCallbackMetadata, i as pullRequestRepositories, l as browserRuntimeEnvironment, n as pullRequestCheckoutEnvironment, o as codexLaunchArgs, r as pullRequestCheckoutPlan, s as providerCallbackMetadata, t as preparePullRequestCheckout, v as setActiveAgentWorkspaceFiles, y as setAgentWorkspaceDiff } from "./pull-request-checkout-r5nO2W4N.js";
 +import { f as workspaceAutoCommitDisabled, m as workspaceDefinitionWithAutoCommitRules, v as colocatedAgentSkillsContextKey } from "./workspace-agent-CVDJIvkk.js";
  import { o as registerAgentInvocationInputHandler, t as ownedAgentInvocationControlId } from "./agent-invocation-response-owner-BJjGK8gX.js";
 -import { t as resolveInstalledProviderExecutable } from "./provider-runtime-packages-BIffLz2Y.js";
@@ -1684,6 +1684,17 @@ index 1c72625fb7672f6d877572e3be1d6bc0fb08d91f..9c2caeb900285be49fbe78c502ff30f0
  				...hostOptions,
  				cwd,
  				signal: abortSignal
+@@ -3137,8 +3165,8 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 			...providerMetadataContext(context),
+ 			abortSignal: effectiveSignal
+ 		};
+-		const githubCheckoutPlan = pullRequestCheckoutPlan(context.context);
+-		const githubEnvironment = auxiliary || !context.runtime.githubIdentity ? void 0 : await waitForProviderOperation(pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubCheckoutPlan?.repository, effectiveSignal, githubCheckoutPlan?.headRepository), effectiveSignal);
++		const githubScope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context);
++		const githubEnvironment = auxiliary || !context.runtime.githubIdentity ? void 0 : await waitForProviderOperation(pullRequestCheckoutEnvironment(context.runtime.githubIdentity, githubScope?.repository, effectiveSignal, githubScope?.headRepository), effectiveSignal);
+ 		const configuredEnvironmentOverrides = options.env === void 0 ? void 0 : normalizedProviderEnvironment(await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.env, resolverContext)), effectiveSignal));
+ 		const providerEnvironmentOverrides = githubEnvironment ? {
+ 			...githubEnvironment,
 @@ -3167,7 +3195,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			...capabilityEnvironment,
  			VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
@@ -1745,13 +1756,13 @@ index 2fa828842cbe01008b5855fd1a3837e9427f3abb..5c51b0691f420a63930ff03f25b265b5
  		if (nativePackageJsonPath) return join(dirname(nativePackageJsonPath), target.binary);
  	}
  }
-diff --git a/dist/pull-request-checkout-BDqUKLTX.js b/dist/pull-request-checkout-dSU2gkG4.js
-similarity index 99%
+diff --git a/dist/pull-request-checkout-BDqUKLTX.js b/dist/pull-request-checkout-r5nO2W4N.js
+similarity index 94%
 rename from dist/pull-request-checkout-BDqUKLTX.js
-rename to dist/pull-request-checkout-dSU2gkG4.js
-index 10a3297c2ffb994172d9d0da118d1610e7e1a4a7..b9d0b3413637d0b45aa5ed984838dd1cd478f5aa 100644
+rename to dist/pull-request-checkout-r5nO2W4N.js
+index 10a3297c2ffb994172d9d0da118d1610e7e1a4a7..c5b708694982e12f4cee3e92d22723c19fd6f586 100644
 --- a/dist/pull-request-checkout-BDqUKLTX.js
-+++ b/dist/pull-request-checkout-dSU2gkG4.js
++++ b/dist/pull-request-checkout-r5nO2W4N.js
 @@ -1,5 +1,5 @@
 -import { t as agentDiagnostics } from "./agent-diagnostics-CRbMCAtY.js";
 -import { C as redactCredentialText } from "./trace-BhGaIq_U.js";
@@ -1760,6 +1771,41 @@ index 10a3297c2ffb994172d9d0da118d1610e7e1a4a7..b9d0b3413637d0b45aa5ed984838dd1c
  import { a as isRuntimeObject, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
  import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
  import { homedir, tmpdir } from "node:os";
+@@ -818,6 +818,28 @@ function pullRequestCheckoutPlan(context) {
+ 	if (headRepository && headRepository.toLowerCase() !== repository.toLowerCase()) plan.headRepository = headRepository;
+ 	return plan;
+ }
++/**
++* Repositories a GitHub pull request run acts on, even when it opts out of the
++* managed checkout. Credentials stay scoped to them so multi-installation GitHub
++* Apps can resolve access.
++*/
++function pullRequestRepositories(context) {
++	const raw = context?.get("pullRequest");
++	const pullRequest = isRecord(raw) && isRecord(raw.pullRequest) ? raw.pullRequest : isRecord(raw) ? raw : void 0;
++	if (!pullRequest) return;
++	const provider = isRecord(raw) ? raw.provider : void 0;
++	if (isRuntimeString(provider) && provider !== "github") return;
++	const source = isRecord(pullRequest.source) ? pullRequest.source : void 0;
++	const head = isRecord(pullRequest.head) ? pullRequest.head : void 0;
++	const repositoryRecord = isRecord(raw) && isRecord(raw.repository) ? raw.repository : void 0;
++	const repository = safeRepository(source?.repo) || safeRepository(isRecord(raw) ? raw.repository : void 0) || safeRepository(repositoryRecord?.fullName);
++	if (!repository) return;
++	const headRepository = safeRepository(head?.repo);
++	return headRepository && headRepository.toLowerCase() !== repository.toLowerCase() ? {
++		headRepository,
++		repository
++	} : { repository };
++}
+ /** Resolve base access and add environment-only credentials for a fork push remote. */
+ async function pullRequestCheckoutEnvironment(github, repository, abortSignal, headRepository) {
+ 	if (!github) return {};
+@@ -905,4 +927,4 @@ async function preparePullRequestCheckout(session, plan, options = {}) {
+ 	return true;
+ }
+ //#endregion
+-export { setActiveAgentWorkspaceFiles as _, codexLaunchArgs as a, browserRuntimeEnvironment as c, provideBrowserRuntimeEnvironment as d, activeAgentWorkspaceCommands as f, setActiveAgentWorkspaceCommands as g, readAgentWorkspaceDiff as h, shellQuote as i, closeBrowserRuntimeSession as l, readActiveAgentWorkspaceFile as m, pullRequestCheckoutEnvironment as n, providerCallbackMetadata as o, clearAgentWorkspaceDiff as p, pullRequestCheckoutPlan as r, withProviderCallbackMetadata as s, preparePullRequestCheckout as t, prepareBrowserRuntime as u, setAgentWorkspaceDiff as v };
++export { setActiveAgentWorkspaceCommands as _, shellQuote as a, withProviderCallbackMetadata as c, prepareBrowserRuntime as d, provideBrowserRuntimeEnvironment as f, readAgentWorkspaceDiff as g, readActiveAgentWorkspaceFile as h, pullRequestRepositories as i, browserRuntimeEnvironment as l, clearAgentWorkspaceDiff as m, pullRequestCheckoutEnvironment as n, codexLaunchArgs as o, activeAgentWorkspaceCommands as p, pullRequestCheckoutPlan as r, providerCallbackMetadata as s, preparePullRequestCheckout as t, closeBrowserRuntimeSession as u, setActiveAgentWorkspaceFiles as v, setAgentWorkspaceDiff as y };
 diff --git a/dist/routes-CHbqoFyD.js b/dist/routes-BFkvJAvF.js
 similarity index 99%
 rename from dist/routes-CHbqoFyD.js
