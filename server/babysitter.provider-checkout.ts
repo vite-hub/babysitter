@@ -23,7 +23,7 @@ export async function prepareProviderGit(checkout: string, target: string) {
 
 
 /** Capture local Git proof before the disposable provider workspace is removed. */
-export async function createProviderProofLaunch(checkout: string, target: string, command: string) {
+export async function createProviderProofLaunch(checkout: string, target: string, command: string, pathPrefix?: string) {
   // Reused checkouts keep .git between passes. Drop earlier launchers and proofs.
   const gitDirectory = join(checkout, '.git')
   await Promise.all((await readdir(gitDirectory)).filter(name => name.startsWith('babysitter-provider-'))
@@ -43,7 +43,11 @@ function captureHead() {
     renameSync(proofPath + '.tmp', proofPath)
   } catch {}
 }
-const child = spawn(process.argv[2], process.argv.slice(3), { cwd, env: process.env, stdio: 'inherit' })
+// Commands the provider runs resolve node through this prefix first, ahead of
+// the toolchain the driver prepends, so the worker gate wraps every Node start.
+const pathPrefix = ${JSON.stringify(pathPrefix ?? '')}
+const env = pathPrefix ? { ...process.env, PATH: pathPrefix + ':' + (process.env.PATH || '') } : process.env
+const child = spawn(process.argv[2], process.argv.slice(3), { cwd, env, stdio: 'inherit' })
 const signals = ['SIGTERM', 'SIGINT', 'SIGHUP']
 for (const signal of signals) process.on(signal, () => { child.kill(signal) })
 child.once('error', () => process.exit(127))

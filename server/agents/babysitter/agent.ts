@@ -251,7 +251,7 @@ export function createBabysitterAgent(checkout: string, repository: string, onPr
       async launch({ cwd, command, purpose }) {
         // Readiness inspection only needs the executable.
         if (purpose === 'inspection') return { command }
-        const launch = await createProviderProofLaunch(checkout, cwd, command)
+        const launch = await createProviderProofLaunch(checkout, cwd, command, heavyCommandGate && resolve(dirname(heavyCommandGate), 'worker-bin'))
         onProviderPrepared?.(cwd, launch.proofPath)
         return { command: launch.command, args: launch.args }
       },

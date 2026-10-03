@@ -134,3 +134,15 @@ test('dependency state compares the lockfile with the copy pnpm installed', asyn
   await writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\nchanged: true\n')
   assert.equal(await dependencyState(root), 'stale')
 })
+
+test('provider wrapper puts the worker bin ahead of the toolchain PATH for provider commands', async t => {
+ const root=await mkdtemp(join(tmpdir(),'babysitter-proof-path-'));t.after(()=>rm(root,{recursive:true,force:true}))
+ const source=join(root,'source'),target=join(root,'provider');await mkdir(join(source,'.git'),{recursive:true});await mkdir(target)
+ const launch=await createProviderProofLaunch(source,target,process.execPath,'/worker/bin')
+ const child=spawn(launch.command,[...launch.args,'-e','process.stdout.write(process.env.PATH)'],{env:{...process.env,PATH:'/toolchain/bin:/usr/bin'},stdio:['ignore','pipe','pipe']})
+ let stdout='';child.stdout.on('data',b=>stdout+=b)
+ const [code]=await once(child,'exit');assert.equal(code,0);assert.equal(stdout,'/worker/bin:/toolchain/bin:/usr/bin')
+ const plain=await createProviderProofLaunch(source,target,process.execPath)
+ const unchanged=spawn(plain.command,[...plain.args,'-e','process.stdout.write(process.env.PATH)'],{env:{...process.env,PATH:'/toolchain/bin'},stdio:['ignore','pipe','pipe']})
+ let out='';unchanged.stdout.on('data',b=>out+=b);await once(unchanged,'exit');assert.equal(out,'/toolchain/bin')
+})
