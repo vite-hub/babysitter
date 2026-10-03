@@ -62,3 +62,24 @@ test('worker node wrapper loads the gate even when NODE_OPTIONS is replaced', as
   const runs = (await Promise.all([runOnce(), runOnce()])).sort((a, b) => a.started - b.started)
   assert.ok(runs[1].started >= runs[0].ended, 'wrapped runs must not overlap with one slot')
 })
+
+test('workers cannot run full Nuxt builds but keep other Nuxt commands', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'heavy-gate-nuxt-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const script = join(root, 'node_modules/nuxt/bin/nuxt.mjs')
+  await mkdir(join(root, 'node_modules/nuxt/bin'), { recursive: true })
+  await writeFile(script, `console.log('ran ' + process.argv[2])\n`)
+  const run = (command: string) => new Promise<{ code: number | null, out: string }>(done => {
+    const child = spawn(process.execPath, ['--require', gate, script, command], { env: { ...process.env, BABYSITTER_HEAVY_DIR: join(root, 'slots') } })
+    let out = ''
+    child.stdout.on('data', chunk => { out += chunk })
+    child.stderr.on('data', chunk => { out += chunk })
+    child.on('close', code => done({ code, out }))
+  })
+  for (const command of ['build', 'generate']) {
+    const result = await run(command)
+    assert.equal(result.code, 1)
+    assert.match(result.out, /Local Nuxt builds are disabled/)
+  }
+  assert.deepEqual(await run('prepare'), { code: 0, out: 'ran prepare\n' })
+})

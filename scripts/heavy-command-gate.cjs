@@ -6,6 +6,13 @@
 const { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeSync } = require('node:fs')
 
 const script = (process.argv[1] || '').replace(/\\/g, '/')
+
+// Full Nuxt app builds take 6-7 GB each and stalled every worker under the
+// service memory limit. Workers must not run local builds; CI builds every push.
+if (/\/(?:nuxt\/bin\/nuxt|nuxi\/bin\/nuxi)\.mjs$/.test(script) && /^(?:build|generate)$/.test(process.argv[2] || '')) {
+  process.stderr.write('[babysitter] Local Nuxt builds are disabled for workers. Rely on CI for build validation.\n')
+  process.exit(1)
+}
 const heavy = /\/typescript\/bin\/tsc$|\/vitest\/vitest\.mjs$|\/vite-plus\/dist\/pack-bin\.js$|\/vite-plus\/bin\/vp$/.test(script)
 
 if (heavy && !process.env.BABYSITTER_HEAVY_SLOT) {
