@@ -59,11 +59,9 @@ const concurrency = resolveMaxOwners(useServerEnv().babysitter.maxOwners)
 export const host = await createProcessAgentHost({
   name: 'babysitter',
   intervalMs: 10_000,
-  // The production process runs under the restricted `agents` account, whose
-  // PATH does not include the global Node bin directory consistently. Use the
-  // installed CLI's absolute path so the process health probe and invocations
-  // resolve the same executable as the CLI-proxy setup.
-  providerCommand: '/usr/bin/codex',
+  // The health probe resolves codex from the service PATH, the same lookup
+  // invocations use. A hardcoded host path broke when codex moved.
+  providerCommand: 'codex',
   capacity: {
     concurrency,
     fallbackConcurrency: concurrency,

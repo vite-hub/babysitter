@@ -6,7 +6,9 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from 'vite-h
 // Exercise the installed pnpm patch through the real invocation journal.
 const dist = new URL('../../../@vite-hub/agent/dist/', import.meta.resolve('vite-hub/agent/server'))
 const chunk = (await readdir(dist)).find(name => /^invocations-.*\.js$/.test(name))!
-const { i: bindAgentInvocations } = await import(new URL(chunk, dist).href)
+// Minified export aliases change between builds; select the function by name.
+const bindAgentInvocations = Object.values(await import(new URL(chunk, dist).href))
+  .find((value): value is (...args: any[]) => Promise<any> => typeof value === 'function' && value.name === 'bindAgentInvocations')!
 
 for (const attribute of ['input.messages', 'input.prompt']) {
   test(`${attribute}: oversized bodies preserve roles, types and IDs across messages`, async () => {

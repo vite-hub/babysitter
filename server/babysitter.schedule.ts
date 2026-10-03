@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { createGitHubPullRequestRun } from 'vite-hub/agent/server/github'
-import { createMessage, runScheduledAgent } from 'vite-hub/agent'
+import { createMessage, runAgent } from 'vite-hub/agent'
 import type { ProcessReconcilerRunContext } from 'vite-hub/runtime/node'
 import { useServerEnv } from '#vitehub/env/server'
-import { github, consoleClient, host, telemetry, createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
+import { github, host, telemetry, createBabysitterAgent, type PassResult } from './agents/babysitter/agent.ts'
 import renderPrompt from './agents/babysitter/prompt.template.md'
 import { dependencyState, readProviderHeadProof, selectProviderHeadProof } from './babysitter.provider-checkout.ts'
 import { assertPromptFits, projectSnapshotContext } from './babysitter.snapshot-prompt.ts'
@@ -265,7 +265,7 @@ export async function reconcileBabysitterWork(
           pullRequestInbox.release(inboxClaim)
           return
         }
-        const staleBase = await retargetMergedStackBase(repository, number, inboxClaim.snapshot.pr)
+        const staleBase = await retargetMergedStackBase(repository, number, inboxClaim.snapshot.pr ?? undefined)
         if (staleBase) {
           // GitHub sends a pull_request edited webhook for the new base; that pass works on it.
           pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${staleBase.from} to ${staleBase.to} after the parent pull request merged.` })
@@ -345,7 +345,6 @@ export async function reconcileBabysitterWork(
           const passController = new AbortController()
           const githubRun = await createGitHubPullRequestRun(repository, pullRequest, {
             agentName: 'babysitter', runId, publicUrl,
-            sessionUrl: consoleClient?.endpoint(`/?view=sessions&session=${encodeURIComponent(runId)}`),
           })
           // The GitHub run helper uses a stable PR thread id. Scope the
           // provider session to this exact head so a new checkout never
@@ -364,17 +363,16 @@ export async function reconcileBabysitterWork(
             trigger: { event: 'pull_request' as const, action: 'synchronize' as const, actor: { login: 'vitehub-bot[bot]' }, args: '', command: '', comment: { id: 0 } },
           }
           const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => providerProof)
-          const result = await runWithClaimWatch(stopPullRequestWatch, () => runWithProviderRetry(() => runScheduledAgent(agent, {
-            ...schedule,
-            runId,
-          }, {
+          const result = await runWithClaimWatch(stopPullRequestWatch, () => runWithProviderRetry(() => runAgent(agent, {
             runtime: 'vite',
             run: githubRun,
+            memo: (_key, create) => create(),
+            waitUntil: track,
           }, {
             abortSignal: AbortSignal.any([AbortSignal.timeout(60 * 60 * 1000), passController.signal]),
             context: { ...context, pullRequest: pullRequestInvocation },
             messages: [createMessage({ role: 'user', text: userMessage })],
-          })), head => { acceptedProviderHead = head })
+          }, { schedule: { ...schedule, runId }, output: 'drained' })), head => { acceptedProviderHead = head })
           disposition = (result as PassResult).disposition
           resultText = (result as PassResult).text
           ownedProviderHead = await readProviderHeadProof(providerProof, providerDirectory) ?? stopPullRequestWatch.acceptedHead()

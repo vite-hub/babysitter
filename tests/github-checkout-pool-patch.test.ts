@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createGitHubHost } from 'vite-hub/agent/server/github'
 
-test('patched host reuses a pooled checkout, keeps ignored files, and resets the rest', async t => {
+test('host reuses a pull request\'s pooled checkout, keeps ignored files, and resets the rest', async t => {
   const root = await mkdtemp(join(tmpdir(), 'babysitter-checkout-pool-'))
   const keys = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_ALLOW_PROTOCOL', 'PATH'] as const
   const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]))
@@ -46,9 +46,10 @@ test('patched host reuses a pooled checkout, keeps ignored files, and resets the
   })
   await access(firstPath)
 
-  // A restarted process adopts the checkout that the previous process left in the pool.
+  // Upstream pools one checkout per pull request. A restarted process adopts
+  // the checkout that the previous process left for the same pull request.
   const restarted = createGitHubHost({ checkouts: { root: pool }, credentials, identity: { login: 'Test', email: 'test@example.invalid' } })
-  await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 2, headSha: twoSha, headRepository: 'base/repo', headRef: 'two' }, async ({ path }) => {
+  await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: twoSha, headRepository: 'base/repo', headRef: 'two' }, async ({ path }) => {
     assert.equal(path, firstPath)
     assert.equal(git(path, 'rev-parse', 'HEAD'), twoSha)
     assert.equal(git(path, 'branch', '--show-current'), 'two')
@@ -60,7 +61,7 @@ test('patched host reuses a pooled checkout, keeps ignored files, and resets the
     assert.throws(() => git(path, 'config', 'core.fsmonitor'))
     assert.equal(git(path, 'config', 'remote.origin.pushurl'), 'https://github.com/base/repo.git')
   })
-  await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 3, headSha: oneSha }, async ({ path }) => {
+  await restarted.withPullRequestCheckout({ repository: 'base/repo', number: 1, headSha: oneSha }, async ({ path }) => {
     assert.equal(path, firstPath)
     assert.equal(git(path, 'rev-parse', 'HEAD'), oneSha)
     assert.match(git(path, 'config', 'remote.origin.pushurl'), /^disabled:/)

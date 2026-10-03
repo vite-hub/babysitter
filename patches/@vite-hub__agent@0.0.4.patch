@@ -1,0 +1,281 @@
+diff --git a/dist/github-Dzv99HXq.js b/dist/github-Dzv99HXq.js
+index 051d38fc58a60bdde9ae6955d9e03be175020540..06c92633dc2da7e70ac93e8736bb61a62e1ab2b0 100644
+--- a/dist/github-Dzv99HXq.js
++++ b/dist/github-Dzv99HXq.js
+@@ -4,9 +4,9 @@ import { a as github } from "./channels-DQz7MGyn.js";
+ import { Diagnostic } from "nostics";
+ import * as v from "valibot";
+ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
+-import { appendFile, cp, lstat, mkdtemp, realpath, rm } from "node:fs/promises";
++import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+-import { isAbsolute, join, relative, sep } from "node:path";
++import { isAbsolute, join, relative, resolve, sep } from "node:path";
+ import { execFile } from "node:child_process";
+ import { createHash, createSign } from "node:crypto";
+ import { AsyncLocalStorage } from "node:async_hooks";
+@@ -415,8 +415,125 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
+ 		resetAt: reset * 1e3
+ 	};
+ }
++/**
++* Reusable pull request checkouts under one root that one process owns. A checkout with a verified
++* head returns to its pull request's idle list with its ignored files. A restarted process adopts
++* the directories that a previous process left under the root. Pull request identity is part of
++* the pool key so ignored state cannot cross the trust boundary between pull requests.
++*/
++function createCheckoutPool(root) {
++	const idle = /* @__PURE__ */ new Map();
++	let adopted;
++	const key = (repository, number) => `${repository}#${number}`;
++	const encodeRepository = (repository) => repository.split("/").map((part) => Buffer.from(part).toString("base64url")).join("--");
++	const decodeRepository = (value) => {
++		const parts = value.split("--");
++		if (parts.length !== 2 || parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part))) return void 0;
++		try {
++			const decoded = parts.map((part) => Buffer.from(part, "base64url").toString());
++			return decoded.every((part, index) => Buffer.from(part).toString("base64url") === parts[index]) ? decoded.join("/") : void 0;
++		} catch {
++			return;
++		}
++	};
++	const release = (repository, number, directory) => {
++		const poolKey = key(repository, number);
++		idle.set(poolKey, [...idle.get(poolKey) ?? [], directory]);
++	};
++	const adopt = () => adopted ??= (async () => {
++		await mkdir(root, { recursive: true });
++		for (const entry of await readdir(root, { withFileTypes: true })) {
++			const match = /^(.+)-pr-(\d+)-[A-Za-z0-9]{6}$/.exec(entry.name);
++			const repository = match ? decodeRepository(match[1]) : void 0;
++			if (entry.isDirectory() && repository && match) release(repository, Number(match[2]), join(root, entry.name));
++		}
++	})().catch((error) => {
++		adopted = void 0;
++		throw error;
++	});
++	return {
++		async acquire(repository, number) {
++			await adopt();
++			const directory = idle.get(key(repository, number))?.pop();
++			if (directory) return {
++				directory,
++				reused: true
++			};
++			return {
++				directory: await mkdtemp(join(root, `${encodeRepository(repository)}-pr-${number}-`)),
++				reused: false
++			};
++		},
++		release
++	};
++}
++/**
++* Removes the state of the previous pull request from a pooled checkout. Ignored files stay.
++* The previous run could write Git configuration and hooks, so both are recreated.
++*/
++async function resetPooledCheckout(checkout, repository, commandOptions) {
++	for (const path of [
++		".git/hooks",
++		".git/index.lock",
++		".git/config",
++		".git/config.worktree",
++		".vitehub"
++	]) await rm(join(checkout, path), {
++		force: true,
++		recursive: true
++	});
++	await rm(`${checkout}.meta.json`, { force: true });
++	await exec("git", [
++		"-C",
++		checkout,
++		"init",
++		"-q",
++		"--template="
++	], commandOptions);
++	for (const [key, value] of [
++		["core.repositoryformatversion", "1"],
++		["remote.origin.url", `https://github.com/${repository}.git`],
++		["remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
++		["remote.origin.promisor", "true"],
++		["remote.origin.partialclonefilter", "blob:none"]
++	]) await exec("git", [
++		"-C",
++		checkout,
++		"config",
++		key,
++		value
++	], commandOptions);
++	await exec("git", [
++		"-C",
++		checkout,
++		"-c",
++		"core.hooksPath=/dev/null",
++		"reset",
++		"-q",
++		"--hard"
++	], commandOptions);
++	await exec("git", [
++		"-C",
++		checkout,
++		"clean",
++		"-ffdq"
++	], commandOptions);
++	for (const path of [
++		".git/refs",
++		".git/logs",
++		".git/packed-refs"
++	]) await rm(join(checkout, path), {
++		force: true,
++		recursive: true
++	});
++	await mkdir(join(checkout, ".git/refs/heads"), { recursive: true });
++	await mkdir(join(checkout, ".git/refs/remotes"), { recursive: true });
++	await mkdir(join(checkout, ".git/refs/tags"), { recursive: true });
++}
+ function createGitHubHost(options) {
+ 	const checkoutScope = new AsyncLocalStorage();
++	if (options.checkouts !== void 0 && (!hasRuntimeType(options.checkouts?.root, "string") || !options.checkouts.root.trim())) throw agentDiagnostics.AGENT_R0748({ message: "GitHub host checkouts.root must be a directory path." });
++	const checkoutPool = options.checkouts ? createCheckoutPool(resolve(options.checkouts.root)) : void 0;
+ 	const reserve = options.reserve ?? 1500;
+ 	const cacheMs = options.cacheMs ?? 15e3;
+ 	const graphQLCheckTimeout = options.graphQLCheckTimeout ?? GITHUB_GRAPHQL_CHECK_TIMEOUT_MS;
+@@ -811,8 +928,10 @@ function createGitHubHost(options) {
+ 		if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." });
+ 		for (const repository of [pullRequest.repository, pullRequest.headRepository]) if (repository !== void 0 && !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." });
+ 		if (pullRequest.headRepository && !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." });
+-		const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`));
++		const pooled = checkoutPool ? await checkoutPool.acquire(pullRequest.repository, pullRequest.number) : void 0;
++		const checkout = pooled?.directory ?? await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`));
+ 		const operation = controlledOperation(options);
++		let keepCheckout = false;
+ 		try {
+ 			const baseAuth = await access({
+ 				refresh: true,
+@@ -833,7 +952,8 @@ function createGitHubHost(options) {
+ 				await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions);
+ 				if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." });
+ 			}
+-			await exec("git", [
++			if (pooled?.reused) await resetPooledCheckout(checkout, pullRequest.repository, commandOptions);
++			else await exec("git", [
+ 				"clone",
+ 				"--filter=blob:none",
+ 				"--no-checkout",
+@@ -866,7 +986,10 @@ function createGitHubHost(options) {
+ 				await exec("git", [
+ 					"-C",
+ 					checkout,
++					"-c",
++					"core.hooksPath=/dev/null",
+ 					"checkout",
++					"-f",
+ 					"-B",
+ 					pullRequest.headRef,
+ 					"FETCH_HEAD"
+@@ -884,7 +1007,10 @@ function createGitHubHost(options) {
+ 				await exec("git", [
+ 					"-C",
+ 					checkout,
++					"-c",
++					"core.hooksPath=/dev/null",
+ 					"checkout",
++					"-f",
+ 					"--detach",
+ 					"FETCH_HEAD"
+ 				], commandOptions);
+@@ -924,7 +1050,14 @@ function createGitHubHost(options) {
+ 				"HEAD"
+ 			], commandOptions)).stdout.trim();
+ 			if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` });
++			await exec("git", [
++				"-C",
++				checkout,
++				"clean",
++				"-ffdq"
++			], commandOptions);
+ 			operation.signal.throwIfAborted();
++			keepCheckout = Boolean(checkoutPool);
+ 			const prepareWorkspace = async (target) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal });
+ 			let pushHead = pullRequest.headSha;
+ 			const push = async (target = checkout, options = {}) => {
+@@ -1028,10 +1161,14 @@ function createGitHubHost(options) {
+ 			}));
+ 		} finally {
+ 			operation.close();
+-			await rm(checkout, {
+-				force: true,
+-				recursive: true
+-			});
++			if (keepCheckout && checkoutPool) checkoutPool.release(pullRequest.repository, pullRequest.number, checkout);
++			else {
++				await rm(checkout, {
++					force: true,
++					recursive: true
++				});
++				if (checkoutPool) await rm(`${checkout}.meta.json`, { force: true });
++			}
+ 		}
+ 	}
+ 	const host = {
+diff --git a/dist/provider-runtime-packages-BIffLz2Y.js b/dist/provider-runtime-packages-BIffLz2Y.js
+index 2fa828842cbe01008b5855fd1a3837e9427f3abb..43d8e666034ee6fd1b4bb01875acbbc7cd2ba965 100644
+--- a/dist/provider-runtime-packages-BIffLz2Y.js
++++ b/dist/provider-runtime-packages-BIffLz2Y.js
+@@ -40,6 +40,10 @@ function isPackageResolutionMiss(error) {
+ 	const code = error?.code;
+ 	return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+ }
++function isUnreadableCandidate(error) {
++	const code = error?.code;
++	return code === "ERR_INVALID_PACKAGE_CONFIG" || code === "EACCES" || code === "EPERM";
++}
+ function resolvePackageJson(name, resolveFrom) {
+ 	const resolver = createRequire(resolveFrom);
+ 	try {
+@@ -99,16 +103,22 @@ function resolveInstalledProviderExecutable(provider, options = {}) {
+ 		for (const candidate of candidates) try {
+ 			return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`);
+ 		} catch (error) {
+-			if (!isPackageResolutionMiss(error)) throw error;
++			if (!isPackageResolutionMiss(error) && !isUnreadableCandidate(error)) throw error;
+ 		}
+ 		return;
+ 	}
+ 	const target = resolveClaudeTarget(platform, options.arch ?? process.arch, options.libc);
+ 	if (!target?.binary) return;
+ 	for (const candidate of candidates) {
+-		const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
+-		if (!packageJsonPath) continue;
+-		const nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		let nativePackageJsonPath;
++		try {
++			const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
++			if (!packageJsonPath) continue;
++			nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		} catch (error) {
++			if (!isUnreadableCandidate(error)) throw error;
++			continue;
++		}
+ 		if (nativePackageJsonPath) return join(dirname(nativePackageJsonPath), target.binary);
+ 	}
+ }
+diff --git a/dist/types-Duala-Gn.d.ts b/dist/types-Duala-Gn.d.ts
+index c3fe2d0f2bb5d3ff42565facaf7918a44d83b47d..f0432f1c6ea7c1adc0d848ebb775f39dcfc468f4 100644
+--- a/dist/types-Duala-Gn.d.ts
++++ b/dist/types-Duala-Gn.d.ts
+@@ -1209,6 +1209,14 @@ interface GitHubHostCredentialContext {
+ }
+ interface GitHubHostOptions {
+   cacheMs?: number;
++  /**
++   * Keeps pull request checkouts under `root` and reuses them per repository. Reuse keeps ignored
++   * files, such as dependencies and build output, resets everything else, and fetches only the new head.
++   * Use it only when one process owns `root`.
++   */
++  checkouts?: {
++    root: string;
++  };
+   credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>;
+   graphQLCheckTimeout?: number;
+   identity?: {

@@ -1,5 +1,17 @@
 #!/bin/sh
 # Workers sometimes replace NODE_OPTIONS (for example to raise the heap), which
 # dropped the heavy-command gate. Load it on every Node start instead.
-gate="$(dirname "$(readlink -f "$0")")/../heavy-command-gate.cjs"
-exec /usr/local/bin/node --require "$gate" "$@"
+# Resolve the next node on PATH after this wrapper so the Box toolchain or
+# host install decides the runtime; never hardcode a host location.
+self_dir="$(dirname "$(readlink -f "$0")")"
+gate="$self_dir/../heavy-command-gate.cjs"
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] || continue
+  [ "$(readlink -f "$dir" 2>/dev/null)" = "$self_dir" ] && continue
+  if [ -x "$dir/node" ] && [ "$(readlink -f "$dir/node")" != "$(readlink -f "$0")" ]; then
+    exec "$dir/node" --require "$gate" "$@"
+  fi
+done
+echo "babysitter worker: no node executable on PATH after $self_dir" >&2
+exit 127
