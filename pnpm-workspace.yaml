@@ -1,2 +1,9 @@
 patchedDependencies:
   '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch
+  '@vite-hub/box@0.0.4': patches/@vite-hub__box@0.0.4.patch
+packageExtensions:
+  # vite-hub#1664 adds semver to @vite-hub/box; the patched build needs it
+  # until the published package declares it.
+  '@vite-hub/box':
+    dependencies:
+      semver: ^7.8.5

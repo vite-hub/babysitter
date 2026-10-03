@@ -245,6 +245,9 @@ export function createBabysitterAgent(checkout: string, repository: string, onPr
       // Run Codex in the prepared clone itself. It already has the PR head and
       // Git metadata, so the driver skips the copy, snapshots, and write-back.
       cwd: checkout,
+      // Provision the Node and package manager that the PR's repository pins
+      // instead of trusting whatever the host has on PATH.
+      toolchain: { node: 'project', packageManager: 'project', fallbackNode: '24' },
       async launch({ cwd, command, purpose }) {
         // Readiness inspection only needs the executable.
         if (purpose === 'inspection') return { command }
