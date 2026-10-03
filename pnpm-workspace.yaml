@@ -1,2 +1,0 @@
-patchedDependencies:
-  '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch

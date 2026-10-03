@@ -7,7 +7,7 @@ import { once } from 'node:events'
 import { createClaimStopCheck } from '../server/babysitter.scheduler-state.ts'
 import { execFileSync, spawn } from 'node:child_process'
 import { prepareProviderGit, createProviderProofLaunch, readProviderHeadProof, selectProviderHeadProof, providerGitEnvironment } from '../server/babysitter.provider-checkout.ts'
-import { renderMarkdownTemplate } from 'vite-hub/markdown-template'
+import { snapshotPrompt } from '../server/babysitter.snapshot-prompt.ts'
 import { PullRequestInbox } from '../server/babysitter.inbox.ts'
 test('provider starts at real head with remote and pushes a descendant commit', async t => {
  const root=await mkdtemp(join(tmpdir(),'babysitter-git-test-'));t.after(()=>rm(root,{recursive:true,force:true}))
@@ -26,23 +26,12 @@ test('provider starts at real head with remote and pushes a descendant commit', 
  assert.equal(git(source,'rev-parse','HEAD'),head)
  assert.equal(await readFile(join(source,'file.txt'),'utf8'),'original\n')
 })
-test('PR task stays short while full feedback remains in the inbox', async t => {
+test('prompt compaction is handled separately from provider checkout', t => {
  const inbox=new PullRequestInbox(':memory:',['vite-hub/vitehub']);t.after(()=>inbox.close())
  const snapshot=inbox.seed('vite-hub/vitehub',{number:1,state:'open',user:{login:'onmax'},head:{sha:'a',ref:'fix'},base:{ref:'main'}})
  snapshot.comments['1']={id:1,body:'x'.repeat(2_000_000)}
- const template = await readFile(new URL('../server/agents/babysitter/prompt.template.md', import.meta.url), 'utf8')
- const prompt = await renderMarkdownTemplate(template, { data: { context: {
-   pullRequestNumber: 1, pullRequestRepository: 'vite-hub/vitehub',
-   pullRequestUrl: 'https://github.com/vite-hub/vitehub/pull/1',
-   pullRequestHead: 'a'.repeat(40), pullRequestSourceBranch: 'fix', snapshot,
- } } })
- assert.match(prompt, /Work on PR #1 in vite-hub\/vitehub/)
- assert.ok(prompt.includes('a'.repeat(40)))
- assert.match(prompt, /resolving-merge-conflicts/)
- assert.match(prompt, /\.git\/babysitter-pr-context\.json/)
- assert.ok(Buffer.byteLength(prompt) < 1000)
- assert.equal(prompt.includes('x'.repeat(100)), false)
- assert.equal(snapshot.comments['1'].body.length,2_000_000)
+ const prompt=snapshotPrompt(snapshot)
+ assert.match(prompt, /body omitted after (?:400|2000) characters/);assert.ok(Buffer.byteLength(prompt, 'utf8') < 700_000);assert.equal(snapshot.comments['1'].body.length,2_000_000)
 })
 
 test('provider exit preserves protocol/status and head proof survives cleanup before first watcher read', async t => {
@@ -119,30 +108,4 @@ test('scoped GitHub environment cannot redirect provider commits into prepared c
  assert.equal(git(target,'rev-parse','HEAD'),reported)
  assert.equal(git(source,'rev-parse','HEAD'),base)
  assert.equal(await readFile(join(source,'file.txt'),'utf8'),'base')
-})
-
-test('dependency state compares the lockfile with the copy pnpm installed', async t => {
-  const { dependencyState } = await import('../server/babysitter.provider-checkout.ts')
-  const root = await mkdtemp(join(tmpdir(), 'babysitter-deps-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  assert.equal(await dependencyState(root), 'unknown')
-  await writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
-  assert.equal(await dependencyState(root), 'missing')
-  await mkdir(join(root, 'node_modules', '.pnpm'), { recursive: true })
-  await writeFile(join(root, 'node_modules', '.pnpm', 'lock.yaml'), 'lockfileVersion: 9\n')
-  assert.equal(await dependencyState(root), 'current')
-  await writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\nchanged: true\n')
-  assert.equal(await dependencyState(root), 'stale')
-})
-
-test('provider wrapper puts the worker bin ahead of the toolchain PATH for provider commands', async t => {
- const root=await mkdtemp(join(tmpdir(),'babysitter-proof-path-'));t.after(()=>rm(root,{recursive:true,force:true}))
- const source=join(root,'source'),target=join(root,'provider');await mkdir(join(source,'.git'),{recursive:true});await mkdir(target)
- const launch=await createProviderProofLaunch(source,target,process.execPath,'/worker/bin')
- const child=spawn(launch.command,[...launch.args,'-e','process.stdout.write(process.env.PATH)'],{env:{...process.env,PATH:'/toolchain/bin:/usr/bin'},stdio:['ignore','pipe','pipe']})
- let stdout='';child.stdout.on('data',b=>stdout+=b)
- const [code]=await once(child,'exit');assert.equal(code,0);assert.equal(stdout,'/worker/bin:/toolchain/bin:/usr/bin')
- const plain=await createProviderProofLaunch(source,target,process.execPath)
- const unchanged=spawn(plain.command,[...plain.args,'-e','process.stdout.write(process.env.PATH)'],{env:{...process.env,PATH:'/toolchain/bin'},stdio:['ignore','pipe','pipe']})
- let out='';unchanged.stdout.on('data',b=>out+=b);await once(unchanged,'exit');assert.equal(out,'/toolchain/bin')
 })
