@@ -8,13 +8,13 @@ index 427d6e39b9352efab859955f362d66a8a663da5e..a10a5eaa08af2c80cfb88c4a4749b91c
  import { WorkspaceName } from "@vite-hub/workspace";
  import { Agent, ModelMessage, ToolLoopAgentSettings, ToolSet } from "ai";
  //#region src/ai-sdk.d.ts
-diff --git a/dist/babysitter-CAV3rvb6.js b/dist/babysitter-BMTz6Wgm.js
+diff --git a/dist/babysitter-CAV3rvb6.js b/dist/babysitter-G351BtnI.js
 similarity index 98%
 rename from dist/babysitter-CAV3rvb6.js
-rename to dist/babysitter-BMTz6Wgm.js
-index 00024782197e1854df111d94e24686dc5a490510..1cf112e8f837198928132c1ac0896cb49d30d999 100644
+rename to dist/babysitter-G351BtnI.js
+index 00024782197e1854df111d94e24686dc5a490510..faf9236329b619525a59ac680d826a180e76dcc7 100644
 --- a/dist/babysitter-CAV3rvb6.js
-+++ b/dist/babysitter-BMTz6Wgm.js
++++ b/dist/babysitter-G351BtnI.js
 @@ -1,6 +1,6 @@
  import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
  import { n as defineChannel, r as defineChannelTrigger, x as channelEnvValue } from "./channels-Ci132KGQ.js";
@@ -28,7 +28,7 @@ index 00024782197e1854df111d94e24686dc5a490510..1cf112e8f837198928132c1ac0896cb4
  } };
  const babysitterHost = { async create(context) {
 -	const { createBabysitterProcessHost } = await import("./host-Cjo5s29Z.js");
-+	const { createBabysitterProcessHost } = await import("./host-D6NClSC1.js");
++	const { createBabysitterProcessHost } = await import("./host-CHPkE5YI.js");
  	return await createBabysitterProcessHost(context);
  } };
  function plainSecret(value) {
@@ -251,13 +251,42 @@ index 96cf7433ff0cc49dc9126d0621f553cf53262e4d..ba49cf08fe2b59ccce24d839c8a48ad0
 +import { a as agentEvlogPlugin, c as sanitizeAgentLog, i as AgentEvlogOptions, n as AgentEvlogExporter, o as createAgentEvlog, r as AgentEvlogHost, s as filterAgentObservability, t as AgentEvlog } from "./evlog-C9HhOkdK.js";
  export { AgentEvlog, AgentEvlogExporter, AgentEvlogHost, AgentEvlogOptions, type AgentEvlogStatus, agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog };
 \ No newline at end of file
-diff --git a/dist/github-Bv2rIJ1S.js b/dist/github-DXzUD5Gh.js
+diff --git a/dist/github-inbox-ByFzJgHW.d.ts b/dist/github-inbox-JjrpLhb2.d.ts
+similarity index 99%
+rename from dist/github-inbox-ByFzJgHW.d.ts
+rename to dist/github-inbox-JjrpLhb2.d.ts
+index fa7ecf0c1f0bc1f216d2521560f2cfd5af961970..7570ae9fa4924a16a911b6e5e6c7152c2456c995 100644
+--- a/dist/github-inbox-ByFzJgHW.d.ts
++++ b/dist/github-inbox-JjrpLhb2.d.ts
+@@ -1,6 +1,6 @@
+-import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CoiAcEkJ.js";
++import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CeJgisV1.js";
+ import { a as SqliteAgentStateExtension, l as SqliteAgentStateRow, o as SqliteAgentStateExtensionExecutor } from "./sqlite-BuC-W89Z.js";
+-import { n as PullRequest } from "./github-pull-requests-D9gI89pc.js";
++import { n as PullRequest } from "./github-pull-requests-CQnGZ5Zd.js";
+ //#region src/server/github-inbox/budgets.d.ts
+ interface ProviderBudget {
+   generation: string;
+diff --git a/dist/github-pull-requests-D9gI89pc.d.ts b/dist/github-pull-requests-CQnGZ5Zd.d.ts
+similarity index 99%
+rename from dist/github-pull-requests-D9gI89pc.d.ts
+rename to dist/github-pull-requests-CQnGZ5Zd.d.ts
+index f517faff3eedcbd529256e85135cdec886a19398..63a9cf35eea244a35d111ad675fd1bee52e399dd 100644
+--- a/dist/github-pull-requests-D9gI89pc.d.ts
++++ b/dist/github-pull-requests-CQnGZ5Zd.d.ts
+@@ -1,4 +1,4 @@
+-import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CoiAcEkJ.js";
++import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CeJgisV1.js";
+ //#region src/server/github-pull-requests.d.ts
+ type PullRequestFeedback = {
+   comments: string;
+diff --git a/dist/github-Bv2rIJ1S.js b/dist/github-vO3Ime0U.js
 similarity index 85%
 rename from dist/github-Bv2rIJ1S.js
-rename to dist/github-DXzUD5Gh.js
-index 49509184acbd8e663a7c645904c4a06f23cfaa5a..24dd74b5e652666a01595df02650e43aeb86d397 100644
+rename to dist/github-vO3Ime0U.js
+index 49509184acbd8e663a7c645904c4a06f23cfaa5a..4726f6d5bfcf0ae4b9c1ea2037728ac8784c04b5 100644
 --- a/dist/github-Bv2rIJ1S.js
-+++ b/dist/github-DXzUD5Gh.js
++++ b/dist/github-vO3Ime0U.js
 @@ -5,13 +5,14 @@ import { Diagnostic } from "nostics";
  import * as v from "valibot";
  import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
@@ -461,7 +490,7 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..24dd74b5e652666a01595df02650e43a
 +* The previous run could write Git configuration and hooks, so both are recreated.
 +*/
 +async function resetPooledCheckout(checkout, anchoredRoot, repository, submodules, commandOptions, discardObjects = false) {
-+	const privateRoot = await mkdtemp(join(tmpdir(), "vitehub-github-reset-"));
++	const privateRoot = await mkdtemp(join(anchoredRoot, ".vitehub-reset-"));
 +	const privateParent = await open(privateRoot, "r");
 +	const anchoredPrivateRoot = `/proc/${process.pid}/fd/${privateParent.fd}`;
 +	const parkedCheckout = join(anchoredPrivateRoot, "checkout");
@@ -732,42 +761,13 @@ index 49509184acbd8e663a7c645904c4a06f23cfaa5a..24dd74b5e652666a01595df02650e43a
  		}
  	}
  	const host = {
-diff --git a/dist/github-inbox-ByFzJgHW.d.ts b/dist/github-inbox-JjrpLhb2.d.ts
-similarity index 99%
-rename from dist/github-inbox-ByFzJgHW.d.ts
-rename to dist/github-inbox-JjrpLhb2.d.ts
-index fa7ecf0c1f0bc1f216d2521560f2cfd5af961970..7570ae9fa4924a16a911b6e5e6c7152c2456c995 100644
---- a/dist/github-inbox-ByFzJgHW.d.ts
-+++ b/dist/github-inbox-JjrpLhb2.d.ts
-@@ -1,6 +1,6 @@
--import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CoiAcEkJ.js";
-+import { Ba as GitHubPullRequestFilter, Va as GitHubPullRequestFilterContext } from "./types-CeJgisV1.js";
- import { a as SqliteAgentStateExtension, l as SqliteAgentStateRow, o as SqliteAgentStateExtensionExecutor } from "./sqlite-BuC-W89Z.js";
--import { n as PullRequest } from "./github-pull-requests-D9gI89pc.js";
-+import { n as PullRequest } from "./github-pull-requests-CQnGZ5Zd.js";
- //#region src/server/github-inbox/budgets.d.ts
- interface ProviderBudget {
-   generation: string;
-diff --git a/dist/github-pull-requests-D9gI89pc.d.ts b/dist/github-pull-requests-CQnGZ5Zd.d.ts
-similarity index 99%
-rename from dist/github-pull-requests-D9gI89pc.d.ts
-rename to dist/github-pull-requests-CQnGZ5Zd.d.ts
-index f517faff3eedcbd529256e85135cdec886a19398..63a9cf35eea244a35d111ad675fd1bee52e399dd 100644
---- a/dist/github-pull-requests-D9gI89pc.d.ts
-+++ b/dist/github-pull-requests-CQnGZ5Zd.d.ts
-@@ -1,4 +1,4 @@
--import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CoiAcEkJ.js";
-+import { Lo as GitHubHost, gi as AgentRunMetadata } from "./types-CeJgisV1.js";
- //#region src/server/github-pull-requests.d.ts
- type PullRequestFeedback = {
-   comments: string;
-diff --git a/dist/host-Cjo5s29Z.js b/dist/host-D6NClSC1.js
+diff --git a/dist/host-Cjo5s29Z.js b/dist/host-CHPkE5YI.js
 similarity index 95%
 rename from dist/host-Cjo5s29Z.js
-rename to dist/host-D6NClSC1.js
-index 7cfa998065bfdc0579caeaf6cc7a54afb1edcaab..4faaf52e175ec676393d926167df74c3cb5ebe37 100644
+rename to dist/host-CHPkE5YI.js
+index 7cfa998065bfdc0579caeaf6cc7a54afb1edcaab..06cff5174dbb8fbb9ae13e58bb65c3087ead827c 100644
 --- a/dist/host-Cjo5s29Z.js
-+++ b/dist/host-D6NClSC1.js
++++ b/dist/host-CHPkE5YI.js
 @@ -1,13 +1,13 @@
  import { n as isRuntimeRecord } from "./runtime-type-BR4cAU4v.js";
  import { createMessage } from "./messages.js";
@@ -780,10 +780,10 @@ index 7cfa998065bfdc0579caeaf6cc7a54afb1edcaab..4faaf52e175ec676393d926167df74c3
 +import { i as defineAgent, p as runAgent } from "./src-CX-_DjVk.js";
  import { i as createProcessAgentHost } from "./process-CpQszRqn.js";
 -import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-CAV3rvb6.js";
-+import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-BMTz6Wgm.js";
++import { a as resolveBabysitterMerge, i as liveMergeReadiness, n as babysitterPassResultSchema, o as snapshotCheckEvidence, r as directMergeReadiness } from "./babysitter-G351BtnI.js";
  import { r as registerAgentProcessHostIntake } from "./agent-process-host-CmNwxanU.js";
 -import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-Bv2rIJ1S.js";
-+import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-DXzUD5Gh.js";
++import { d as createGitHubHost, i as createGitHubPullRequestRun, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "./github-vO3Ime0U.js";
  import { a as snapshotPrompt, f as reconcileOneSnapshot, h as normalizePullRequest, i as assertPromptFits, l as probeChangedSnapshots, n as createClaimStopCheck, o as detectChangedPullRequests, p as PullRequestInbox, r as snapshotPullRequest, s as hydrateSnapshot, u as readPullRequestThreads } from "./github-inbox-DSQKtzl_.js";
  import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type";
  import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
@@ -1020,12 +1020,12 @@ index cb82de400190b011df7d6885358f727b46ea365d..f63ab9e6f6e46ad9cf0351b9244080ad
  type BabysitterMergeMethod = "squash" | "merge" | "rebase";
  interface BabysitterMergeReadinessInput {
 diff --git a/dist/presets/babysitter.js b/dist/presets/babysitter.js
-index e0c5957bc71c0e8d22eac932f62ffebfb387a9ae..b65208d36d3199d7561cfc7830c702f146c3ce8f 100644
+index e0c5957bc71c0e8d22eac932f62ffebfb387a9ae..e50b6716068cceedcfa120317673898011b6fdb1 100644
 --- a/dist/presets/babysitter.js
 +++ b/dist/presets/babysitter.js
 @@ -1,2 +1,2 @@
 -import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-CAV3rvb6.js";
-+import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-BMTz6Wgm.js";
++import { n as babysitterPassResultSchema, t as babysitter } from "../babysitter-G351BtnI.js";
  export { babysitter, babysitterPassResultSchema };
 diff --git a/dist/presets/workspace.d.ts b/dist/presets/workspace.d.ts
 index f9c6a7ea8ce9b40682147ffa3302e0861891c2b6..ac9b5e3a356a029156576178356ec81a83332e76 100644
@@ -1200,12 +1200,12 @@ index 70dacea260de99d5af6bf4f187a84268ef4dcc71..e856f854564ac42d2b6fcc587dd19383
  interface GitHubWorkspaceRevision {
    repository: string;
 diff --git a/dist/server/github.js b/dist/server/github.js
-index cf109d10a019213639c629c7d216af8354e10772..f0a0529990b78f24318050e9fa59bf70265c5698 100644
+index cf109d10a019213639c629c7d216af8354e10772..842d61b32fe7b8cfadce38ec2f10371e8282c4fe 100644
 --- a/dist/server/github.js
 +++ b/dist/server/github.js
 @@ -1,2 +1,2 @@
 -import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-Bv2rIJ1S.js";
-+import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-DXzUD5Gh.js";
++import { a as createGitHubPullRequests, c as createGitHubInvocationWorkspaceHandler, d as createGitHubHost, f as parseGraphQLRateLimit, i as createGitHubPullRequestRun, l as createGitHubWorkspaceInspector, n as evaluateGitHubRequiredChecks, o as parseRequiredChecks, p as prepareGitHubPullRequestWorkspace, r as createGitHubPullRequestOperations, s as pullRequestCheckState, t as createGitHubRequiredCheckPolicyReader, u as createGitHubAppCredentials } from "../github-vO3Ime0U.js";
  export { createGitHubAppCredentials, createGitHubHost, createGitHubInvocationWorkspaceHandler, createGitHubPullRequestOperations, createGitHubPullRequestRun, createGitHubPullRequests, createGitHubRequiredCheckPolicyReader, createGitHubWorkspaceInspector, evaluateGitHubRequiredChecks, parseGraphQLRateLimit, parseRequiredChecks, prepareGitHubPullRequestWorkspace, pullRequestCheckState };
 diff --git a/dist/server/internal.d.ts b/dist/server/internal.d.ts
 index 35db9b6ab3dba12331fea742ee58f3ef838cc1d7..f2c096e8270e9c7f27ba435a9fa5d2c91ce21b20 100644
