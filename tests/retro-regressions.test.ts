@@ -65,3 +65,7 @@ test('PR tools keep working between a repair push and its webhook', () => {
 test('an unchanged reviewed head parks without another model pass', () => {
   assert.match(chunk('function diagnosticExcerpt(').source, /reason: "reviewed-head-unchanged"/)
 })
+
+test('new events during a pass do not abort PR tool calls', () => {
+  assert.doesNotMatch(chunk('function diagnosticExcerpt(').source, /Pull request evidence changed/)
+})
