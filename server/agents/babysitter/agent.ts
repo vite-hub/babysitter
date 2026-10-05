@@ -10,7 +10,6 @@ import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-h
 import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
 import { resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
-import { resolveProviderCommand } from '../../babysitter.provider-command.ts'
 import { pullRequestInbox } from '../../babysitter.inbox-runtime.ts'
 import { prepareProviderGit, createProviderProofLaunch, providerGitEnvironment } from '../../babysitter.provider-checkout.ts'
 
@@ -45,11 +44,11 @@ const concurrency = resolveMaxOwners(useServerEnv().babysitter.maxOwners)
 export const host = await createProcessAgentHost({
   name: 'babysitter',
   intervalMs: 10_000,
-  // The production process installs Codex in the agents user's PATH. Keep the
-  // command name here so the health probe and invocations resolve the same
-  // executable. A machine-specific absolute path such as /usr/bin/codex is
-  // not present on the service host.
-  providerCommand: resolveProviderCommand(),
+  // The production process runs under the restricted `agents` account, whose
+  // PATH does not include the global Node bin directory consistently. Use the
+  // installed CLI's absolute path so the process health probe and invocations
+  // resolve the same executable as the CLI-proxy setup.
+  providerCommand: '/usr/bin/codex',
   capacity: {
     concurrency,
     fallbackConcurrency: Math.min(3, concurrency),
