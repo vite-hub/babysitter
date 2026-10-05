@@ -136,3 +136,10 @@ test('a zero token budget pauses every claim; a spent budget only pauses model p
   assert.equal(spent.hostOnly, true)
   assert.match(host, /if \(!admission\.hostOnly\) return;/)
 })
+
+test('pnpm installs reuse hardlinked node_modules keyed by the lockfile and verify offline', () => {
+  const host = chunk('async function pnpmInstallKey(').source
+  assert.match(host, /args = args\.map\(\(value\) => value === "--prefer-offline" \? "--offline" : value\);/)
+  assert.match(host, /record\.cache = "verify-failed";\n\t+await removeNodeModules\(cwd\);\n\t+result = await install\(command\.slice\(1\)\);/)
+  assert.match(host, /"cp", \[\n\t+"-al",/)
+})

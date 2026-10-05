@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d532a29394
+index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e5d83b441
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2044 @@
+@@ -0,0 +1,2178 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -13476,7 +13476,7 @@ index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d5
 +import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 +import { lstat, readFile, readdir, rm, statfs } from "node:fs/promises";
 +import { tmpdir } from "node:os";
-+import { join } from "node:path";
++import { dirname, join } from "node:path";
 +import { execFile } from "node:child_process";
 +import { createHash } from "node:crypto";
 +import { promisify } from "node:util";
@@ -14630,21 +14630,128 @@ index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d5
 +	}
 +	const installSetting = baseAgent.install ?? presetOptions.install ?? true;
 +	const installEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(?:PATH|HOME|USER|LOGNAME|LANG|LC_[A-Z]+|TMPDIR|TERM|SHELL|COREPACK_[A-Z_]+|npm_config_[a-z_]+|PNPM_HOME)$/.test(key)));
++	const installCacheRoot = process.env.BABYSITTER_INSTALL_CACHE || join(tmpdir(), "vitehub-install-cache");
++	const installCacheEntries = Math.max(1, Number(process.env.BABYSITTER_INSTALL_CACHE_ENTRIES) || 8);
++	/** The installed trees depend on the lockfile, workspace, root manifest, .npmrc, patches and Node. */
++	async function pnpmInstallKey(cwd) {
++		const hash = createHash("sha256").update(process.version);
++		for (const file of [
++			"pnpm-lock.yaml",
++			"pnpm-workspace.yaml",
++			"package.json",
++			".npmrc"
++		]) hash.update(`\0${file}\0`).update(await readFile(join(cwd, file)).catch(() => ""));
++		const patches = await readdir(join(cwd, "patches"), {
++			recursive: true,
++			withFileTypes: true
++		}).catch(() => []);
++		for (const file of patches.filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath ?? entry.path, entry.name)).sort()) hash.update(`\0${file.slice(cwd.length)}\0`).update(await readFile(file));
++		return hash.digest("hex").slice(0, 32);
++	}
++	/** node_modules trees of the workspace root and its packages, relative to cwd. */
++	async function nodeModulesTrees(cwd) {
++		const trees = [];
++		const walk = async (directory, depth) => {
++			for (const entry of await readdir(join(cwd, directory), { withFileTypes: true }).catch(() => [])) {
++				if (!entry.isDirectory() || entry.name === ".git") continue;
++				const path = directory ? join(directory, entry.name) : entry.name;
++				if (entry.name === "node_modules") trees.push(path);
++				else if (depth < 4) await walk(path, depth + 1);
++			}
++		};
++		await walk("", 0);
++		return trees;
++	}
++	async function removeNodeModules(cwd) {
++		for (const tree of await nodeModulesTrees(cwd)) await rm(join(cwd, tree), {
++			force: true,
++			recursive: true
++		}).catch(() => {});
++	}
++	async function restoreInstallCache(cwd, key, signal) {
++		const entry = join(installCacheRoot, key);
++		const trees = await readFile(join(entry, "trees.json"), "utf8").then(JSON.parse, () => void 0);
++		if (!Array.isArray(trees)) return false;
++		const { mkdir, utimes } = await import("node:fs/promises");
++		for (const tree of trees) {
++			await mkdir(dirname(join(cwd, tree)), { recursive: true });
++			await execFileAsync("cp", [
++				"-al",
++				join(entry, "files", tree),
++				join(cwd, tree)
++			], { signal });
++		}
++		const now = /* @__PURE__ */ new Date();
++		await utimes(entry, now, now).catch(() => {});
++		return true;
++	}
++	async function saveInstallCache(cwd, key) {
++		const { mkdir, rename, stat, writeFile } = await import("node:fs/promises");
++		const entry = join(installCacheRoot, key);
++		if (await stat(entry).then(() => true, () => false)) return;
++		const staging = `${entry}.${process.pid}.${Date.now()}`;
++		try {
++			const trees = await nodeModulesTrees(cwd);
++			for (const tree of trees) {
++				await mkdir(dirname(join(staging, "files", tree)), { recursive: true });
++				await execFileAsync("cp", [
++					"-al",
++					join(cwd, tree),
++					join(staging, "files", tree)
++				]);
++			}
++			await writeFile(join(staging, "trees.json"), JSON.stringify(trees));
++			await rename(staging, entry);
++		} catch {
++			await rm(staging, {
++				force: true,
++				recursive: true
++			}).catch(() => {});
++			return;
++		}
++		const entries = await Promise.all((await readdir(installCacheRoot).catch(() => [])).filter((name) => /^[a-f0-9]{32}$/.test(name)).map(async (name) => ({
++			name,
++			at: (await stat(join(installCacheRoot, name)).catch(() => ({ mtimeMs: 0 }))).mtimeMs
++		})));
++		for (const old of entries.sort((left, right) => right.at - left.at).slice(installCacheEntries)) await rm(join(installCacheRoot, old.name), {
++			force: true,
++			recursive: true
++		}).catch(() => {});
++	}
 +	/** Installs dependencies before the provider starts, so the model never spends turns on setup. */
 +	async function installDependencies(cwd, signal, owner, env = {}) {
 +		if (installSetting === false) return;
 +		const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
 +		let command;
 +		if (isRuntimeRecord(installSetting)) command = [installSetting.command, ...installSetting.args ?? []];
-+		else if (existsSync(join(cwd, "pnpm-lock.yaml"))) command = ["pnpm", "install", "--frozen-lockfile", "--prefer-offline"];
-+		else if (existsSync(join(cwd, "package-lock.json"))) command = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund"];
-+		else if (existsSync(join(cwd, "bun.lock")) || existsSync(join(cwd, "bun.lockb"))) command = ["bun", "install", "--frozen-lockfile"];
++		else if (existsSync(join(cwd, "pnpm-lock.yaml"))) command = [
++			"pnpm",
++			"install",
++			"--frozen-lockfile",
++			"--prefer-offline"
++		];
++		else if (existsSync(join(cwd, "package-lock.json"))) command = [
++			"npm",
++			"ci",
++			"--prefer-offline",
++			"--no-audit",
++			"--no-fund"
++		];
++		else if (existsSync(join(cwd, "bun.lock")) || existsSync(join(cwd, "bun.lockb"))) command = [
++			"bun",
++			"install",
++			"--frozen-lockfile"
++		];
 +		else if (existsSync(join(cwd, "yarn.lock"))) {
 +			let manager = "";
 +			try {
 +				manager = String(JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")).packageManager ?? "");
 +			} catch {}
-+			command = ["yarn", "install", /^yarn@1\./.test(manager) || !manager ? "--frozen-lockfile" : "--immutable"];
++			command = [
++				"yarn",
++				"install",
++				/^yarn@1\./.test(manager) || !manager ? "--frozen-lockfile" : "--immutable"
++			];
 +		}
 +		if (!command) return;
 +		const startedAt = Date.now();
@@ -14652,8 +14759,21 @@ index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d5
 +			command: command.join(" "),
 +			ok: false
 +		};
-+		try {
-+			const result = await execFileAsync(command[0], command.slice(1), {
++		const cacheKey = command[0] === "pnpm" && !isRuntimeRecord(installSetting) ? await pnpmInstallKey(cwd).catch(() => void 0) : void 0;
++		let args = command.slice(1);
++		if (cacheKey) try {
++			if (await restoreInstallCache(cwd, cacheKey, signal)) {
++				args = args.map((value) => value === "--prefer-offline" ? "--offline" : value);
++				record.cache = "hit";
++			} else record.cache = "miss";
++		} catch (error) {
++			if (isAbortError(error) || signal.aborted) throw error;
++			record.cache = "restore-failed";
++			await removeNodeModules(cwd);
++		}
++		const install = async (installArgs) => {
++			record.command = [command[0], ...installArgs].join(" ");
++			return await execFileAsync(command[0], installArgs, {
 +				cwd,
 +				env: {
 +					...installEnvironment(),
@@ -14664,8 +14784,21 @@ index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d5
 +				timeout: 9e5,
 +				maxBuffer: 64 * 1024 * 1024
 +			});
++		};
++		try {
++			let result;
++			try {
++				result = await install(args);
++			} catch (error) {
++				// A restored tree that fails offline verification gets a clean full install.
++				if (record.cache !== "hit" || isAbortError(error) || signal.aborted) throw error;
++				record.cache = "verify-failed";
++				await removeNodeModules(cwd);
++				result = await install(command.slice(1));
++			}
 +			record.ok = true;
 +			record.output = String(result.stdout ?? "").slice(-2e3);
++			if (cacheKey && record.cache !== "hit") await saveInstallCache(cwd, cacheKey).catch(() => {});
 +		} catch (error) {
 +			if (isAbortError(error) || signal.aborted) throw error;
 +			record.exitCode = isRuntimeRecord(error) ? error.code : void 0;
@@ -14678,6 +14811,7 @@ index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d5
 +		schedulerEvent("babysitter.install.finished", {
 +			...owner,
 +			command: record.command,
++			cache: record.cache,
 +			ok: record.ok,
 +			exitCode: record.exitCode,
 +			durationMs: record.durationMs
