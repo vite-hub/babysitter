@@ -13353,10 +13353,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..79195728013d430ecd42ec6f7e1d3c2cbd1e6f42
+index 0000000000000000000000000000000000000000..b08a2f25d15715be1edb54fde4fc84bdba92f139
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,1618 @@
+@@ -0,0 +1,1628 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14881,7 +14881,17 @@ index 0000000000000000000000000000000000000000..79195728013d430ecd42ec6f7e1d3c2c
 +	const host = await createProcessAgentHost({
 +		name: context.agentName,
 +		dataDir: context.dataDir,
-+		capacity: { concurrency: agent.options.concurrency },
++		// Keep one durable invocation waiting for transient adaptive-capacity
++		// pressure instead of failing the claimed PR with QUEUE_FULL. The
++		// scheduler still bounds PR owners by configured concurrency, while the
++		// timeout guarantees a stuck provider does not retain a checkout forever.
++		capacity: {
++			concurrency: agent.options.concurrency,
++			queue: {
++				maxPending: agent.options.concurrency,
++				timeout: 36e5
++			}
++		},
 +		providerCommand: driver?.kind === "claude-code" ? "claude" : "codex",
 +		intervalMs: 1e4,
 +		run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting)
