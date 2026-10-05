@@ -1,0 +1,14 @@
+[Unit]
+Description=Warn about shared /tmp, proxy quota and Babysitter budget pressure
+After=cliproxyapi.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/share/resource-alerts/resource_alerts.py
+StateDirectory=resource-alerts
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/cliproxy-status
+TimeoutStartSec=120

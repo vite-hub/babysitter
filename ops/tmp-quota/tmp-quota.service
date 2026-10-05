@@ -1,0 +1,13 @@
+[Unit]
+Description=Raise interactive users' /tmp quota above the service-account default
+After=tmp.mount
+BindsTo=tmp.mount
+ConditionPathIsMountPoint=/tmp
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /usr/local/sbin/tmpfs-user-quota /tmp maxi=9G
+
+[Install]
+WantedBy=tmp.mount

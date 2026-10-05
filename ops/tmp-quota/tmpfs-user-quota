@@ -1,0 +1,53 @@
+#!/usr/bin/python3
+"""Set per-user block hard limits on a tmpfs mounted with usrquota.
+
+quota-tools 4.09 cannot address tmpfs, so this calls quotactl_fd(2) directly.
+Limits set this way live only as long as the mount; run after every mount.
+
+usage: tmpfs-user-quota.py MOUNTPOINT USER=SIZE [USER=SIZE ...]   (SIZE like 9G, 512M)
+"""
+import ctypes, os, pwd, sys
+
+SYS_quotactl_fd = 443  # x86_64
+Q_SETQUOTA, Q_GETQUOTA, USRQUOTA, QIF_BLIMITS = 0x800008, 0x800007, 0, 1
+
+class IfDqblk(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint64) for name in (
+        'bhardlimit', 'bsoftlimit', 'curspace', 'ihardlimit', 'isoftlimit',
+        'curinodes', 'btime', 'itime')] + [('valid', ctypes.c_uint32)]
+
+libc = ctypes.CDLL(None, use_errno=True)
+
+def quotactl(fd, cmd, uid, block):
+    if libc.syscall(SYS_quotactl_fd, fd, ctypes.c_uint((cmd << 8) | USRQUOTA), uid, ctypes.byref(block)) != 0:
+        errno = ctypes.get_errno()
+        raise OSError(errno, os.strerror(errno))
+
+def kib(size):
+    units = {'K': 1, 'M': 1 << 10, 'G': 1 << 20}
+    return int(size[:-1]) * units[size[-1].upper()] if size[-1].upper() in units else int(size) // 1024
+
+def main(mountpoint, *limits):
+    with open('/proc/self/mounts') as mounts:
+        options = next((line.split()[3] for line in mounts if line.split()[1] == mountpoint), '')
+    if 'usrquota' not in options.split(','):
+        print(f'{mountpoint} has no usrquota; nothing to do (quotas start on the next fresh mount)')
+        return 0
+    fd = os.open(mountpoint, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for item in limits:
+            user, size = item.split('=', 1)
+            uid = pwd.getpwnam(user).pw_uid
+            block = IfDqblk(bhardlimit=kib(size), valid=QIF_BLIMITS)
+            quotactl(fd, Q_SETQUOTA, uid, block)
+            current = IfDqblk()
+            quotactl(fd, Q_GETQUOTA, uid, current)
+            print(f'{mountpoint}: {user} hard limit {current.bhardlimit // 1024} MiB, using {current.curspace >> 20} MiB')
+    finally:
+        os.close(fd)
+    return 0
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        sys.exit(__doc__)
+    sys.exit(main(*sys.argv[1:]))
