@@ -69,3 +69,106 @@ test('an unchanged reviewed head parks without another model pass', () => {
 test('new events during a pass do not abort PR tool calls', () => {
   assert.doesNotMatch(chunk('function diagnosticExcerpt(').source, /Pull request evidence changed/)
 })
+
+// 2026-10-05: three full-clone passes filled the shared /tmp, and unbudgeted passes
+// exhausted the proxy accounts that interactive sessions share.
+const admissionChunk = chunk('function babysitterAdmissionDecision(')
+const admissionFunction = (name: string, ...scope: string[]) => {
+  const source = admissionChunk.source.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`))?.[0]
+  assert.ok(source, `no ${name} in ${admissionChunk.name}`)
+  return (...values: unknown[]) => new Function(...scope, `${source}return ${name}`)(...values)
+}
+const isRecord = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value)
+const readLimits = admissionFunction('readBabysitterAdmissionLimits')()
+const budgetWindows = admissionFunction('babysitterBudgetWindows')()
+const summarizeProxy = admissionFunction('summarizeProxyAccounts', 'isRuntimeRecord')(isRecord)
+const decide = admissionFunction('babysitterAdmissionDecision')()
+const now = new Date(2026, 9, 5, 19, 13).getTime()
+const roomy = (overrides: Record<string, unknown> = {}) => ({ windows: budgetWindows(now), tmpDir: '/scratch', freeTmpBytes: 64 * 2 ** 30, hourlyInputTokens: 0, dailyInputTokens: 0, proxy: { state: 'unknown' }, ...overrides })
+
+test('admission limits come from the environment with safe defaults', () => {
+  const defaults = readLimits({})
+  assert.equal(defaults.minFreeTmpBytes, 4096 * 2 ** 20)
+  assert.equal(defaults.hourlyInputTokens, 15e6)
+  assert.equal(defaults.dailyInputTokens, 200e6)
+  assert.equal(defaults.proxyMaxWeeklyPercent, 80)
+  assert.equal(defaults.proxyProvider, 'codex')
+  const forced = readLimits({ BABYSITTER_HOURLY_INPUT_TOKENS: '0', BABYSITTER_DAILY_INPUT_TOKENS: 'lots', BABYSITTER_MIN_FREE_TMP_MB: '512' }, 'claude')
+  assert.equal(forced.hourlyInputTokens, 0)
+  assert.equal(forced.dailyInputTokens, 200e6)
+  assert.equal(forced.minFreeTmpBytes, 512 * 2 ** 20)
+  assert.equal(forced.proxyProvider, 'claude')
+})
+
+test('a pass is skipped while the temporary directory is low on space', () => {
+  const limits = readLimits({})
+  assert.deepEqual(decide(roomy(), limits), { accepting: true })
+  const low = decide(roomy({ freeTmpBytes: 3 * 2 ** 30 }), limits)
+  assert.equal(low.accepting, false)
+  assert.equal(low.reason, 'tmp-space-low')
+  assert.match(low.detail, /3072 MiB free in \/scratch/)
+})
+
+test('a spent token budget pauses admission until the next window', () => {
+  const limits = readLimits({ BABYSITTER_HOURLY_INPUT_TOKENS: '1' })
+  const windows = budgetWindows(now)
+  assert.equal(windows.hourEnd, new Date(2026, 9, 5, 20).getTime())
+  assert.equal(windows.dayEnd, new Date(2026, 9, 6).getTime())
+  const hourly = decide(roomy({ hourlyInputTokens: 1 }), limits)
+  assert.deepEqual([hourly.accepting, hourly.reason, hourly.retryAt], [false, 'token-budget-hourly', windows.hourEnd])
+  assert.equal(decide(roomy({ windows: budgetWindows(windows.hourEnd), hourlyInputTokens: 0 }), limits).accepting, true)
+  const daily = decide(roomy({ dailyInputTokens: 200e6 }), readLimits({}))
+  assert.deepEqual([daily.accepting, daily.reason, daily.retryAt], [false, 'token-budget-daily', windows.dayEnd])
+})
+
+test('exhausted or mostly used proxy accounts pause admission; stale status does not', () => {
+  const limits = readLimits({})
+  const status = (accounts: unknown[], observedAt = new Date(now).toISOString()) => summarizeProxy({ observedAt, accounts }, 'codex', now, limits.proxyStatusMaxAgeMs)
+  const account = (weeklyUsedPercent: number | undefined, extra = {}) => ({ provider: 'codex', available: true, limitReached: false, weeklyUsedPercent, ...extra })
+  const incident = status([account(100, { limitReached: true }), account(100, { limitReached: true }), account(21), account(undefined), { provider: 'claude', available: false }])
+  assert.deepEqual([incident.accounts, incident.usable, incident.weeklyUsedPercent], [4, 2, 74])
+  assert.equal(decide(roomy({ proxy: incident }), limits).accepting, true)
+  const weekly = decide(roomy({ proxy: status([account(100, { limitReached: true }), account(85), account(60)]) }), limits)
+  assert.deepEqual([weekly.accepting, weekly.reason], [false, 'proxy-weekly-limit'])
+  const exhausted = decide(roomy({ proxy: status([account(10, { available: false }), account(100, { limitReached: true })]) }), limits)
+  assert.deepEqual([exhausted.accepting, exhausted.reason], [false, 'proxy-exhausted'])
+  const stale = status([account(100, { limitReached: true })], new Date(now - 3_600_000).toISOString())
+  assert.equal(stale.state, 'stale')
+  assert.equal(decide(roomy({ proxy: stale }), limits).accepting, true)
+})
+
+test('token usage counts each invocation once at its cumulative maximum', async () => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const directory = mkdtempSync(join(tmpdir(), 'babysitter-admission-'))
+  try {
+    const file = join(directory, 'invocations.sqlite')
+    const db = new DatabaseSync(file)
+    db.exec('CREATE TABLE vitehub_agent_invocations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL, updated_at TEXT NOT NULL, record TEXT NOT NULL)')
+    const insert = db.prepare('INSERT INTO vitehub_agent_invocations (id, status, updated_at, record) VALUES (?, ?, ?, ?)')
+    const record = (...tokens: number[]) => JSON.stringify({ observations: [{ attributes: {} }, ...tokens.map(value => ({ attributes: { 'usage.inputTokens': value, 'usage.provider': 'codex' } }))] })
+    insert.run('old', 'completed', '2026-10-05T16:59:00.000Z', record(900_000))
+    insert.run('a', 'completed', '2026-10-05T17:10:00.000Z', record(27_241, 55_163, 85_835))
+    insert.run('b', 'running', '2026-10-05T17:20:00.000Z', record(40_000))
+    insert.run('c', 'completed', '2026-10-05T17:21:00.000Z', record())
+    db.close()
+    const read = admissionFunction('readInvocationInputTokens')()
+    assert.equal(await read(file, Date.parse('2026-10-05T17:00:00.000Z')), 125_835)
+    assert.equal(await read(file, Date.parse('2026-10-05T00:00:00.000Z')), 1_025_835)
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+})
+
+test('the scheduler checks admission before claiming and records the skip', () => {
+  const host = chunk('function createBabysitterProcessHost(')
+  const reconcile = host.source.match(/async function reconcile\([\s\S]*?const jobs = await pullRequestInbox\.claim\(/)?.[0]
+  assert.ok(reconcile)
+  assert.match(reconcile, /const admission = await options\.admission\(\);\s*if \(!admission\.accepting\) \{/)
+  assert.match(reconcile, /schedulerEvent\("babysitter\.admission\.skipped"/)
+  assert.match(reconcile, /setMeta\("admission-skipped"/)
+  assert.match(host.source, /admission: \{\s*accepting: !quotaBlocked && guard\.accepting,/)
+  assert.match(host.source, /budget: \{\s*hourly: \{/)
+})

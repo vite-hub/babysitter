@@ -13405,10 +13405,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e7733d9e11a5
+index 0000000000000000000000000000000000000000..01fa94f46eb902c889ee911d3255597f3d72c553
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,1651 @@
+@@ -0,0 +1,1856 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -13421,7 +13421,8 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +import { a as snapshotPrompt, f as reconcileOneSnapshot, h as normalizePullRequest, i as assertPromptFits, l as probeChangedSnapshots, n as createClaimStopCheck, o as detectChangedPullRequests, p as PullRequestInbox, r as snapshotPullRequest, s as hydrateSnapshot, t as claimStopReason, u as readPullRequestThreads } from "./github-inbox-Dt_sOkdE.js";
 +import * as v from "valibot";
 +import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
-+import { lstat, readFile, readdir, rm } from "node:fs/promises";
++import { lstat, readFile, readdir, rm, statfs } from "node:fs/promises";
++import { tmpdir } from "node:os";
 +import { join } from "node:path";
 +import { execFile } from "node:child_process";
 +import { createHash } from "node:crypto";
@@ -14009,6 +14010,153 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +	const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? "")}` : String(error);
 +	return /\b429\b|too many requests|rate limit/i.test(text);
 +}
++//#region src/presets/babysitter/admission.ts
++/** Reads the shared-resource admission limits. Unset or invalid values keep the defaults; 0 pauses admission. */
++function readBabysitterAdmissionLimits(env = process.env, provider = "codex") {
++	const number = (name, fallback) => {
++		const value = env[name] === void 0 || env[name] === "" ? NaN : Number(env[name]);
++		return Number.isFinite(value) && value >= 0 ? value : fallback;
++	};
++	return {
++		minFreeTmpBytes: number("BABYSITTER_MIN_FREE_TMP_MB", 4096) * 1024 * 1024,
++		hourlyInputTokens: number("BABYSITTER_HOURLY_INPUT_TOKENS", 15e6),
++		dailyInputTokens: number("BABYSITTER_DAILY_INPUT_TOKENS", 200e6),
++		proxyStatusFile: env.BABYSITTER_PROXY_STATUS_FILE || "/srv/cliproxy-status/accounts.json",
++		proxyProvider: env.BABYSITTER_PROXY_PROVIDER || provider,
++		proxyMaxWeeklyPercent: number("BABYSITTER_PROXY_MAX_WEEKLY_PERCENT", 80),
++		proxyStatusMaxAgeMs: number("BABYSITTER_PROXY_STATUS_MAX_AGE_S", 900) * 1e3
++	};
++}
++/** The local clock hour and calendar day that contain `now`. */
++function babysitterBudgetWindows(now) {
++	const hour = new Date(now);
++	hour.setMinutes(0, 0, 0);
++	const day = new Date(now);
++	day.setHours(0, 0, 0, 0);
++	const nextDay = new Date(day);
++	nextDay.setDate(day.getDate() + 1);
++	return {
++		hourStart: hour.getTime(),
++		hourEnd: hour.getTime() + 36e5,
++		dayStart: day.getTime(),
++		dayEnd: nextDay.getTime()
++	};
++}
++/** Summarizes the sanitized proxy account file for one provider. Unavailable or limited accounts count as 100% used. */
++function summarizeProxyAccounts(status, provider, now, maxAgeMs) {
++	if (!isRuntimeRecord(status) || !Array.isArray(status.accounts)) return { state: "unknown" };
++	const observedAt = Date.parse(String(status.observedAt));
++	if (!(now - observedAt <= maxAgeMs)) return {
++		state: "stale",
++		observedAt: status.observedAt
++	};
++	const accounts = status.accounts.filter((account) => isRuntimeRecord(account) && account.provider === provider && !account.disabled);
++	if (!accounts.length) return {
++		state: "unknown",
++		observedAt: status.observedAt
++	};
++	const exhausted = (account) => !account.available || account.limitReached === true;
++	const measured = accounts.filter((account) => exhausted(account) || Number.isFinite(account.weeklyUsedPercent));
++	return {
++		state: "fresh",
++		observedAt: status.observedAt,
++		accounts: accounts.length,
++		usable: accounts.filter((account) => !exhausted(account)).length,
++		weeklyUsedPercent: measured.length ? Math.round(measured.reduce((sum, account) => sum + (exhausted(account) ? 100 : account.weeklyUsedPercent), 0) / measured.length) : void 0
++	};
++}
++/** Decides whether the scheduler may start another pass on the shared host and proxy. */
++function babysitterAdmissionDecision(state, limits) {
++	const { windows, proxy } = state;
++	if (state.freeTmpBytes !== void 0 && state.freeTmpBytes < limits.minFreeTmpBytes) return {
++		accepting: false,
++		reason: "tmp-space-low",
++		detail: `${Math.floor(state.freeTmpBytes / 1048576)} MiB free in ${state.tmpDir}; passes need ${Math.floor(limits.minFreeTmpBytes / 1048576)} MiB`
++	};
++	if (state.dailyInputTokens !== void 0 && state.dailyInputTokens >= limits.dailyInputTokens) return {
++		accepting: false,
++		reason: "token-budget-daily",
++		retryAt: windows.dayEnd,
++		detail: `${state.dailyInputTokens} of ${limits.dailyInputTokens} daily input tokens used`
++	};
++	if (state.hourlyInputTokens !== void 0 && state.hourlyInputTokens >= limits.hourlyInputTokens) return {
++		accepting: false,
++		reason: "token-budget-hourly",
++		retryAt: windows.hourEnd,
++		detail: `${state.hourlyInputTokens} of ${limits.hourlyInputTokens} hourly input tokens used`
++	};
++	if (proxy?.state === "fresh" && proxy.usable === 0) return {
++		accepting: false,
++		reason: "proxy-exhausted",
++		detail: `No usable ${limits.proxyProvider} account of ${proxy.accounts}`
++	};
++	if (proxy?.state === "fresh" && proxy.weeklyUsedPercent !== void 0 && proxy.weeklyUsedPercent >= limits.proxyMaxWeeklyPercent) return {
++		accepting: false,
++		reason: "proxy-weekly-limit",
++		detail: `${limits.proxyProvider} accounts at ${proxy.weeklyUsedPercent}% of their weekly limit; admission stops at ${limits.proxyMaxWeeklyPercent}%`
++	};
++	return { accepting: true };
++}
++/**
++* Sums the input tokens of invocations updated since `since`. Codex reports cumulative usage
++* within a pass, so each invocation counts its largest observation.
++*/
++async function readInvocationInputTokens(file, since) {
++	const { DatabaseSync } = await import("node:sqlite");
++	const db = new DatabaseSync(file, { readOnly: true });
++	try {
++		return Number(db.prepare(`SELECT COALESCE(SUM(tokens), 0) AS tokens FROM (
++			SELECT MAX(json_extract(o.value, '$.attributes."usage.inputTokens"')) AS tokens
++			FROM vitehub_agent_invocations i, json_each(i.record, '$.observations') o
++			WHERE i.updated_at >= ? GROUP BY i.id)`).get(new Date(since).toISOString()).tokens);
++	} finally {
++		db.close();
++	}
++}
++/** Gathers disk, token, and proxy state for admission. Token usage is re-read at most once a minute. */
++function createBabysitterAdmission(options) {
++	const limits = options.limits;
++	let usage;
++	return async function check(now = Date.now()) {
++		const windows = babysitterBudgetWindows(now);
++		const tmpDir = tmpdir();
++		const state = {
++			windows,
++			tmpDir
++		};
++		try {
++			const stats = await statfs(tmpDir);
++			state.freeTmpBytes = stats.bavail * stats.bsize;
++		} catch (error) {
++			state.errors = [...state.errors ?? [], `tmp: ${error.message}`];
++		}
++		if (!usage || now - usage.at >= 6e4 || usage.dayStart !== windows.dayStart || usage.hourStart !== windows.hourStart) try {
++			usage = {
++				at: now,
++				dayStart: windows.dayStart,
++				hourStart: windows.hourStart,
++				hourly: await readInvocationInputTokens(options.invocationsFile, windows.hourStart),
++				daily: await readInvocationInputTokens(options.invocationsFile, windows.dayStart)
++			};
++		} catch (error) {
++			usage = void 0;
++			state.errors = [...state.errors ?? [], `tokens: ${error.message}`];
++		}
++		state.hourlyInputTokens = usage?.hourly;
++		state.dailyInputTokens = usage?.daily;
++		try {
++			state.proxy = summarizeProxyAccounts(JSON.parse(await readFile(limits.proxyStatusFile, "utf8")), limits.proxyProvider, now, limits.proxyStatusMaxAgeMs);
++		} catch (error) {
++			state.proxy = { state: error.code === "ENOENT" ? "unknown" : "unreadable" };
++		}
++		return {
++			...babysitterAdmissionDecision(state, limits),
++			state,
++			limits
++		};
++	};
++}
++//#endregion
 +function createBabysitterRuntime(options) {
 +	if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new Error("Babysitter concurrency must be a positive integer.");
 +	const baseAgent = options.agent;
@@ -14492,6 +14640,25 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +			await pullRequestInbox.pruneDeliveries();
 +		}
 +		if (!isAccepting()) return;
++		if (options.admission && active.size < ownerLimit) {
++			const admission = await options.admission();
++			if (!admission.accepting) {
++				// A skipped pass leaves the PR queued; log the pause once per reason and then every 15 minutes.
++				const previous = await pullRequestInbox.meta("admission-skipped");
++				if (previous?.reason !== admission.reason || Date.now() - previous.at >= 9e5) {
++					const skipped = {
++						at: Date.now(),
++						reason: admission.reason,
++						detail: admission.detail,
++						retryAt: admission.retryAt,
++						active_owners: active.size
++					};
++					await pullRequestInbox.setMeta("admission-skipped", skipped);
++					schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
++				}
++				return;
++			}
++		}
 +		const jobs = await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size));
 +		if (!jobs.length) return;
 +		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
@@ -14953,6 +15120,10 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +	const driverValue = getAgentLayerOptions(agent)?.driver;
 +	const driver = isRuntimeRecord(driverValue) ? driverValue : void 0;
 +	let runtime;
++	const admission = createBabysitterAdmission({
++		invocationsFile: join(context.dataDir, "invocations.sqlite"),
++		limits: readBabysitterAdmissionLimits(process.env, driver?.kind === "claude-code" ? "claude" : "codex")
++	});
 +	const host = await createProcessAgentHost({
 +		name: context.agentName,
 +		dataDir: context.dataDir,
@@ -14989,7 +15160,8 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +		activityAuthors: [identity.login],
 +		event: host.event,
 +		error: host.error,
-+		wake: () => host.wake()
++		wake: () => host.wake(),
++		admission
 +	});
 +	const inbox = runtime.inbox;
 +	return {
@@ -15013,12 +15185,20 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +			const queue = await inbox.summary();
 +			const quotaBlockedUntil = await inbox.metaNumber("provider-quota-blocked-until") ?? 0;
 +			const quotaBlocked = quotaBlockedUntil > Date.now();
++			const guard = await admission();
++			const lastSkip = await inbox.meta("admission-skipped");
 +			const diagnostics = [...health.diagnostics, {
 +				label: "Provider quota",
 +				status: quotaBlocked ? "warning" : "ok",
 +				value: quotaBlocked ? "Admission paused" : "Available",
 +				detail: quotaBlocked ? `Retry after ${new Date(quotaBlockedUntil).toISOString()}` : "No active provider rate-limit block"
 +			}];
++			diagnostics.push({
++				label: "Shared resources",
++				status: guard.accepting && !guard.state.errors ? "ok" : "warning",
++				value: guard.accepting ? "Within budget" : "Admission paused",
++				detail: guard.detail ?? guard.state.errors?.join("; ") ?? `${guard.state.hourlyInputTokens ?? "?"} of ${guard.limits.hourlyInputTokens} hourly input tokens`
++			});
 +			diagnostics.push({
 +				label: "Release",
 +				status: "ok",
@@ -15036,16 +15216,41 @@ index 0000000000000000000000000000000000000000..53b4ec28a34110d81e434af9f315e773
 +				release: agent.version,
 +				model: driver?.model,
 +				concurrency: agent.options.concurrency,
-+				status: quotaBlocked ? "degraded" : health.status,
++				status: quotaBlocked || !guard.accepting ? "degraded" : health.status,
 +				diagnostics,
 +				workload: {
 +					...health.workload,
 +					running: runtime?.workload().running ?? 0
 +				},
 +				admission: {
-+					accepting: !quotaBlocked,
-+					reason: quotaBlocked ? "provider-quota" : void 0,
-+					retryAt: quotaBlocked ? quotaBlockedUntil : void 0
++					accepting: !quotaBlocked && guard.accepting,
++					reason: quotaBlocked ? "provider-quota" : guard.reason,
++					retryAt: quotaBlocked ? quotaBlockedUntil : guard.retryAt,
++					detail: quotaBlocked ? void 0 : guard.detail,
++					lastSkip
++				},
++				budget: {
++					hourly: {
++						inputTokens: guard.state.hourlyInputTokens,
++						limit: guard.limits.hourlyInputTokens,
++						resetsAt: guard.state.windows.hourEnd
++					},
++					daily: {
++						inputTokens: guard.state.dailyInputTokens,
++						limit: guard.limits.dailyInputTokens,
++						resetsAt: guard.state.windows.dayEnd
++					},
++					tmp: {
++						dir: guard.state.tmpDir,
++						freeBytes: guard.state.freeTmpBytes,
++						minFreeBytes: guard.limits.minFreeTmpBytes
++					},
++					proxy: {
++						provider: guard.limits.proxyProvider,
++						maxWeeklyPercent: guard.limits.proxyMaxWeeklyPercent,
++						...guard.state.proxy
++					},
++					errors: guard.state.errors
 +				},
 +				repositories,
 +				queue: {
