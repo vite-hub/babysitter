@@ -174,9 +174,10 @@ test('token usage counts each invocation once at its cumulative maximum and refr
 
 test('the scheduler checks admission before claiming and records the skip', () => {
   const host = chunk('function createBabysitterProcessHost(')
-  const reconcile = host.source.match(/async function reconcile\([\s\S]*?const jobs = await pullRequestInbox\.claim\(/)?.[0]
+  const reconcile = host.source.match(/async function reconcile\([\s\S]*?const jobs = modelAdmission \? await pullRequestInbox\.claim\(/)?.[0]
   assert.ok(reconcile)
-  assert.match(reconcile, /const admission = await options\.admission\(\);\s*if \(!admission\.accepting\) \{/)
+  // A paused admission stops model passes; host-only claims still merge and wait.
+  assert.match(reconcile, /const admission = await options\.admission\(\);\s*if \(!admission\.accepting\) \{\s*modelAdmission = false;/)
   assert.match(reconcile, /schedulerEvent\("babysitter\.admission\.skipped"/)
   assert.match(reconcile, /setMeta\("admission-skipped"/)
   assert.match(host.source, /admission: \{\s*accepting: !quotaBlocked && guard\.accepting,/)

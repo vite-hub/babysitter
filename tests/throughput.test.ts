@@ -109,3 +109,16 @@ test('the scheduler defers passes, claims stack parents first and releases lease
   const inbox = chunk('async releaseLeases()').source
   assert.match(inbox, /ORDER BY \(SELECT COUNT\(\*\) FROM \$\{t\.pullRequests\} c WHERE c\.scope=p\.scope AND c\.repository=p\.repository AND c\.state='open' AND c\.base_ref=p\.head_ref\) DESC/)
 })
+
+test('a paused admission still claims PRs for host-only merges and waits', () => {
+  const host = chunk('const hostOnlyChecked = ').source
+  assert.match(host, /if \(!modelAdmission\) \{\n\t+await pullRequestInbox\.release\(inboxClaim\);/)
+  // Host-only work must run before the model pass is skipped: merge, reviewed-head park, deferral.
+  assert.ok(host.indexOf('const deferral = await pendingGateDeferral(') < host.indexOf('if (!modelAdmission) {\n'))
+  assert.match(chunk('if (options.skip?.(s)) continue;').source, /async claim\(limit, options = \{\}\)/)
+})
+
+test('pass prompts keep only the newest run per check and drop passing check output', () => {
+  const source = chunk('const newestChecks = ').source
+  assert.match(source, /checks: knownChecks\.map\(\(value\) => passed\(value\) \? \{\n\t+id: value\.id,\n\t+name: value\.name,\n\t+conclusion: value\.conclusion,\n\t+app: value\.app\?\.slug\n\t+\} :/)
+})

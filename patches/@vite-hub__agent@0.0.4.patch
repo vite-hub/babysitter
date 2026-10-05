@@ -10863,10 +10863,10 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9eb2cebe62
+index 0000000000000000000000000000000000000000..2cccd19c70eb66571629059b8ac5f2fbd0e6bf03
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
-@@ -0,0 +1,2000 @@
+@@ -0,0 +1,2017 @@
 +import { a as isRuntimeRecord } from "./runtime-type-bjeCL9f2.js";
 +import { t as matchesGitHubPullRequestFilter } from "./github-pull-request-filter-CWDmPKCk.js";
 +import { i as isRuntimeNumber, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
@@ -11882,7 +11882,7 @@ index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9e
 +			return await finish(numbers.size ? void 0 : "no matching PR head");
 +		});
 +	}
-+	async claim(limit) {
++	async claim(limit, options = {}) {
 +		if (!this.repositories.length || limit < 1) return [];
 +		return await this.transaction(async (tx) => {
 +			const now = this.clock(), claims = [], t = this.tables;
@@ -11910,6 +11910,7 @@ index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9e
 +				const s = await this.getIn(tx, repository, number);
 +				if (!s) continue;
 +				if (s.pr && !this.eligible(s.repository, s.pr)) continue;
++				if (options.skip?.(s)) continue;
 +				s.lease = randomUUID();
 +				s.leaseUntil = now + 72e5;
 +				s.status = "working";
@@ -12719,7 +12720,18 @@ index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9e
 +			} : null
 +		}];
 +	}).sort((left, right) => resolutionPriority[left.resolution] - resolutionPriority[right.resolution] || currentHeadFirst(left, right) || timestamp(right.updatedAt ?? right.createdAt) - timestamp(left.updatedAt ?? left.createdAt));
-+	const knownChecks = Object.values(snapshot.checks).filter((value) => !value.deleted && value.head_sha === head && Boolean(head));
++	const newestChecks = /* @__PURE__ */ new Map();
++	for (const value of Object.values(snapshot.checks)) {
++		if (value.deleted || !head || value.head_sha !== head) continue;
++		const key = `${String(value.name)}\0${String(value.app?.id ?? value.app?.slug ?? "")}`;
++		if (!newestChecks.has(key) || Number(value.id ?? 0) >= Number(newestChecks.get(key).id ?? 0)) newestChecks.set(key, value);
++	}
++	const knownChecks = [...newestChecks.values()];
++	const passed = (value) => [
++		"success",
++		"neutral",
++		"skipped"
++	].includes(String(value.conclusion ?? "").toLowerCase());
 +	const knownStatuses = Object.values(snapshot.statuses).filter((value) => !value.deleted && value.sha === head && Boolean(head));
 +	return {
 +		repository: snapshot.repository,
@@ -12742,7 +12754,12 @@ index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9e
 +			mergeable: pr.mergeable,
 +			mergeState: pr.mergeable_state
 +		},
-+		checks: knownChecks.map((value) => ({
++		checks: knownChecks.map((value) => passed(value) ? {
++			id: value.id,
++			name: value.name,
++			conclusion: value.conclusion,
++			app: value.app?.slug
++		} : {
 +			id: value.id,
 +			name: value.name,
 +			status: value.status,
@@ -12753,7 +12770,7 @@ index 0000000000000000000000000000000000000000..2ba057bd42b3fd1006d685f1017b3b9e
 +			url: value.details_url,
 +			summary: value.output?.summary,
 +			text: value.output?.text
-+		})),
++		}),
 +		statuses: knownStatuses.map((value) => ({
 +			context: value.context,
 +			state: value.state,
@@ -13441,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..2a90ed9ce1794253292e138b4d6d12f68e26963a
+index 0000000000000000000000000000000000000000..768c3a450221b3f1506702b0f9961cc328375d49
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2020 @@
+@@ -0,0 +1,2032 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14759,6 +14776,9 @@ index 0000000000000000000000000000000000000000..2a90ed9ce1794253292e138b4d6d12f6
 +	function workload() {
 +		return { running: active.size };
 +	}
++	// PRs checked for host-only work while admission was paused, by generation and revision.
++	const hostOnlyChecked = /* @__PURE__ */ new Map();
++	const hostOnlyStamp = (s) => `${s.generation}:${s.revision ?? 0}`;
 +	async function reconcile(reason, { track }, isAccepting = () => true) {
 +		const startedAt = /* @__PURE__ */ new Date();
 +		const schedule = {
@@ -14818,9 +14838,11 @@ index 0000000000000000000000000000000000000000..2a90ed9ce1794253292e138b4d6d12f6
 +			await pullRequestInbox.pruneDeliveries();
 +		}
 +		if (!isAccepting()) return;
-+		if (options.admission && active.size < ownerLimit) {
++		let modelAdmission = true;
++		if (options.admission) {
 +			const admission = await options.admission();
 +			if (!admission.accepting) {
++				modelAdmission = false;
 +				// A skipped pass leaves the PR queued; log the pause once per reason and then every 15 minutes.
 +				const previous = await pullRequestInbox.meta("admission-skipped");
 +				if (previous?.reason !== admission.reason || Date.now() - previous.at >= 9e5) {
@@ -14834,10 +14856,10 @@ index 0000000000000000000000000000000000000000..2a90ed9ce1794253292e138b4d6d12f6
 +					await pullRequestInbox.setMeta("admission-skipped", skipped);
 +					schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
 +				}
-+				return;
 +			}
 +		}
-+		const jobs = await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size));
++		// Host-only claims merge, defer or park without a model, so they may exceed the pass limit.
++		const jobs = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
 +		if (!jobs.length) return;
 +		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
 +		schedulerEvent("babysitter.queue.selected", {
@@ -14951,6 +14973,13 @@ index 0000000000000000000000000000000000000000..2a90ed9ce1794253292e138b4d6d12f6
 +						avoided_invocation: true,
 +						reason: `deferred:${deferral}`
 +					});
++					return;
++				}
++				if (!modelAdmission) {
++					await pullRequestInbox.release(inboxClaim);
++					const released = await pullRequestInbox.get(repository, number);
++					if (released) hostOnlyChecked.set(`${repository}#${number}`, hostOnlyStamp(released));
++					outcome = "admission-paused";
 +					return;
 +				}
 +				if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
