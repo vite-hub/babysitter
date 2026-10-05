@@ -22620,10 +22620,10 @@ index de3054e5fb43773ac90dbfe9ab4c44c6ad76a96c..4a6cc82daf49039d4a06058eb63f59a4
  //#region src/server/console-delivery.ts
 diff --git a/dist/src-CcZ5onAy.js b/dist/src-CcZ5onAy.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..7d923b2a7af81708d5b4b88f6971e0e679c15d58
+index 0000000000000000000000000000000000000000..8dc5622e41d2907eac213491dcaae1d3cb686f94
 --- /dev/null
 +++ b/dist/src-CcZ5onAy.js
-@@ -0,0 +1,6350 @@
+@@ -0,0 +1,6361 @@
 +import { t as agentDiagnostics } from "./agent-diagnostics-CRbMCAtY.js";
 +import { a as isRuntimeRecord, i as isRuntimeObject, n as hasRuntimeType, r as isCallableMember, t as asUnknownBoundary } from "./runtime-type-bjeCL9f2.js";
 +import { A as hasUnreplayableAgentInputContext, B as agentInvocationCallerAbortSignal, E as createFallbackAgentInvoker, F as resolveAgentInvoker, H as markAgentInvocationCallerAbortSignal, J as toAgentPublicError, K as isError, M as normalizeAgentInvokerOptions, P as portableResolvedAgentInvokerInput, U as agentErrorDetails, V as copyAgentInvocationCallerAbortSignal, W as agentErrorMessage, a as createAgentStreamEventTracer, d as traceAgentInvocationFinish, f as traceAgentInvocationStart, k as hasResolvedAgentInvokerInput, l as traceAgentInvocationCancelled, n as agentInvocationJournalTraceLogSymbol, r as agentInvocationTraceIdContextKey, s as traceAgentChannelDeliveryEffect, t as agentInvocationJournalContentTraceLogSymbol, u as traceAgentInvocationError } from "./trace-BhGaIq_U.js";
@@ -22855,23 +22855,34 @@ index 0000000000000000000000000000000000000000..7d923b2a7af81708d5b4b88f6971e0e6
 +const passSchema = v.object({
 +	disposition: v.picklist(["park", "retry"]),
 +	text: v.pipe(v.string(), v.trim(), v.minLength(1)),
-+	wait: v.optional(v.variant("kind", [v.object({
-+		kind: v.literal("checks"),
-+		headSha: sha
-+	}), v.object({
-+		kind: v.literal("external"),
-+		reason: v.pipe(v.string(), v.trim(), v.minLength(1)),
-+		wake: v.optional(wakeSchema)
-+	})])),
++	// Provider structured-output implementations may emit an optional union as an
++	// empty object. Keep the base result valid and sanitize the wait below so a
++	// malformed optional field cannot fail an otherwise useful repair pass.
++	wait: v.optional(v.unknown()),
 +	reviewedHead: v.optional(sha),
 +	waitForChecksHead: v.optional(sha)
 +});
++const waitSchema = v.variant("kind", [v.object({
++	kind: v.literal("checks"),
++	headSha: sha
++}), v.object({
++	kind: v.literal("external"),
++	reason: v.pipe(v.string(), v.trim(), v.minLength(1)),
++	wake: v.optional(wakeSchema)
++})]);
 +const babysitterPassResultSchema = { "~standard": {
 +	version: 1,
 +	vendor: "vitehub.babysitter",
 +	validate(value) {
 +		const parsed = v.safeParse(passSchema, value);
-+		return parsed.success ? { value: parsed.output } : { issues: parsed.issues.map((issue) => ({ message: issue.message })) };
++		if (!parsed.success) return { issues: parsed.issues.map((issue) => ({ message: issue.message })) };
++		const output = parsed.output;
++		if (output.wait !== undefined) {
++			const wait = v.safeParse(waitSchema, output.wait);
++			if (wait.success) output.wait = wait.output;
++			else delete output.wait;
++		}
++		return { value: output };
 +	}
 +} };
 +const babysitterHost = { async create(context) {
