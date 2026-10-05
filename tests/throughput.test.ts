@@ -153,6 +153,6 @@ test('startup sweeps only its own pass workspaces and deferral needs every requi
 
 test('passes with the same lockfile share one install', () => {
   const host = chunk('const installsInFlight = ').source
-  assert.match(host, /if \(cacheKey && installsInFlight\.has\(cacheKey\)\) \{/)
+  assert.match(host, /if \(cacheKey && !cached && installsInFlight\.has\(cacheKey\)\) \{/)
   assert.match(host, /\} finally \{\n\t+if \(finishFlight\) \{\n\t+installsInFlight\.delete\(cacheKey\);\n\t+finishFlight\(\);/)
 })

@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..c12093363c49b44e581b74db2d2734179f68bf51
+index 0000000000000000000000000000000000000000..2d1ee9230971789215b326035222ead8e6787efc
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2240 @@
+@@ -0,0 +1,2241 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14767,12 +14767,13 @@ index 0000000000000000000000000000000000000000..c12093363c49b44e581b74db2d273417
 +		const cacheKey = command[0] === "pnpm" && !isRuntimeRecord(installSetting) ? await pnpmInstallKey(cwd).catch(() => void 0) : void 0;
 +		let args = command.slice(1);
 +		let finishFlight;
-+		if (cacheKey && installsInFlight.has(cacheKey)) {
++		const cached = cacheKey ? await readFile(join(installCacheRoot, cacheKey, "trees.json")).then(() => true, () => false) : false;
++		if (cacheKey && !cached && installsInFlight.has(cacheKey)) {
 +			const waitStartedAt = Date.now();
 +			await Promise.race([installsInFlight.get(cacheKey), new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
 +			record.waitMs = Date.now() - waitStartedAt;
 +		}
-+		if (cacheKey && !installsInFlight.has(cacheKey)) installsInFlight.set(cacheKey, new Promise((resolve) => {
++		if (cacheKey && !cached && !installsInFlight.has(cacheKey)) installsInFlight.set(cacheKey, new Promise((resolve) => {
 +			finishFlight = resolve;
 +		}));
 +		const restoreStartedAt = Date.now();
