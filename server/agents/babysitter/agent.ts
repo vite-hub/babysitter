@@ -1,189 +1,62 @@
-import { github as githubSource } from 'vite-hub/workspace'
-import { defineAgent, type CodexDriverOptions } from 'vite-hub/agent'
-import { diagnostics, title, skills } from 'vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { diagnostics } from 'vite-hub/agent/capabilities'
 import { createAgentEvlog } from 'vite-hub/agent/evlog'
 import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
-import { useServerEnv } from '#vitehub/env/server'
-import { createGitHubHost, createGitHubInvocationWorkspaceHandler } from 'vite-hub/agent/server/github'
-import { createAgentConsoleDelivery, createAgentHealth } from 'vite-hub/agent/server'
-import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
-import { resolveMaxOwners, resolveRepositories } from '../../babysitter.queue.ts'
-import { pullRequestInbox } from '../../babysitter.inbox-runtime.ts'
-import { prepareProviderGit, createProviderProofLaunch, providerGitEnvironment } from '../../babysitter.provider-checkout.ts'
 
-export const github = createGitHubHost({
-  credentials: () => useServerEnv().github,
-  identity: {
-    email: '320448255+vitehub-bot[bot]@users.noreply.github.com',
-    login: 'vitehub-bot[bot]',
-  },
-})
-
-export const consoleClient = createAgentConsoleDelivery(useServerEnv().console)
-const observabilityConfig = useServerEnv().observability
-export const telemetry = createAgentEvlog({
+const telemetry = createAgentEvlog({
   service: 'babysitter',
-  environment: observabilityConfig.environment,
-  // Keep scheduler and per-PR worker telemetry in the same PostHog project.
-  // The worker's runtime identity is added automatically by ViteHub.
+  environment: process.env.NODE_ENV ?? 'production',
   metadata: { agent_family: 'babysitter' },
   level: 'standard',
-  ...(observabilityConfig.posthogApiKey ? {
+  ...(process.env.POSTHOG_API_KEY ? {
     exporter: posthogAgentExporter({
-      apiKey: observabilityConfig.posthogApiKey.unseal(),
-      host: observabilityConfig.posthogHost,
+      apiKey: process.env.POSTHOG_API_KEY,
+      host: process.env.POSTHOG_HOST ?? 'https://us.i.posthog.com',
       service: 'babysitter',
     }),
   } : {}),
 })
 
-const concurrency = resolveMaxOwners(useServerEnv().babysitter.maxOwners)
-
-export const host = await createProcessAgentHost({
-  name: 'babysitter',
-  intervalMs: 10_000,
-  // The production process runs under the restricted `agents` account, whose
-  // PATH does not include the global Node bin directory consistently. Use the
-  // installed CLI's absolute path so the process health probe and invocations
-  // resolve the same executable as the CLI-proxy setup.
-  providerCommand: '/usr/bin/codex',
-  capacity: {
-    concurrency,
-    fallbackConcurrency: Math.min(3, concurrency),
-    queue: { maxPending: 100 },
-    sampleTimeoutMs: 5_000,
-  },
-  async run(reason, context, accepting) {
-    const { reconcileBabysitterWork } = await import('../../babysitter.schedule.ts')
-    await reconcileBabysitterWork(reason, context, accepting)
-  },
-})
-
-
-export type { PassResult } from '../../babysitter.pass-result.ts'
-import { passResultSchema, type PassResult } from '../../babysitter.pass-result.ts'
-
-const capabilities = [
-  ...['code-review'].map(name => skills({
-    id: `skills.${name}`,
-    path: `skills/${name}`,
-    source: githubSource({ repo: 'vite-hub/vitehub', ref: '724a19c68157518d1ec67b3129af44488ce7e784', root: `docs/skills/${name}`, include: ['SKILL.md', 'references/**'], materialize: 'build' }),
-    shellExecution: 'write',
-  })),
-  // Keep this skill colocated with the Babysitter agent so every worker
-  // invocation receives the same conflict-resolution procedure as the code.
-  skills({ id: 'skills.resolving-merge-conflicts', path: 'skills/resolving-merge-conflicts',
-    source: githubSource({ repo: 'vite-hub/babysitter', ref: 'daa9c7ca72fef22a7b139961489efc844a1e69b4', root: 'server/agents/babysitter/skills/resolving-merge-conflicts', include: ['SKILL.md', 'references/**'], materialize: 'build' }),
-    shellExecution: 'write' }),
-  diagnostics({ resources: nodeRuntimeResources() }), title({
-  execute: ({ input }) => {
-    const context = input.context as { pullRequestTitle: string }
-    return context.pullRequestTitle
-  },
-}), ...(consoleClient ? [consoleClient.capability] : []), telemetry.capability] as const
-async function workerEnvironment(repository?: string) {
-      const githubEnv = providerGitEnvironment(await github.environment())
-      return {
-        ...githubEnv,
-        ...(repository ? { GH_REPO: repository } : {}),
-        // The worker wrapper routes `gh` API calls through ghx.onmax.me. Keep
-        // GH_HOST unset here so Git's github.com credential helper can match
-        // the checkout remote while still receiving the App token below.
-        // Keep worker subprocesses aligned with the agents user's global ghx
-        // wrapper. The system PATH applies the same proxy to other agents.
-        PATH: `/home/agents/.local/worker-ghx/bin:${process.env.PATH || '/usr/local/bin:/usr/bin:/bin'}`,
-        GHX_GH_PATH: '/usr/bin/gh',
-        ...(process.env.CLIPROXY_API_KEY ? { CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY } : {}),
-        ...(process.env.OPENAI_BASE_URL ? { OPENAI_BASE_URL: process.env.OPENAI_BASE_URL } : {}),
-        NODE_OPTIONS: '--max-old-space-size=1024',
-      }
-}
-const babysitterDriver: CodexDriverOptions<PassResult> & { kind: 'codex' } = {
-    kind: 'codex',
-    capacity: host.capacity,
-    // Keep the provider selection explicit for the non-interactive CLI. The
-    // service runs as `agents`, so it cannot see the interactive user's
-    // ~/.codex/config.toml. These variables are supplied by the service
-    // environment and make Codex use the local CLIProxy pool.
-    env: () => workerEnvironment(),
-    model: 'gpt-6-astra',
-    output: { schema: passResultSchema },
-    permissions: 'allow-all',
-    // Every PR pass gets a fresh checkout and a fresh provider workspace.
-    // Reusing the persistent Codex thread here resurrects deleted
-    // /tmp/vitehub-provider-* paths and leaves the agent without a remote.
-    // The webhook snapshot is the durable PR memory; provider sessions are
-    // intentionally ephemeral per invocation.
-    reasoningEffort: 'medium',
-  }
-
-const agent = defineAgent({
-  capabilities,
-  channels: {
-    github: github.channel({ activity: true }),
-  },
-  driver: babysitterDriver,
-  invocations: host.invocations,
+export default defineAgent({
+  extends: 'babysitter',
   name: 'babysitter',
   version: usePublicEnv().releaseRevision,
-})
+  babysitter: {
+    filter: {
+      repository: {
+        allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
+          .split(/[,\s]+/).filter(Boolean),
+      },
+      author: { allow: ['onmax'] },
+    },
+    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 1),
+    reviewChecks: ['pullfrog'],
+    noFindingsReviews: ['> ✅ No new issues found.'],
+    merge: { strategy: 'direct', method: 'squash' },
+  },
+  capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
+  driver: {
+    model: process.env.BABYSITTER_MODEL || 'gpt-6-astra',
+    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'medium',
+    env: () => ({
+      OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+      CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
+      NODE_OPTIONS: '--max-old-space-size=1024',
+    }),
+    instructions: `
+Before/after images and demonstration videos are optional. Require media only when a
+current maintainer explicitly requests it for this PR. Remove stale blockers based
+only on a generic media requirement.
 
-export const workspace = createGitHubInvocationWorkspaceHandler({ host: github, invocations: host.invocations })
-const readHealth = createAgentHealth({
-  name: 'Babysitter', agent: () => agent, process: host, github,
-  console: () => Boolean(consoleClient),
-  async workload() { return (await import('../../babysitter.schedule.ts')).babysitterWorkload() },
-  diagnostics() {
-    const config = useServerEnv().babysitter
-    const queue = pullRequestInbox.summary()
-    const waiting = queue.filter(item => item.status === 'waiting').length
-    const ready = queue.filter(item => item.status === 'ready').length
-    const retrying = queue.filter(item => item.attempts >= 3 && item.status !== 'terminal').length
-    const repositories = resolveRepositories(config.repositories, config.repository)
-    return [
-      { label: 'Release', status: 'ok', value: usePublicEnv().releaseRevision },
-      { label: 'Repositories', status: 'ok', value: `${repositories.length} configured`, detail: repositories.join(', ') },
-      { label: 'Work discovery', status: 'ok', value: 'Durable PR inbox', detail: 'Webhook intake with hourly reconciliation' },
-      { label: 'PR queue', status: retrying ? 'warning' : 'ok', value: `${ready} ready · ${waiting} waiting`, detail: `${retrying} PRs with repeated unsuccessful passes` },
-    ]
+Keep a short task plan with the harness plan tool. Make at most one repair commit
+per pass. Run focused tests, lint and typecheck. Do not run local builds or broad
+validation matrices; use CI logs to diagnose remote build failures.
+
+Do not create direction-validation markers. Preserve the PR description when
+removing obsolete generated direction or blocker notes. Keep detailed evidence in
+the linked invocation session and the final result.
+`,
   },
 })
-
-export async function health() {
-  const result = await readHealth()
-  const workload = (await import('../../babysitter.schedule.ts')).babysitterWorkload()
-  // ViteHub overwrites the workload callback's queue count with the provider
-  // semaphore's pending count. Our durable PR queue also includes CI waits.
-  return { ...result, workload: { ...result.workload, ...workload } }
-}
-
-export function createBabysitterAgent(checkout: string, repository: string, onProviderPrepared?: (cwd: string, proofPath: string) => void) {
-  if (!checkout) throw new Error('Babysitter requires a checkout.')
-  return defineAgent({
-    extends: agent,
-    // Give per-PR runs their own identity so PostHog's agent_name filter can
-    // distinguish worker activity from the long-lived scheduler process.
-    name: 'babysitter-worker',
-    driver: {
-      ...babysitterDriver,
-      env: () => workerEnvironment(repository),
-      async launch({ cwd, command }) {
-        await prepareProviderGit(checkout, cwd)
-        const launch = await createProviderProofLaunch(checkout, cwd, command)
-        onProviderPrepared?.(cwd, launch.proofPath)
-        return { command: launch.command, args: launch.args }
-      },
-    },
-    workspace: {
-      // Repairs and pushes happen in the provider checkout with restored Git
-      // metadata. Do not copy its files back into the preparation clone.
-      commit: false,
-      mode: 'write',
-      store: { provider: 'local', root: checkout },
-    },
-  })
-}
-
-export default agent
