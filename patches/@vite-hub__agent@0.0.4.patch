@@ -35188,3 +35188,46 @@ index 0000000000000000000000000000000000000000..be43552ada7b1e9f0c4593ffd6452167
 +}
 +//#endregion
 +export { resetPublicUrlAgentNames as A, createConfiguredAgentDefinition as C, resolveAgentLayerOptions as D, rememberAgentLayerOptions as E, markDiscoveredAgentName as O, agentLayerMetadata as S, inheritAgentLayerOptions as T, agentWithSkills as _, materializeAgentInspectionSourceMetadata as a, decodeColocatedAgentSkills as b, resolveWorkspaceInstructionBindings as c, workspaceAgentWithSourceRoot as d, workspaceAutoCommitDisabled as f, workspaceNameFromOptions as g, workspaceModeFromOptions as h, markWorkspaceAgentDefinitionRegistered as i, agentDefinitionSourceSymbol as j, readDiscoveredAgentName as k, workspaceAgentOwnsWorkspaceDefinition as l, workspaceDefinitionWithAutoCommitRules as m, isWorkspaceAgentOptions as n, resolveAgentInspectionMetadata as o, workspaceDefinitionFromOptions as p, markDiscoveredWorkspaceAgentDefinitionRegistered as r, resolveWorkspaceAgentDefaultInstructions as s, createAgentInspectionMetadata as t, workspaceAgentUsesRegisteredDefinition as u, colocatedAgentSkillsContextKey as v, getAgentLayerOptions as w, withColocatedAgentSkills as x, colocatedAgentSkillsSymbol as y };
+diff --git a/dist/provider-runtime-packages-BIffLz2Y.js b/dist/provider-runtime-packages-BIffLz2Y.js
+index 2fa828842cbe01008b5855fd1a3837e9427f3abb..68310f52bff6370794cfaa4b3779fcc33425df3c 100644
+--- a/dist/provider-runtime-packages-BIffLz2Y.js
++++ b/dist/provider-runtime-packages-BIffLz2Y.js
+@@ -40,6 +40,11 @@ function isPackageResolutionMiss(error) {
+ 	const code = error?.code;
+ 	return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+ }
++function isUnreadableCandidate(error) {
++	const failure = error;
++	if (failure?.code === "EACCES" || failure?.code === "EPERM") return true;
++	return failure?.code === "ERR_INVALID_PACKAGE_CONFIG" && /permission denied|operation not permitted/i.test(failure.message);
++}
+ function resolvePackageJson(name, resolveFrom) {
+ 	const resolver = createRequire(resolveFrom);
+ 	try {
+@@ -99,16 +104,22 @@ function resolveInstalledProviderExecutable(provider, options = {}) {
+ 		for (const candidate of candidates) try {
+ 			return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`);
+ 		} catch (error) {
+-			if (!isPackageResolutionMiss(error)) throw error;
++			if (!isPackageResolutionMiss(error) && !isUnreadableCandidate(error)) throw error;
+ 		}
+ 		return;
+ 	}
+ 	const target = resolveClaudeTarget(platform, options.arch ?? process.arch, options.libc);
+ 	if (!target?.binary) return;
+ 	for (const candidate of candidates) {
+-		const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
+-		if (!packageJsonPath) continue;
+-		const nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		let nativePackageJsonPath;
++		try {
++			const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
++			if (!packageJsonPath) continue;
++			nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		} catch (error) {
++			if (!isUnreadableCandidate(error)) throw error;
++			continue;
++		}
+ 		if (nativePackageJsonPath) return join(dirname(nativePackageJsonPath), target.binary);
+ 	}
+ }
