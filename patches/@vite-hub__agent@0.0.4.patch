@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..768c3a450221b3f1506702b0f9961cc328375d49
+index 0000000000000000000000000000000000000000..e7bc1ad31e7f604e8b8cbc119f5a28d532a29394
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2032 @@
+@@ -0,0 +1,2044 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14139,30 +14139,41 @@ index 0000000000000000000000000000000000000000..768c3a450221b3f1506702b0f9961cc3
 +/** Decides whether the scheduler may start another pass on the shared host and proxy. */
 +function babysitterAdmissionDecision(state, limits) {
 +	const { windows, proxy } = state;
++	if (limits.hourlyInputTokens === 0 || limits.dailyInputTokens === 0) return {
++		accepting: false,
++		hostOnly: false,
++		reason: limits.hourlyInputTokens === 0 ? "token-budget-hourly" : "token-budget-daily",
++		detail: "Admission is paused by a zero token budget"
++	};
 +	if (state.freeTmpBytes !== void 0 && state.freeTmpBytes < limits.minFreeTmpBytes) return {
 +		accepting: false,
++		hostOnly: true,
 +		reason: "tmp-space-low",
 +		detail: `${Math.floor(state.freeTmpBytes / 1048576)} MiB free in ${state.tmpDir}; passes need ${Math.floor(limits.minFreeTmpBytes / 1048576)} MiB`
 +	};
 +	if (state.dailyInputTokens !== void 0 && state.dailyInputTokens >= limits.dailyInputTokens) return {
 +		accepting: false,
++		hostOnly: true,
 +		reason: "token-budget-daily",
 +		retryAt: windows.dayEnd,
 +		detail: `${state.dailyInputTokens} of ${limits.dailyInputTokens} daily input tokens used`
 +	};
 +	if (state.hourlyInputTokens !== void 0 && state.hourlyInputTokens >= limits.hourlyInputTokens) return {
 +		accepting: false,
++		hostOnly: true,
 +		reason: "token-budget-hourly",
 +		retryAt: windows.hourEnd,
 +		detail: `${state.hourlyInputTokens} of ${limits.hourlyInputTokens} hourly input tokens used`
 +	};
 +	if (proxy?.state === "fresh" && proxy.usable === 0) return {
 +		accepting: false,
++		hostOnly: true,
 +		reason: "proxy-exhausted",
 +		detail: `No usable ${limits.proxyProvider} account of ${proxy.accounts}`
 +	};
 +	if (proxy?.state === "fresh" && proxy.weeklyUsedPercent !== void 0 && proxy.weeklyUsedPercent >= limits.proxyMaxWeeklyPercent) return {
 +		accepting: false,
++		hostOnly: true,
 +		reason: "proxy-weekly-limit",
 +		detail: `${limits.proxyProvider} accounts at ${proxy.weeklyUsedPercent}% of their weekly limit; admission stops at ${limits.proxyMaxWeeklyPercent}%`
 +	};
@@ -14856,6 +14867,7 @@ index 0000000000000000000000000000000000000000..768c3a450221b3f1506702b0f9961cc3
 +					await pullRequestInbox.setMeta("admission-skipped", skipped);
 +					schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
 +				}
++				if (!admission.hostOnly) return;
 +			}
 +		}
 +		// Host-only claims merge, defer or park without a model, so they may exceed the pass limit.

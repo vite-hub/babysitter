@@ -122,3 +122,17 @@ test('pass prompts keep only the newest run per check and drop passing check out
   const source = chunk('const newestChecks = ').source
   assert.match(source, /checks: knownChecks\.map\(\(value\) => passed\(value\) \? \{\n\t+id: value\.id,\n\t+name: value\.name,\n\t+conclusion: value\.conclusion,\n\t+app: value\.app\?\.slug\n\t+\} :/)
 })
+
+test('a zero token budget pauses every claim; a spent budget only pauses model passes', () => {
+  const host = chunk('function babysitterAdmissionDecision(').source
+  const decide = host.match(/function babysitterAdmissionDecision\([\s\S]*?\n}\n/)?.[0]
+  assert.ok(decide)
+  const decision = new Function(`${decide}\nreturn babysitterAdmissionDecision;`)()
+  const windows = { hourEnd: 1, dayEnd: 2 }
+  const limits = { minFreeTmpBytes: 0, hourlyInputTokens: 15e6, dailyInputTokens: 2e8, proxyMaxWeeklyPercent: 80, proxyProvider: 'codex' }
+  assert.deepEqual(decision({ windows, hourlyInputTokens: 0 }, { ...limits, hourlyInputTokens: 0 }).hostOnly, false)
+  const spent = decision({ windows, hourlyInputTokens: 16e6 }, limits)
+  assert.equal(spent.accepting, false)
+  assert.equal(spent.hostOnly, true)
+  assert.match(host, /if \(!admission\.hostOnly\) return;/)
+})
