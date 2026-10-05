@@ -13405,10 +13405,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..01fa94f46eb902c889ee911d3255597f3d72c553
+index 0000000000000000000000000000000000000000..ca4b3efa0441c49a10fa6499664b13b254d33ab5
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,1856 @@
+@@ -0,0 +1,1901 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14098,25 +14098,70 @@ index 0000000000000000000000000000000000000000..01fa94f46eb902c889ee911d3255597f
 +	return { accepting: true };
 +}
 +/**
-+* Sums the input tokens of invocations updated since `since`. Codex reports cumulative usage
-+* within a pass, so each invocation counts its largest observation.
++* Reads the input tokens of invocations updated since `since`, keyed by invocation id. Codex
++* reports cumulative usage within a pass, so each invocation counts its largest observation.
++* A cold full-day scan of the store took 20 s, so the synchronous query runs in a worker
++* thread instead of blocking health and webhooks.
 +*/
 +async function readInvocationInputTokens(file, since) {
-+	const { DatabaseSync } = await import("node:sqlite");
-+	const db = new DatabaseSync(file, { readOnly: true });
-+	try {
-+		return Number(db.prepare(`SELECT COALESCE(SUM(tokens), 0) AS tokens FROM (
-+			SELECT MAX(json_extract(o.value, '$.attributes."usage.inputTokens"')) AS tokens
-+			FROM vitehub_agent_invocations i, json_each(i.record, '$.observations') o
-+			WHERE i.updated_at >= ? GROUP BY i.id)`).get(new Date(since).toISOString()).tokens);
-+	} finally {
-+		db.close();
-+	}
++	const { Worker } = await import("node:worker_threads");
++	const worker = new Worker(`
++		const { parentPort, workerData } = require("node:worker_threads");
++		const { DatabaseSync } = require("node:sqlite");
++		// The store uses a rollback journal; wait briefly for a writer instead of failing.
++		const db = new DatabaseSync(workerData.file, { readOnly: true, timeout: 500 });
++		try {
++			parentPort.postMessage(db.prepare(\`SELECT i.id AS id, i.updated_at AS updatedAt,
++				MAX(json_extract(o.value, '$.attributes."usage.inputTokens"')) AS tokens
++				FROM vitehub_agent_invocations i, json_each(i.record, '$.observations') o
++				WHERE i.updated_at >= ? GROUP BY i.id\`).all(workerData.since));
++		} finally {
++			db.close();
++		}`, {
++		eval: true,
++		workerData: {
++			file,
++			since: new Date(since).toISOString()
++		}
++	});
++	const rows = await new Promise((resolve, reject) => {
++		const timer = setTimeout(() => {
++			worker.terminate();
++			reject(new Error("Token usage read timed out."));
++		}, 6e4);
++		worker.once("message", (value) => {
++			clearTimeout(timer);
++			resolve(value);
++		});
++		worker.once("error", (error) => {
++			clearTimeout(timer);
++			reject(error);
++		});
++		worker.once("exit", (code) => {
++			clearTimeout(timer);
++			reject(new Error(`Token usage reader exited with code ${code}.`));
++		});
++	});
++	return rows.map((row) => ({
++		id: row.id,
++		updatedAt: Date.parse(row.updatedAt),
++		tokens: Number(row.tokens) || 0
++	}));
++}
++/** Sums cached per-invocation tokens updated at or after `since`. */
++function sumInvocationInputTokens(usage, since) {
++	let total = 0;
++	for (const entry of usage.values()) if (entry.updatedAt >= since) total += entry.tokens;
++	return total;
 +}
 +/** Gathers disk, token, and proxy state for admission. Token usage is re-read at most once a minute. */
 +function createBabysitterAdmission(options) {
 +	const limits = options.limits;
-+	let usage;
++	// Per-invocation token maxima for today. After the first read, each refresh re-reads only
++	// rows updated since the previous one (with overlap for clock skew between writers).
++	const usage = /* @__PURE__ */ new Map();
++	let readAt;
++	let cursor;
 +	return async function check(now = Date.now()) {
 +		const windows = babysitterBudgetWindows(now);
 +		const tmpDir = tmpdir();
@@ -14130,20 +14175,20 @@ index 0000000000000000000000000000000000000000..01fa94f46eb902c889ee911d3255597f
 +		} catch (error) {
 +			state.errors = [...state.errors ?? [], `tmp: ${error.message}`];
 +		}
-+		if (!usage || now - usage.at >= 6e4 || usage.dayStart !== windows.dayStart || usage.hourStart !== windows.hourStart) try {
-+			usage = {
-+				at: now,
-+				dayStart: windows.dayStart,
-+				hourStart: windows.hourStart,
-+				hourly: await readInvocationInputTokens(options.invocationsFile, windows.hourStart),
-+				daily: await readInvocationInputTokens(options.invocationsFile, windows.dayStart)
-+			};
++		if (readAt === void 0 || now - readAt >= 6e4) try {
++			const since = cursor === void 0 ? windows.dayStart : Math.max(windows.dayStart, cursor - 6e4);
++			for (const entry of await readInvocationInputTokens(options.invocationsFile, since)) usage.set(entry.id, entry);
++			for (const [id, entry] of usage) if (entry.updatedAt < windows.dayStart) usage.delete(id);
++			readAt = now;
++			cursor = now;
 +		} catch (error) {
-+			usage = void 0;
++			// Keep the last totals; a busy store must not hide a spent budget.
 +			state.errors = [...state.errors ?? [], `tokens: ${error.message}`];
 +		}
-+		state.hourlyInputTokens = usage?.hourly;
-+		state.dailyInputTokens = usage?.daily;
++		if (readAt !== void 0) {
++			state.hourlyInputTokens = sumInvocationInputTokens(usage, windows.hourStart);
++			state.dailyInputTokens = sumInvocationInputTokens(usage, windows.dayStart);
++		}
 +		try {
 +			state.proxy = summarizeProxyAccounts(JSON.parse(await readFile(limits.proxyStatusFile, "utf8")), limits.proxyProvider, now, limits.proxyStatusMaxAgeMs);
 +		} catch (error) {

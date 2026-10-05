@@ -49,7 +49,7 @@ const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
 
 async function json(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+  const response = await fetch(url, { signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`${url} answered ${response.status}`)
   return await response.json()
 }
@@ -223,6 +223,8 @@ log(`live on ${release}`)
 // 5. Watch shared resources; roll back on a spike.
 let firstTokens
 let problem
+// Health can miss one sample while passes start; three in a row (90 s) is an outage.
+let healthFailures = 0
 for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await sleep(SAMPLE_MS)) {
   const tmp = tmpUsage()
   const free = workspaceFree()
@@ -232,14 +234,16 @@ for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await 
   else {
     const health = await babysitterHealth(LIVE).catch(error => ({ error }))
     const hourly = health.agent?.budget?.hourly
-    if (health.error) problem = `health failed: ${health.error.message}`
+    healthFailures = health.error ? healthFailures + 1 : 0
+    if (healthFailures >= 3) problem = `health failed ${healthFailures} times in a row: ${health.error.message}`
     else if (hourly && typeof hourly.inputTokens === 'number') {
       if (!firstTokens || hourly.inputTokens < firstTokens.tokens) firstTokens = { tokens: hourly.inputTokens, at: Date.now() }
       const elapsed = Date.now() - firstTokens.at
       const perHour = elapsed >= 5 * 60_000 ? (hourly.inputTokens - firstTokens.tokens) * 36e5 / elapsed : 0
       if (perHour > TOKEN_RATE_FACTOR * hourly.limit) problem = `token rate ${(perHour / 1e6).toFixed(1)}M/h over ${TOKEN_RATE_FACTOR}x the ${(hourly.limit / 1e6).toFixed(0)}M budget`
     }
-    log(`watch: /tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${hourly ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
+    const budgetErrors = health.agent?.budget?.errors?.join('; ')
+    log(`watch: /tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
   }
 }
 if (!problem) {

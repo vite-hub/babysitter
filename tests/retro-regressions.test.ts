@@ -137,7 +137,7 @@ test('exhausted or mostly used proxy accounts pause admission; stale status does
   assert.equal(decide(roomy({ proxy: stale }), limits).accepting, true)
 })
 
-test('token usage counts each invocation once at its cumulative maximum', async () => {
+test('token usage counts each invocation once at its cumulative maximum and refreshes incrementally', async () => {
   const { DatabaseSync } = await import('node:sqlite')
   const { mkdtempSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -154,8 +154,18 @@ test('token usage counts each invocation once at its cumulative maximum', async 
     insert.run('c', 'completed', '2026-10-05T17:21:00.000Z', record())
     db.close()
     const read = admissionFunction('readInvocationInputTokens')()
-    assert.equal(await read(file, Date.parse('2026-10-05T17:00:00.000Z')), 125_835)
-    assert.equal(await read(file, Date.parse('2026-10-05T00:00:00.000Z')), 1_025_835)
+    const sum = admissionFunction('sumInvocationInputTokens')()
+    const usage = new Map((await read(file, Date.parse('2026-10-05T00:00:00.000Z'))).map((entry: { id: string }) => [entry.id, entry]))
+    assert.equal(sum(usage, Date.parse('2026-10-05T17:00:00.000Z')), 125_835)
+    assert.equal(sum(usage, Date.parse('2026-10-05T00:00:00.000Z')), 1_025_835)
+    // A refresh reads only recently updated rows and replaces the running pass's total.
+    const writer = new DatabaseSync(file)
+    writer.prepare('UPDATE vitehub_agent_invocations SET updated_at = ?, record = ? WHERE id = ?').run('2026-10-05T17:40:00.000Z', record(40_000, 70_000), 'b')
+    writer.close()
+    const fresh = await read(file, Date.parse('2026-10-05T17:30:00.000Z'))
+    assert.deepEqual(fresh.map((entry: { id: string }) => entry.id), ['b'])
+    for (const entry of fresh) usage.set(entry.id, entry)
+    assert.equal(sum(usage, Date.parse('2026-10-05T17:00:00.000Z')), 155_835)
   }
   finally {
     rmSync(directory, { force: true, recursive: true })
@@ -171,4 +181,11 @@ test('the scheduler checks admission before claiming and records the skip', () =
   assert.match(reconcile, /setMeta\("admission-skipped"/)
   assert.match(host.source, /admission: \{\s*accepting: !quotaBlocked && guard\.accepting,/)
   assert.match(host.source, /budget: \{\s*hourly: \{/)
+  // The 20:00 rollback: a full-day synchronous scan per refresh stalled health, and a busy
+  // store blanked the budget.
+  const check = host.source.match(/function createBabysitterAdmission\([\s\S]*?\n}\n/)?.[0]
+  assert.ok(check)
+  assert.match(check, /cursor === void 0 \? windows\.dayStart : Math\.max\(windows\.dayStart, cursor - 6e4\)/)
+  assert.doesNotMatch(check, /usage = void 0/)
+  assert.match(host.source, /new Worker\(`[\s\S]*?readOnly: true, timeout: 500/)
 })
