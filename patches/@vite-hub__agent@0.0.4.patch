@@ -8599,6 +8599,24 @@ index c970889d3532a3d00e6d4918455848d1359640d3..6036a6c3e7bef1e0550173deed1a5cb3
 +import { a as agentEvlogPlugin, c as sanitizeAgentLog, i as AgentEvlogOptions, n as AgentEvlogExporter, o as createAgentEvlog, r as AgentEvlogHost, s as filterAgentObservability, t as AgentEvlog } from "./evlog-BcCQne3S.js";
  export { AgentEvlog, AgentEvlogExporter, AgentEvlogHost, AgentEvlogOptions, type AgentEvlogStatus, agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog };
 \ No newline at end of file
+diff --git a/dist/github-BQOtYS1U.js b/dist/github-BQOtYS1U.js
+index fd6ca023b28d0f865b74f352d31b1365ebbf2c2f..0b611d09740904d31963ebf34934fe1a85a29267 100644
+--- a/dist/github-BQOtYS1U.js
++++ b/dist/github-BQOtYS1U.js
+@@ -1030,7 +1030,12 @@ function createGitHubHost(options) {
+ 			operation.close();
+ 			await rm(checkout, {
+ 				force: true,
+-				recursive: true
++				recursive: true,
++				// Workspace lock cleanup can briefly recreate entries while the
++				// checkout is being removed. Retry transient directory races so
++				// cleanup does not turn a completed PR run into a failed run.
++				maxRetries: 5,
++				retryDelay: 100
+ 			});
+ 		}
+ 	}
 diff --git a/dist/github-C69OTtai.js b/dist/github-C69OTtai.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..8a157c885579ab864905bcef89215b23b028c588
@@ -16012,6 +16030,49 @@ index 1c72625fb7672f6d877572e3be1d6bc0fb08d91f..542cbdf4f2182e845b14e117f90fb998
  import { o as registerAgentInvocationInputHandler, t as ownedAgentInvocationControlId } from "./agent-invocation-response-owner-BJjGK8gX.js";
  import { t as resolveInstalledProviderExecutable } from "./provider-runtime-packages-BIffLz2Y.js";
  import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue } from "@vite-hub/runtime";
+diff --git a/dist/provider-runtime-packages-BIffLz2Y.js b/dist/provider-runtime-packages-BIffLz2Y.js
+index 2fa828842cbe01008b5855fd1a3837e9427f3abb..68310f52bff6370794cfaa4b3779fcc33425df3c 100644
+--- a/dist/provider-runtime-packages-BIffLz2Y.js
++++ b/dist/provider-runtime-packages-BIffLz2Y.js
+@@ -40,6 +40,11 @@ function isPackageResolutionMiss(error) {
+ 	const code = error?.code;
+ 	return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
+ }
++function isUnreadableCandidate(error) {
++	const failure = error;
++	if (failure?.code === "EACCES" || failure?.code === "EPERM") return true;
++	return failure?.code === "ERR_INVALID_PACKAGE_CONFIG" && /permission denied|operation not permitted/i.test(failure.message);
++}
+ function resolvePackageJson(name, resolveFrom) {
+ 	const resolver = createRequire(resolveFrom);
+ 	try {
+@@ -99,16 +104,22 @@ function resolveInstalledProviderExecutable(provider, options = {}) {
+ 		for (const candidate of candidates) try {
+ 			return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`);
+ 		} catch (error) {
+-			if (!isPackageResolutionMiss(error)) throw error;
++			if (!isPackageResolutionMiss(error) && !isUnreadableCandidate(error)) throw error;
+ 		}
+ 		return;
+ 	}
+ 	const target = resolveClaudeTarget(platform, options.arch ?? process.arch, options.libc);
+ 	if (!target?.binary) return;
+ 	for (const candidate of candidates) {
+-		const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
+-		if (!packageJsonPath) continue;
+-		const nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		let nativePackageJsonPath;
++		try {
++			const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
++			if (!packageJsonPath) continue;
++			nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
++		} catch (error) {
++			if (!isUnreadableCandidate(error)) throw error;
++			continue;
++		}
+ 		if (nativePackageJsonPath) return join(dirname(nativePackageJsonPath), target.binary);
+ 	}
+ }
 diff --git a/dist/routes-D9zGSVaE.js b/dist/routes-D9zGSVaE.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..32c7bc6f8c4b51d15fd366b969091faa4f34b5b0
@@ -35188,46 +35249,3 @@ index 0000000000000000000000000000000000000000..be43552ada7b1e9f0c4593ffd6452167
 +}
 +//#endregion
 +export { resetPublicUrlAgentNames as A, createConfiguredAgentDefinition as C, resolveAgentLayerOptions as D, rememberAgentLayerOptions as E, markDiscoveredAgentName as O, agentLayerMetadata as S, inheritAgentLayerOptions as T, agentWithSkills as _, materializeAgentInspectionSourceMetadata as a, decodeColocatedAgentSkills as b, resolveWorkspaceInstructionBindings as c, workspaceAgentWithSourceRoot as d, workspaceAutoCommitDisabled as f, workspaceNameFromOptions as g, workspaceModeFromOptions as h, markWorkspaceAgentDefinitionRegistered as i, agentDefinitionSourceSymbol as j, readDiscoveredAgentName as k, workspaceAgentOwnsWorkspaceDefinition as l, workspaceDefinitionWithAutoCommitRules as m, isWorkspaceAgentOptions as n, resolveAgentInspectionMetadata as o, workspaceDefinitionFromOptions as p, markDiscoveredWorkspaceAgentDefinitionRegistered as r, resolveWorkspaceAgentDefaultInstructions as s, createAgentInspectionMetadata as t, workspaceAgentUsesRegisteredDefinition as u, colocatedAgentSkillsContextKey as v, getAgentLayerOptions as w, withColocatedAgentSkills as x, colocatedAgentSkillsSymbol as y };
-diff --git a/dist/provider-runtime-packages-BIffLz2Y.js b/dist/provider-runtime-packages-BIffLz2Y.js
-index 2fa828842cbe01008b5855fd1a3837e9427f3abb..68310f52bff6370794cfaa4b3779fcc33425df3c 100644
---- a/dist/provider-runtime-packages-BIffLz2Y.js
-+++ b/dist/provider-runtime-packages-BIffLz2Y.js
-@@ -40,6 +40,11 @@ function isPackageResolutionMiss(error) {
- 	const code = error?.code;
- 	return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED";
- }
-+function isUnreadableCandidate(error) {
-+	const failure = error;
-+	if (failure?.code === "EACCES" || failure?.code === "EPERM") return true;
-+	return failure?.code === "ERR_INVALID_PACKAGE_CONFIG" && /permission denied|operation not permitted/i.test(failure.message);
-+}
- function resolvePackageJson(name, resolveFrom) {
- 	const resolver = createRequire(resolveFrom);
- 	try {
-@@ -99,16 +104,22 @@ function resolveInstalledProviderExecutable(provider, options = {}) {
- 		for (const candidate of candidates) try {
- 			return createRequire(candidate).resolve(`${codexPackageName}/bin/codex.js`);
- 		} catch (error) {
--			if (!isPackageResolutionMiss(error)) throw error;
-+			if (!isPackageResolutionMiss(error) && !isUnreadableCandidate(error)) throw error;
- 		}
- 		return;
- 	}
- 	const target = resolveClaudeTarget(platform, options.arch ?? process.arch, options.libc);
- 	if (!target?.binary) return;
- 	for (const candidate of candidates) {
--		const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
--		if (!packageJsonPath) continue;
--		const nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
-+		let nativePackageJsonPath;
-+		try {
-+			const packageJsonPath = resolvePackageJson(claudePackageName, candidate);
-+			if (!packageJsonPath) continue;
-+			nativePackageJsonPath = resolvePackageJson(target.packageName, packageJsonPath);
-+		} catch (error) {
-+			if (!isUnreadableCandidate(error)) throw error;
-+			continue;
-+		}
- 		if (nativePackageJsonPath) return join(dirname(nativePackageJsonPath), target.binary);
- 	}
- }
