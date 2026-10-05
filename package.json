@@ -10,7 +10,9 @@
     "build": "vite build",
     "dev": "vite --host 127.0.0.1 --port 3028",
     "start": "node .output/server/index.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "evlog": "^2.29.0",

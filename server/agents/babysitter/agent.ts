@@ -43,16 +43,26 @@ export default defineAgent({
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
-      NODE_OPTIONS: '--max-old-space-size=1024',
+      NODE_OPTIONS: '--max-old-space-size=3072',
     }),
     instructions: `
 Before/after images and demonstration videos are optional. Require media only when a
 current maintainer explicitly requests it for this PR. Remove stale blockers based
 only on a generic media requirement.
 
-Keep a short task plan with the harness plan tool. Make at most one repair commit
-per pass. Run focused tests, lint and typecheck. Do not run local builds or broad
-validation matrices; use CI logs to diagnose remote build failures.
+The checkout has full Git history and network access, but no GitHub credentials and
+no installed dependencies. Before focused checks, install with the repository's
+package manager and frozen lockfile, for pnpm: pnpm install --frozen-lockfile
+--prefer-offline. The PR tools are MCP tools named mcp__t3_code__pushRepair,
+mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
+mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
+mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them
+directly. Push only through pushRepair. The host merges a ready PR after you report
+reviewedHead; never merge it yourself.
+
+Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
+not run local builds or broad validation matrices; use CI logs to diagnose remote
+build failures.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in
