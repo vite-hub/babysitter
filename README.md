@@ -21,6 +21,18 @@ export default defineAgent({
 })
 ```
 
+The preset keeps model passes for real repair work:
+
+- `noFindingsReviews` and `ignoreFeedbackAuthors` mark review verdicts and preview-bot panels
+  that never need a model. Feedback that a pass assessed or answered with a push stays
+  assessed on later heads, so a PR with no new findings merges without another pass.
+- `deferWhilePending` (default `true`) waits for running required checks and review checks
+  before a pass, unless a failure or conflict already needs repair.
+- `noProgressBudget` (default `3`) stops a head after that many passes without progress, until
+  the head changes or a person comments.
+- `install` (default `true`) installs dependencies on the host from the frozen lockfile before
+  the model starts, and records the result in `.git/vitehub-install.json`.
+
 The included configuration enables direct squash merges for PRs authored by `onmax`.
 Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
 head, required checks, reviews, feedback and default branch. Open stack children wait

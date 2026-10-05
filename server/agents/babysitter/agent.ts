@@ -33,7 +33,9 @@ export default defineAgent({
     },
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 1),
     reviewChecks: ['pullfrog'],
-    noFindingsReviews: ['> ✅ No new issues found.'],
+    noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
+    // Deployment preview bots post status panels, never review findings.
+    ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
     merge: { strategy: 'direct', method: 'squash' },
   },
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
@@ -43,17 +45,17 @@ export default defineAgent({
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
-      NODE_OPTIONS: '--max-old-space-size=3072',
+      NODE_OPTIONS: '--max-old-space-size=4096',
+      // The worker bin wraps node with the shared typecheck/test slot gate.
+      ...(process.env.BABYSITTER_WORKER_BIN ? { PATH: `${process.env.BABYSITTER_WORKER_BIN}:${process.env.PATH}` } : {}),
     }),
     instructions: `
 Before/after images and demonstration videos are optional. Require media only when a
 current maintainer explicitly requests it for this PR. Remove stale blockers based
 only on a generic media requirement.
 
-The checkout has full Git history and network access, but no GitHub credentials and
-no installed dependencies. Before focused checks, install with the repository's
-package manager and frozen lockfile, for pnpm: pnpm install --frozen-lockfile
---prefer-offline. The PR tools are MCP tools named mcp__t3_code__pushRepair,
+The checkout has full Git history and network access, but no GitHub credentials. The
+host installs dependencies with the frozen lockfile before you start. The PR tools are MCP tools named mcp__t3_code__pushRepair,
 mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
 mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
 mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them

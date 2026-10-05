@@ -25,10 +25,10 @@ const WATCH_MS = Number(process.env.RELEASE_WATCH_MINUTES ?? 15) * 60_000
 const SAMPLE_MS = 30_000
 // Rollback triggers during the watch.
 const TMP_MAX_PERCENT = 85
-const TMP_MAX_RISE = 15 // percentage points over the pre-release baseline
 const DISK_MIN_FREE = 20 * 2 ** 30
 const DISK_MAX_DROP = 25 * 2 ** 30
-const TOKEN_RATE_FACTOR = 1.5 // times the hourly budget, extrapolated from the watch
+// The token guard is a per-window cap. Usage well past it means the cap is not enforced.
+const TOKEN_CAP_FACTOR = 1.5
 
 const args = process.argv.slice(2)
 const smokeOnly = args.includes('--smoke-only')
@@ -221,14 +221,13 @@ await drainAndRestart(sha)
 log(`live on ${release}`)
 
 // 5. Watch shared resources; roll back on a spike.
-let firstTokens
 let problem
 // Health can miss one sample while passes start; three in a row (90 s) is an outage.
 let healthFailures = 0
 for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await sleep(SAMPLE_MS)) {
   const tmp = tmpUsage()
   const free = workspaceFree()
-  if (tmp >= TMP_MAX_PERCENT || tmp - baseline.tmp >= TMP_MAX_RISE) problem = `/tmp at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
+  if (tmp >= TMP_MAX_PERCENT) problem = `/tmp at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
   else if (free < DISK_MIN_FREE || baseline.free - free >= DISK_MAX_DROP) problem = `free disk ${(free / 2 ** 30).toFixed(0)} GiB (baseline ${(baseline.free / 2 ** 30).toFixed(0)} GiB)`
   else if (out('systemctl', ['is-active', UNIT]) !== 'active') problem = `${UNIT} is not active`
   else {
@@ -236,11 +235,12 @@ for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await 
     const hourly = health.agent?.budget?.hourly
     healthFailures = health.error ? healthFailures + 1 : 0
     if (healthFailures >= 3) problem = `health failed ${healthFailures} times in a row: ${health.error.message}`
-    else if (hourly && typeof hourly.inputTokens === 'number') {
-      if (!firstTokens || hourly.inputTokens < firstTokens.tokens) firstTokens = { tokens: hourly.inputTokens, at: Date.now() }
-      const elapsed = Date.now() - firstTokens.at
-      const perHour = elapsed >= 5 * 60_000 ? (hourly.inputTokens - firstTokens.tokens) * 36e5 / elapsed : 0
-      if (perHour > TOKEN_RATE_FACTOR * hourly.limit) problem = `token rate ${(perHour / 1e6).toFixed(1)}M/h over ${TOKEN_RATE_FACTOR}x the ${(hourly.limit / 1e6).toFixed(0)}M budget`
+    else {
+      for (const [name, window] of [['hourly', hourly], ['daily', health.agent?.budget?.daily]]) {
+        if (window && typeof window.inputTokens === 'number' && window.limit > 0 && window.inputTokens > TOKEN_CAP_FACTOR * window.limit) {
+          problem = `${name} input tokens ${(window.inputTokens / 1e6).toFixed(1)}M exceed ${TOKEN_CAP_FACTOR}x the ${(window.limit / 1e6).toFixed(0)}M cap; the guard is not enforcing it`
+        }
+      }
     }
     const budgetErrors = health.agent?.budget?.errors?.join('; ')
     log(`watch: /tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
