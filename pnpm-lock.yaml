@@ -8,9 +8,9 @@ patchedDependencies:
   '@vite-hub/agent@0.0.4':
     hash: 152e1f9d6b22e948c51bb59d80f173814ad9d1481129b091594ab8f297c329d0
     path: patches/@vite-hub__agent@0.0.4.patch
-  '@vite-hub/workspace@0.0.4':
+  '@vite-hub/workspace':
     hash: 8aed295073fc15ad3a836d88c512606d9b495b051206e6fd13b8e13e1d5712e0
-    path: patches/@vite-hub__workspace@0.0.4.patch
+    path: patches/@vite-hub__workspace.patch
 
 importers:
 
