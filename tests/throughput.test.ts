@@ -150,3 +150,9 @@ test('startup sweeps only its own pass workspaces and deferral needs every requi
   assert.match(host, /if \(!info \|\| info\.mtimeMs >= startedAt\) continue;/)
   assert.match(host, /evaluation\.state === "pending" && !evaluation\.missing\.length \? "required checks" : void 0/)
 })
+
+test('passes with the same lockfile share one install', () => {
+  const host = chunk('const installsInFlight = ').source
+  assert.match(host, /if \(cacheKey && installsInFlight\.has\(cacheKey\)\) \{/)
+  assert.match(host, /\} finally \{\n\t+if \(finishFlight\) \{\n\t+installsInFlight\.delete\(cacheKey\);\n\t+finishFlight\(\);/)
+})

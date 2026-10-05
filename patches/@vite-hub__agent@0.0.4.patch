@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03fe09a62a
+index 0000000000000000000000000000000000000000..c12093363c49b44e581b74db2d2734179f68bf51
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2206 @@
+@@ -0,0 +1,2240 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14635,6 +14635,8 @@ index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03
 +	const installEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(?:PATH|HOME|USER|LOGNAME|LANG|LC_[A-Z]+|TMPDIR|TERM|SHELL|COREPACK_[A-Z_]+|npm_config_[a-z_]+|PNPM_HOME)$/.test(key)));
 +	const installCacheRoot = process.env.BABYSITTER_INSTALL_CACHE || join(tmpdir(), "vitehub-install-cache");
 +	const installCacheEntries = Math.max(1, Number(process.env.BABYSITTER_INSTALL_CACHE_ENTRIES) || 8);
++	// One install per cache key at a time; later passes wait for it and restore the saved trees.
++	const installsInFlight = /* @__PURE__ */ new Map();
 +	/** The installed trees depend on the lockfile, workspace, root manifest, .npmrc, patches and Node. */
 +	async function pnpmInstallKey(cwd) {
 +		const hash = createHash("sha256").update(process.version);
@@ -14764,13 +14766,29 @@ index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03
 +		};
 +		const cacheKey = command[0] === "pnpm" && !isRuntimeRecord(installSetting) ? await pnpmInstallKey(cwd).catch(() => void 0) : void 0;
 +		let args = command.slice(1);
++		let finishFlight;
++		if (cacheKey && installsInFlight.has(cacheKey)) {
++			const waitStartedAt = Date.now();
++			await Promise.race([installsInFlight.get(cacheKey), new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
++			record.waitMs = Date.now() - waitStartedAt;
++		}
++		if (cacheKey && !installsInFlight.has(cacheKey)) installsInFlight.set(cacheKey, new Promise((resolve) => {
++			finishFlight = resolve;
++		}));
++		const restoreStartedAt = Date.now();
 +		if (cacheKey) try {
 +			if (await restoreInstallCache(cwd, cacheKey, signal)) {
 +				args = args.map((value) => value === "--prefer-offline" ? "--offline" : value);
 +				record.cache = "hit";
 +			} else record.cache = "miss";
 +		} catch (error) {
-+			if (isAbortError(error) || signal.aborted) throw error;
++			if (isAbortError(error) || signal.aborted) {
++				if (finishFlight) {
++					installsInFlight.delete(cacheKey);
++					finishFlight();
++				}
++				throw error;
++			}
 +			record.cache = "restore-failed";
 +			await removeNodeModules(cwd);
 +		}
@@ -14788,6 +14806,8 @@ index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03
 +				maxBuffer: 64 * 1024 * 1024
 +			});
 +		};
++		record.restoreMs = Date.now() - restoreStartedAt;
++		const installStartedAt = Date.now();
 +		try {
 +			let result;
 +			try {
@@ -14801,11 +14821,21 @@ index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03
 +			}
 +			record.ok = true;
 +			record.output = String(result.stdout ?? "").slice(-2e3);
-+			if (cacheKey && record.cache !== "hit") await saveInstallCache(cwd, cacheKey).catch(() => {});
++			record.installMs = Date.now() - installStartedAt;
++			if (cacheKey && record.cache !== "hit") {
++				const saveStartedAt = Date.now();
++				await saveInstallCache(cwd, cacheKey).catch(() => {});
++				record.saveMs = Date.now() - saveStartedAt;
++			}
 +		} catch (error) {
 +			if (isAbortError(error) || signal.aborted) throw error;
 +			record.exitCode = isRuntimeRecord(error) ? error.code : void 0;
 +			record.output = `${String(isRuntimeRecord(error) ? error.stdout ?? "" : "").slice(-2e3)}\n${String(isRuntimeRecord(error) ? error.stderr ?? "" : error).slice(-4e3)}`;
++		} finally {
++			if (finishFlight) {
++				installsInFlight.delete(cacheKey);
++				finishFlight();
++			}
 +		}
 +		record.durationMs = Date.now() - startedAt;
 +		try {
@@ -14815,6 +14845,10 @@ index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03
 +			...owner,
 +			command: record.command,
 +			cache: record.cache,
++			waitMs: record.waitMs,
++			restoreMs: record.restoreMs,
++			installMs: record.installMs,
++			saveMs: record.saveMs,
 +			ok: record.ok,
 +			exitCode: record.exitCode,
 +			durationMs: record.durationMs
