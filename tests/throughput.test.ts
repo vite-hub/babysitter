@@ -143,3 +143,10 @@ test('pnpm installs reuse hardlinked node_modules keyed by the lockfile and veri
   assert.match(host, /record\.cache = "verify-failed";\n\t+await removeNodeModules\(cwd\);\n\t+result = await install\(command\.slice\(1\)\);/)
   assert.match(host, /"cp", \[\n\t+"-al",/)
 })
+
+test('startup sweeps only its own pass workspaces and deferral needs every required check reported', () => {
+  const host = chunk('async function sweepBabysitterWorkspaces(').source
+  assert.match(host, /if \(!root\.startsWith\(`\$\{process\.cwd\(\)\}\/`\)\) return 0;/)
+  assert.match(host, /if \(!info \|\| info\.mtimeMs >= startedAt\) continue;/)
+  assert.match(host, /evaluation\.state === "pending" && !evaluation\.missing\.length \? "required checks" : void 0/)
+})

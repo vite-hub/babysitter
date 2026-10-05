@@ -26,7 +26,7 @@ const SAMPLE_MS = 30_000
 // Rollback triggers during the watch.
 const TMP_MAX_PERCENT = 85
 const DISK_MIN_FREE = 20 * 2 ** 30
-const DISK_MAX_DROP = 25 * 2 ** 30
+// Other sessions share this disk, so only an absolute floor is a Babysitter signal.
 // The token guard is a per-window cap. Usage well past it means the cap is not enforced.
 const TOKEN_CAP_FACTOR = 1.5
 
@@ -228,7 +228,7 @@ for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await 
   const tmp = tmpUsage()
   const free = workspaceFree()
   if (tmp >= TMP_MAX_PERCENT) problem = `/tmp at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
-  else if (free < DISK_MIN_FREE || baseline.free - free >= DISK_MAX_DROP) problem = `free disk ${(free / 2 ** 30).toFixed(0)} GiB (baseline ${(baseline.free / 2 ** 30).toFixed(0)} GiB)`
+  else if (free < DISK_MIN_FREE) problem = `free disk ${(free / 2 ** 30).toFixed(0)} GiB (baseline ${(baseline.free / 2 ** 30).toFixed(0)} GiB)`
   else if (out('systemctl', ['is-active', UNIT]) !== 'active') problem = `${UNIT} is not active`
   else {
     const health = await babysitterHealth(LIVE).catch(error => ({ error }))

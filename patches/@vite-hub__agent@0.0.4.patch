@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e5d83b441
+index 0000000000000000000000000000000000000000..938faec54bc82de9dca97719d15dbf03fe09a62a
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2178 @@
+@@ -0,0 +1,2206 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -13933,7 +13933,7 @@ index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e
 +/** Feedback, intent, and base that need a model pass when they change. CI results are excluded. */
 +function repairContextKey(s, policy) {
 +	const pr = s.pr;
-+	const fromWorker = (value) => policy.workerAuthors.has(login(value));
++	const fromWorker = (value) => policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true;
 +	const external = (values) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
 +	const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
 +	const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
@@ -14626,7 +14626,10 @@ index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e
 +		const pr = snapshot.pr;
 +		if (!pr || pr.mergeable === false || pr.mergeable_state === "dirty" || failureKeys(snapshot).length) return void 0;
 +		if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
-+		return await requiredCheckState(snapshot) === "pending" ? "required checks" : void 0;
++		const base = snapshot.pr?.base?.ref;
++		if (!base) return void 0;
++		const evaluation = evaluateGitHubRequiredChecks(await requiredChecks.read(snapshot.repository, base), snapshotCheckEvidence(snapshot));
++		return evaluation.state === "pending" && !evaluation.missing.length ? "required checks" : void 0;
 +	}
 +	const installSetting = baseAgent.install ?? presetOptions.install ?? true;
 +	const installEnvironment = () => Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(?:PATH|HOME|USER|LOGNAME|LANG|LC_[A-Z]+|TMPDIR|TERM|SHELL|COREPACK_[A-Z_]+|npm_config_[a-z_]+|PNPM_HOME)$/.test(key)));
@@ -15478,11 +15481,33 @@ index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e
 +	});
 +	return entries.length;
 +}
++/**
++* Remove pass workspaces left by an interrupted process. Only a temporary directory inside the
++* service's working directory is swept, because no other process uses it.
++*/
++async function sweepBabysitterWorkspaces(startedAt = Date.now()) {
++	const root = tmpdir();
++	if (!root.startsWith(`${process.cwd()}/`)) return 0;
++	let removed = 0;
++	for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
++		if (!/^(?:vitehub-provider-(?:launch-)?[A-Za-z0-9]{6}|vitehub-baseline-[A-Za-z0-9]{6}|vitehub-[\w.-]+-pr-\d+-[A-Za-z0-9]{6}(?:\.meta\.json)?|t3-provider-runtime-[A-Za-z0-9]{6})$/.test(entry.name)) continue;
++		const path = join(root, entry.name);
++		const info = await lstat(path).catch(() => void 0);
++		if (!info || info.mtimeMs >= startedAt) continue;
++		await rm(path, {
++			force: true,
++			recursive: true,
++			maxRetries: 3
++		}).then(() => removed++, () => {});
++	}
++	return removed;
++}
 +/** Builds the GitHub host, process host, inbox, and reconciler for one discovered Babysitter Agent. */
 +async function createBabysitterProcessHost(context) {
 +	const agent = context.agent;
 +	const repositories = babysitterRepositories(agent.options.filter);
 +	await cleanupLegacyBabysitterCheckouts(join(context.dataDir, "..", ".."));
++	const swept = await sweepBabysitterWorkspaces();
 +	const app = await readGitHubAppEnvironment();
 +	const credentials = createGitHubAppCredentials(app);
 +	const identity = await credentials.identity();
@@ -15546,7 +15571,10 @@ index 0000000000000000000000000000000000000000..074fc424aa7a4ee555381141e921e27e
 +			});
 +			inbox.importLegacyFile(".vitehub/pull-request-inbox.sqlite").catch((error) => host.error("babysitter.legacy-import.failed", error)).then(() => inbox.releaseLeases()).then((released) => {
 +				if (released) host.event("babysitter.leases.released", { released });
-+			}, (error) => host.error("babysitter.leases.release-failed", error)).finally(() => host.start());
++			}, (error) => host.error("babysitter.leases.release-failed", error)).finally(() => {
++				if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
++				host.start();
++			});
 +		},
 +		async close() {
 +			registerAgentProcessHostIntake(context.agentName, void 0);
