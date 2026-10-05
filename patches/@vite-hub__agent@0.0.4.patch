@@ -8600,7 +8600,7 @@ index c970889d3532a3d00e6d4918455848d1359640d3..6036a6c3e7bef1e0550173deed1a5cb3
  export { AgentEvlog, AgentEvlogExporter, AgentEvlogHost, AgentEvlogOptions, type AgentEvlogStatus, agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog };
 \ No newline at end of file
 diff --git a/dist/github-BQOtYS1U.js b/dist/github-BQOtYS1U.js
-index fd6ca023b28d0f865b74f352d31b1365ebbf2c2f..0b611d09740904d31963ebf34934fe1a85a29267 100644
+index fd6ca023b28d0f865b74f352d31b1365ebbf2c2f..e321c4ad5fc500c498eae77147470a4fc963ed3a 100644
 --- a/dist/github-BQOtYS1U.js
 +++ b/dist/github-BQOtYS1U.js
 @@ -1030,7 +1030,12 @@ function createGitHubHost(options) {
@@ -8617,12 +8617,30 @@ index fd6ca023b28d0f865b74f352d31b1365ebbf2c2f..0b611d09740904d31963ebf34934fe1a
  			});
  		}
  	}
+@@ -1694,13 +1699,14 @@ function createGitHubPullRequestOperations(github, options) {
+ 		const rules = await github.command([
+ 			"api",
+ 			"--paginate",
+-			"--slurp",
+-			`/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`
++			`/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`,
++			"--jq",
++			".[] | @json"
+ 		], commandOptions);
+ 		const activeRules = v.parse(v.array(v.object({
+ 			type: v.string(),
+ 			parameters: v.optional(v.unknown())
+-		})), JSON.parse(rules.stdout).flat());
++		})), rules.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)));
+ 		if (!activeRules.some((rule) => rule.type === "required_status_checks" && v.safeParse(v.object({ required_status_checks: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success || rule.type === "workflows" && v.safeParse(v.object({ workflows: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success)) {
+ 			const rule = v.parse(v.object({ repository: v.object({ ref: v.nullable(v.object({ branchProtectionRule: v.nullable(v.object({
+ 				requiresStatusChecks: v.boolean(),
 diff --git a/dist/github-C69OTtai.js b/dist/github-C69OTtai.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..48d6a76d1a12d7e61bb6fd58fc719598da0420b8
+index 0000000000000000000000000000000000000000..e8aedf37244dcf414015b5c65ec2decf9223b327
 --- /dev/null
 +++ b/dist/github-C69OTtai.js
-@@ -0,0 +1,2160 @@
+@@ -0,0 +1,2161 @@
 +import { t as agentDiagnostics } from "./agent-diagnostics-CRbMCAtY.js";
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { a as github } from "./channels-DD5tg9hD.js";
@@ -10328,13 +10346,14 @@ index 0000000000000000000000000000000000000000..48d6a76d1a12d7e61bb6fd58fc719598
 +		const rules = await github.command([
 +			"api",
 +			"--paginate",
-+			"--slurp",
-+			`/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`
++			`/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`,
++			"--jq",
++			".[] | @json"
 +		], commandOptions);
 +		const activeRules = v.parse(v.array(v.object({
 +			type: v.string(),
 +			parameters: v.optional(v.unknown())
-+		})), JSON.parse(rules.stdout).flat());
++		})), rules.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)));
 +		if (!activeRules.some((rule) => rule.type === "required_status_checks" && v.safeParse(v.object({ required_status_checks: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success || rule.type === "workflows" && v.safeParse(v.object({ workflows: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success)) {
 +			const rule = v.parse(v.object({ repository: v.object({ ref: v.nullable(v.object({ branchProtectionRule: v.nullable(v.object({
 +				requiresStatusChecks: v.boolean(),
@@ -13334,10 +13353,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..eae84b7ef75270bc35a25e1182d2e5ea4052e852
+index 0000000000000000000000000000000000000000..79195728013d430ecd42ec6f7e1d3c2cbd1e6f42
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,1617 @@
+@@ -0,0 +1,1618 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14052,20 +14071,21 @@ index 0000000000000000000000000000000000000000..eae84b7ef75270bc35a25e1182d2e5ea
 +	const requiredChecks = createGitHubRequiredCheckPolicyReader(async (path) => {
 +		const repository = path.split("/").slice(1, 3).join("/");
 +		try {
++			const rules = path.includes("/rules/");
 +			const result = await github.command([
 +				"api",
 +				"--paginate",
-+				"--slurp",
-+				path
++				path,
++				"--jq",
++				rules ? ".[] | @json" : ". | @json"
 +			], {
 +				repository,
 +				timeout: 6e4
 +			});
-+			const pages = JSON.parse(result.stdout);
-+			if (!Array.isArray(pages)) return { status: 0 };
++			const values = result.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 +			return {
 +				status: 200,
-+				data: path.includes("/rules/") ? pages.flat() : pages[0],
++				data: rules ? values : values[0],
 +				nextPage: null
 +			};
 +		} catch (error) {
@@ -14955,6 +14975,37 @@ index 0000000000000000000000000000000000000000..eae84b7ef75270bc35a25e1182d2e5ea
 +}
 +//#endregion
 +export { createBabysitterProcessHost };
+diff --git a/dist/host-DAtdf_LJ.js b/dist/host-DAtdf_LJ.js
+index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..101e687cf4cbe13ab4d565c91dbbf48abc1c6ac2 100644
+--- a/dist/host-DAtdf_LJ.js
++++ b/dist/host-DAtdf_LJ.js
+@@ -431,20 +431,21 @@ function createBabysitterRuntime(options) {
+ 	const requiredChecks = createGitHubRequiredCheckPolicyReader(async (path) => {
+ 		const repository = path.split("/").slice(1, 3).join("/");
+ 		try {
++			const rules = path.includes("/rules/");
+ 			const result = await github.command([
+ 				"api",
+ 				"--paginate",
+-				"--slurp",
+-				path
++				path,
++				"--jq",
++				rules ? ".[] | @json" : ". | @json"
+ 			], {
+ 				repository,
+ 				timeout: 6e4
+ 			});
+-			const pages = JSON.parse(result.stdout);
+-			if (!Array.isArray(pages)) return { status: 0 };
++			const values = result.stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+ 			return {
+ 				status: 200,
+-				data: path.includes("/rules/") ? pages.flat() : pages[0],
++				data: rules ? values : values[0],
+ 				nextPage: null
+ 			};
+ 		} catch (error) {
 diff --git a/dist/index-ZPJQM7_5.d.ts b/dist/index-ZPJQM7_5.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..d6e7dff6b0f90bd2b5d52f67ccb1bcaecdfc0f8d
