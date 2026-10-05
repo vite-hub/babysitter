@@ -51,6 +51,17 @@ test('CI excerpts keep the failure at the end of a noisy log', () => {
   assert.match(excerpt, /exit code 1\.$/)
 })
 
+test('PR tools keep working between a repair push and its webhook', () => {
+  const inbox = chunk('function createClaimStopCheck(')
+  const claimStopReason = new Function(`${inbox.source.match(/function claimStopReason[\s\S]*?\n}\n/)?.[0]}return claimStopReason`)()
+  const claim = { token: 't', snapshot: { pr: { head: { sha: 'old' } } } }
+  const current = (sha: string) => ({ lease: 't', leaseUntil: Date.now() + 6e4, status: 'ready', pr: { state: 'open', head: { sha } } })
+  assert.equal(claimStopReason(claim, current('old'), 'pushed'), undefined)
+  assert.equal(claimStopReason(claim, current('pushed'), 'pushed'), undefined)
+  assert.equal(claimStopReason(claim, current('foreign'), 'pushed'), 'Pull request head changed.')
+  assert.equal(claimStopReason(claim, current('foreign'), undefined), 'Pull request head changed.')
+})
+
 test('an unchanged reviewed head parks without another model pass', () => {
   assert.match(chunk('function diagnosticExcerpt(').source, /reason: "reviewed-head-unchanged"/)
 })
