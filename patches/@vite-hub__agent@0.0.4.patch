@@ -8619,10 +8619,10 @@ index fd6ca023b28d0f865b74f352d31b1365ebbf2c2f..0b611d09740904d31963ebf34934fe1a
  	}
 diff --git a/dist/github-C69OTtai.js b/dist/github-C69OTtai.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..8a157c885579ab864905bcef89215b23b028c588
+index 0000000000000000000000000000000000000000..48d6a76d1a12d7e61bb6fd58fc719598da0420b8
 --- /dev/null
 +++ b/dist/github-C69OTtai.js
-@@ -0,0 +1,2155 @@
+@@ -0,0 +1,2160 @@
 +import { t as agentDiagnostics } from "./agent-diagnostics-CRbMCAtY.js";
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { a as github } from "./channels-DD5tg9hD.js";
@@ -9657,7 +9657,12 @@ index 0000000000000000000000000000000000000000..8a157c885579ab864905bcef89215b23
 +			operation.close();
 +			await rm(checkout, {
 +				force: true,
-+				recursive: true
++				recursive: true,
++				// Workspace lock cleanup can briefly recreate entries while the
++				// checkout is being removed. Retry transient directory races so
++				// cleanup does not turn a completed PR run into a failed run.
++				maxRetries: 5,
++				retryDelay: 100
 +			});
 +		}
 +	}
