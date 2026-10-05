@@ -1,0 +1,15 @@
+diff --git a/dist/lifecycle-jsY4Ov4e.js b/dist/lifecycle-jsY4Ov4e.js
+index 3dcaf21ebc3dc6ef21f784e0313f0eea96bbbb07..a6484ffee4f8c93e7e4b8ae201d0ad25930d16e3 100644
+--- a/dist/lifecycle-jsY4Ov4e.js
++++ b/dist/lifecycle-jsY4Ov4e.js
+@@ -119,6 +119,10 @@ async function pruneBuildDirectories(store, workspace) {
+ 				if (previousUsers) users[path] = previousUsers;
+ 				await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...pending]);
+ 				await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users);
++				if (error && typeof error === "object" && "code" in error && error.code === "ENOTEMPTY") {
++					retained.push(path);
++					continue;
++				}
+ 				throw error;
+ 			}
+ 		}
