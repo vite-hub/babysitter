@@ -157,6 +157,16 @@ export async function reconcileBabysitterWork(
   const repositories = resolveRepositories(configuredRepositories, repository)
   if (!isAccepting()) return
   const ownerLimit = resolveMaxOwners(maxOwners)
+  // Do not claim durable PR work when the provider executable is unavailable.
+  // The process host used to report this only through /api/health, after the
+  // scheduler had already consumed every owner slot. That left each claim
+  // waiting for the one-hour agent timeout and prevented overnight progress.
+  const processHealth = await host.health()
+  const providerDiagnostic = processHealth.diagnostics.find(item => item.label === 'Provider')
+  if (providerDiagnostic?.status === 'warning') {
+    schedulerError('babysitter.provider.unavailable', new Error(providerDiagnostic.detail ?? providerDiagnostic.value), { reason: 'provider-executable' })
+    return
+  }
   // Provider access is an admission prerequisite.  A broken ghx token used to
   // let the durable inbox claim work and only fail after spending an agent
   // session.  Probe once per short interval, then leave all claims parked
