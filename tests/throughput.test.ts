@@ -156,3 +156,13 @@ test('passes with the same lockfile share one install', () => {
   assert.match(host, /if \(cacheKey && !cached && installsInFlight\.has\(cacheKey\)\) \{/)
   assert.match(host, /\} finally \{\n\t+if \(finishFlight\) \{\n\t+installsInFlight\.delete\(cacheKey\);\n\t+finishFlight\(\);/)
 })
+
+test('a blocked direct merge releases its claim', () => {
+  const host = chunk('const hostOnlyChecked = ').source
+  const merge = host.match(/async function mergeReadyPullRequest\([\s\S]*?\n\t}\n/)?.[0]
+  assert.ok(merge)
+  const blocked = merge.split('return "blocked";').length - 1
+  const released = (merge.match(/await pullRequestInbox\.release\(claim\)(\.catch\(\(\) => \{\}\))?;\n\t+return "blocked";/g) ?? []).length
+  // The aborted-signal exit happens before any claim work; every other blocked exit releases.
+  assert.equal(released, blocked - 1)
+})

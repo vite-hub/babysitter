@@ -13458,10 +13458,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..2d1ee9230971789215b326035222ead8e6787efc
+index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b3d2d18f8
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2241 @@
+@@ -0,0 +1,2245 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14532,6 +14532,7 @@ index 0000000000000000000000000000000000000000..2d1ee9230971789215b326035222ead8
 +					...owner,
 +					reason: "merge attempt already in flight or claim changed"
 +				});
++				await pullRequestInbox.release(claim).catch(() => {});
 +				return "blocked";
 +			}
 +			const result = await github.command([
@@ -14559,6 +14560,7 @@ index 0000000000000000000000000000000000000000..2d1ee9230971789215b326035222ead8
 +					...owner,
 +					reason: "GitHub did not confirm the pull request was merged"
 +				});
++				await pullRequestInbox.release(claim).catch(() => {});
 +				return "blocked";
 +			}
 +		} catch (error) {
@@ -14566,6 +14568,8 @@ index 0000000000000000000000000000000000000000..2d1ee9230971789215b326035222ead8
 +				...owner,
 +				reason: (error instanceof Error ? error.message : String(error)).slice(0, 200)
 +			});
++			// Keep any recorded merge attempt; the next claim reconciles it against GitHub.
++			await pullRequestInbox.release(claim).catch(() => {});
 +			return "blocked";
 +		}
 +		await pullRequestInbox.clearDirectMerge(repository, number, claim.token);
