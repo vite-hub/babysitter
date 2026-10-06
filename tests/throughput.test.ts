@@ -197,3 +197,14 @@ test('a manual external wait wakes into the merge lane once every merge gate is 
   assert.match(host, /if \(wait\.kind === "external"\) return wait\.headSha === s\.pr\?\.head\?\.sha && mergeGatesOpen\(s, requiredChecks, policy\);/)
   assert.match(chunk('async progressBlocked()').source, /\|\| includeIdle && !snapshot\.wait\?\.wake\);/)
 })
+
+test('native stack members merge bottom-first through the async stack merge endpoint', () => {
+  const host = chunk('function stackMergeRoute(').source
+  const region = host.slice(host.indexOf('//#region src/presets/babysitter/stack.ts'), host.indexOf('/** GitHub\'s repository setting may delete'))
+  const { stackMergeRoute } = new Function('isRuntimeRecord', 'hasRuntimeType', `${region}\nreturn { stackMergeRoute };`)(isRuntimeRecord, hasRuntimeType)
+  assert.equal(stackMergeRoute({ base: { ref: 'main' } }), 'classic')
+  assert.equal(stackMergeRoute({ base: { ref: 'main' }, stack: { base: { ref: 'main' }, position: 1 } }), 'stack')
+  assert.equal(stackMergeRoute({ base: { ref: 'fix/parent' }, stack: { base: { ref: 'main' }, position: 2 } }), 'stacked on an unmerged pull request')
+  assert.match(host, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/merge-async`,\n\t+"-f",\n\t+`merge_method=\$\{merge\.method\}`,\n\t+"-f",\n\t+"merge_action=direct_merge"/)
+  assert.match(host, /route === "stack" \? response\.status !== "merged" : response\.merged !== true/)
+})

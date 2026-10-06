@@ -13497,10 +13497,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3264415aa
+index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcbb61d091f
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2300 @@
+@@ -0,0 +1,2335 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14118,6 +14118,17 @@ index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3
 +	if (!parents.some((parent) => Boolean(field(parent, "merged_at")) && field(parent, "base", "ref") === defaultBranch)) return void 0;
 +	return defaultBranch;
 +}
++/**
++* GitHub merges a native stack member only through its async merge endpoint, which also merges
++* every lower member. Returns "classic" outside a stack, "stack" for the stack's bottom PR, and
++* a skip reason while unmerged PRs sit below this one.
++*/
++function stackMergeRoute(pr) {
++	const stack = field(pr, "stack");
++	if (!isRuntimeRecord(stack)) return "classic";
++	const stackBase = field(stack, "base", "ref");
++	return hasRuntimeType(stackBase, "string") && pr.base?.ref === stackBase ? "stack" : "stacked on an unmerged pull request";
++}
 +/** GitHub's repository setting may delete a parent branch as part of merging it. */
 +function directMergeBranchSafety(repository, pr, openChildren) {
 +	if (!isRuntimeRecord(repository) || !hasRuntimeType(repository.delete_branch_on_merge, "boolean")) return "repository branch cleanup policy unavailable";
@@ -14573,6 +14584,14 @@ index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3
 +				});
 +				return "not-ready";
 +			}
++			const route = stackMergeRoute(live);
++			if (route !== "classic" && route !== "stack") {
++				schedulerEvent("babysitter.direct_merge.skipped", {
++					...owner,
++					reason: route
++				});
++				return "not-ready";
++			}
 +			const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
 +			const branchSafety = directMergeBranchSafety(repositorySettings, live, await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal));
 +			if (branchSafety !== true) {
@@ -14598,7 +14617,16 @@ index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3
 +				await pullRequestInbox.release(claim).catch(() => {});
 +				return "blocked";
 +			}
-+			const result = await github.command([
++			const result = await github.command(route === "stack" ? [
++				"api",
++				"-X",
++				"PUT",
++				`repos/${repository}/pulls/${number}/merge-async`,
++				"-f",
++				`merge_method=${merge.method}`,
++				"-f",
++				"merge_action=direct_merge"
++			] : [
 +				"api",
 +				"-X",
 +				"PUT",
@@ -14618,10 +14646,17 @@ index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3
 +			} catch {
 +				response = void 0;
 +			}
-+			if (!isRuntimeRecord(response) || response.merged !== true) {
++			// A stack merge runs in the background; an unsettled one is reconciled by the next claim.
++			for (let attempt = 0; route === "stack" && attempt < 15 && isRuntimeRecord(response) && response.status === "pending" && hasRuntimeType(field(response, "details", "uuid"), "string"); attempt++) {
++				await new Promise((resolve) => setTimeout(resolve, 2e3));
++				signal.throwIfAborted();
++				[response] = await readRest(`repos/${repository}/pulls/${number}/merge-async/${field(response, "details", "uuid")}`, ".", signal);
++			}
++			if (!isRuntimeRecord(response) || (route === "stack" ? response.status !== "merged" : response.merged !== true)) {
++				const detail = field(response, "details", "message");
 +				schedulerEvent("babysitter.direct_merge.skipped", {
 +					...owner,
-+					reason: "GitHub did not confirm the pull request was merged"
++					reason: `GitHub did not confirm the pull request was merged${route === "stack" ? ` (stack merge ${String(field(response, "status") ?? "unknown")}${hasRuntimeType(detail, "string") && detail ? `: ${detail.slice(0, 160)}` : ""})` : ""}`
 +				});
 +				await pullRequestInbox.release(claim).catch(() => {});
 +				return "blocked";
