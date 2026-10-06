@@ -178,6 +178,16 @@ test('green PRs never park forever and manual blockers are rechecked once per re
 test('PRs woken to merge are claimed beside the pass limit and run host-only', () => {
   const host = chunk('const mergeLane = ').source
   assert.match(host, /if \(reasons\.length === 1 && reasons\[0\] === "ready-to-merge"\) mergeLane\.add\(laneKey\(snapshot\)\);/)
-  assert.match(host, /const lane = mergeLane\.size \? await pullRequestInbox\.claim\(5, \{ only: \(s\) => mergeLane\.has\(laneKey\(s\)\) \}\) : \[\];/)
+  assert.match(host, /const lane = mergeLane\.size \? await pullRequestInbox\.claim\(5, \{/)
   assert.match(host, /const hostOnlyClaims = new Set\(modelAdmission \? lane : \[\.\.\.lane, \.\.\.regular\]\);/)
+})
+
+test('an exhausted budget stops model passes, not merges, and new reviews reset it', () => {
+  const inbox = chunk('async progressBlocked()').source
+  assert.match(inbox, /AND \(p\.progress_blocked=0 OR \?=1\)/)
+  assert.match(inbox, /options\.includeBlocked \? 1 : 0/)
+  assert.match(inbox, /event === "pull_request_review" && payload\.action === "submitted"/)
+  const host = chunk('function mergeGatesOpen(').source
+  assert.match(host, /pullRequestInbox\.nudge\(snapshot, "budget:merge-gates-open"\)/)
+  assert.match(host, /only: \(s\) => mergeLane\.has\(laneKey\(s\)\),\n\t+includeBlocked: true/)
 })

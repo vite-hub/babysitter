@@ -10863,10 +10863,10 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..f9730be30c72918ee85917c519e9dfadd30fa528
+index 0000000000000000000000000000000000000000..d031609d6abab46b37e5370c1976d8a5c4ed1906
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
-@@ -0,0 +1,2034 @@
+@@ -0,0 +1,2056 @@
 +import { a as isRuntimeRecord } from "./runtime-type-bjeCL9f2.js";
 +import { t as matchesGitHubPullRequestFilter } from "./github-pull-request-filter-CWDmPKCk.js";
 +import { i as isRuntimeNumber, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
@@ -11852,12 +11852,16 @@ index 0000000000000000000000000000000000000000..f9730be30c72918ee85917c519e9dfad
 +					"created"
 +				].includes(check.status ?? payload.action ?? "") || event === "status" && payload.state === "pending";
 +				const wake = (changed || !s.pr) && !pendingCi;
-+				const human = String(payload.sender?.type ?? "").toLowerCase() === "user" && !this.activityAuthors.has(String(payload.sender?.login ?? "").toLowerCase());
-+				if (changed && human && [
++				const sender = String(payload.sender?.login ?? "").toLowerCase();
++				const worker = this.activityAuthors.has(sender) || this.activityAuthors.has(sender.replace(/\[bot\]$/, ""));
++				const human = String(payload.sender?.type ?? "").toLowerCase() === "user" && !worker;
++				// New review evidence from anyone but the worker earns another pass; bot panel edits do not.
++				const review = !worker && (event === "pull_request_review" && payload.action === "submitted" || event === "pull_request_review_comment" && payload.action === "created");
++				if (changed && (review || human && [
 +					"issue_comment",
 +					"pull_request_review",
 +					"pull_request_review_comment"
-+				].includes(event) && s.progressBudget?.exhausted) s.progressBudget = {
++				].includes(event)) && s.progressBudget?.exhausted) s.progressBudget = {
 +					...s.progressBudget,
 +					count: 0,
 +					exhausted: false,
@@ -11890,12 +11894,13 @@ index 0000000000000000000000000000000000000000..f9730be30c72918ee85917c519e9dfad
 +			// Stack parents first: merging one unblocks every child waiting on its branch.
 +			const candidates = await tx.execute(`SELECT p.repository, p.number, p.base_ref FROM ${t.pullRequests} p
 +        WHERE p.scope=? AND ${repositories.sql.replaceAll("repository", "p.repository")} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
-+          AND (p.lease IS NULL OR p.lease_until<=?) AND p.progress_blocked=0
++          AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
 +        ORDER BY (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC, p.dirty_at, p.number`, [
 +				this.scope,
 +				...repositories.args,
 +				now,
-+				now
++				now,
++				options.includeBlocked ? 1 : 0
 +			]);
 +			for (const candidate of candidates) {
 +				if (claims.length >= limit) break;
@@ -12100,6 +12105,23 @@ index 0000000000000000000000000000000000000000..f9730be30c72918ee85917c519e9dfad
 +		const repositories = this.repositoryFilter();
 +		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
 +      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && snapshot.wait?.wake || includeIdle && snapshot.wait?.kind !== "external");
++	}
++	/** Marks an idle PR as having new work, so a claim can take it. */
++	async nudge(observed, reason) {
++		return await this.transaction(async (tx) => {
++			const s = await this.getIn(tx, observed.repository, observed.number);
++			if (!s || s.lease || s.status === "terminal" || s.generation !== observed.generation || s.pr?.head?.sha !== observed.pr?.head?.sha) return false;
++			this.dirty(s, reason);
++			await this.put(tx, s);
++			return true;
++		});
++	}
++	/** Open PRs whose no-progress budget stopped model passes on their current head. */
++	async progressBlocked() {
++		if (!this.repositories.length) return [];
++		const repositories = this.repositoryFilter();
++		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
++      AND progress_blocked=1 AND status<>'terminal' AND lease IS NULL`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value))));
 +	}
 +	/** Wakes external waits that have no wake target, so a new release rechecks manual blockers once. */
 +	async wakeManualExternalWaits(reason) {
@@ -13475,10 +13497,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..a0cbf7baea31cbd10ee74d96cf1d40700ce5fea4
+index 0000000000000000000000000000000000000000..0632859809c92aa062a10b7be2ba7c19495de6ec
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2285 @@
+@@ -0,0 +1,2297 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14043,6 +14065,12 @@ index 0000000000000000000000000000000000000000..a0cbf7baea31cbd10ee74d96cf1d4070
 +	return [];
 +}
 +/** Whether a quiet wait's gates allow a direct merge attempt. The merge gate still decides. */
++/** Whether a PR without a wait, such as one whose budget is exhausted, has open merge gates. */
++function mergeGatesOpen(s, requiredChecks, policy) {
++	if (!policy.wakeWhenReady || s.pr?.state !== "open" || s.pr.draft || requiredChecks !== "passed" || reviewCheckRunning(s, policy)) return false;
++	if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty" || s.threads.some((thread) => thread.isResolved !== true)) return false;
++	return !failureKeys(s).length;
++}
 +function quietMergeReady(s, requiredChecks, policy) {
 +	const wait = s.wait;
 +	if (!wait || wait.kind === "external" || wait.wake || !policy.wakeWhenReady || s.pr?.state !== "open" || s.pr.draft) return false;
@@ -15059,7 +15087,10 @@ index 0000000000000000000000000000000000000000..a0cbf7baea31cbd10ee74d96cf1d4070
 +		await pullRequestInbox.recoverLeases();
 +		try {
 +			const idle = merge.mode === "direct" && (await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now();
-+			if (idle) await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 6e5);
++			if (idle) {
++				await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 6e5);
++				for (const snapshot of await pullRequestInbox.progressBlocked()) if (mergeGatesOpen(snapshot, await requiredCheckState(snapshot), waitPolicy) && (snapshot.generation > snapshot.handled || await pullRequestInbox.nudge(snapshot, "budget:merge-gates-open"))) mergeLane.add(laneKey(snapshot));
++			}
 +			await evaluateWaits(idle);
 +		} catch (error) {
 +			schedulerError("babysitter.wait.evaluate.failed", error);
@@ -15091,7 +15122,10 @@ index 0000000000000000000000000000000000000000..a0cbf7baea31cbd10ee74d96cf1d4070
 +			}
 +		}
 +		// Host-only claims merge, defer or park without a model, so they may exceed the pass limit.
-+		const lane = mergeLane.size ? await pullRequestInbox.claim(5, { only: (s) => mergeLane.has(laneKey(s)) }) : [];
++		const lane = mergeLane.size ? await pullRequestInbox.claim(5, {
++			only: (s) => mergeLane.has(laneKey(s)),
++			includeBlocked: true
++		}) : [];
 +		for (const claim of lane) mergeLane.delete(laneKey(claim.snapshot));
 +		const regular = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
 +		const hostOnlyClaims = new Set(modelAdmission ? lane : [...lane, ...regular]);
