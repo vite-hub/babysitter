@@ -191,3 +191,9 @@ test('an exhausted budget stops model passes, not merges, and new reviews reset 
   assert.match(host, /pullRequestInbox\.nudge\(snapshot, "budget:merge-gates-open"\)/)
   assert.match(host, /only: \(s\) => mergeLane\.has\(laneKey\(s\)\),\n\t+includeBlocked: true/)
 })
+
+test('a manual external wait wakes into the merge lane once every merge gate is open', () => {
+  const host = chunk('function quietMergeReady(').source
+  assert.match(host, /if \(wait\.kind === "external"\) return wait\.headSha === s\.pr\?\.head\?\.sha && mergeGatesOpen\(s, requiredChecks, policy\);/)
+  assert.match(chunk('async progressBlocked()').source, /\|\| includeIdle && !snapshot\.wait\?\.wake\);/)
+})

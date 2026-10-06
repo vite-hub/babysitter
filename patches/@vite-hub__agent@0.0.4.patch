@@ -10863,7 +10863,7 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..d031609d6abab46b37e5370c1976d8a5c4ed1906
+index 0000000000000000000000000000000000000000..bc1a3bc8d94d5252a7d9ec26d7942c8e1b70cb95
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
 @@ -0,0 +1,2056 @@
@@ -12104,7 +12104,7 @@ index 0000000000000000000000000000000000000000..d031609d6abab46b37e5370c1976d8a5
 +		if (!this.repositories.length) return [];
 +		const repositories = this.repositoryFilter();
 +		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
-+      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && snapshot.wait?.wake || includeIdle && snapshot.wait?.kind !== "external");
++      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && snapshot.wait?.wake || includeIdle && !snapshot.wait?.wake);
 +	}
 +	/** Marks an idle PR as having new work, so a claim can take it. */
 +	async nudge(observed, reason) {
@@ -13497,10 +13497,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..0632859809c92aa062a10b7be2ba7c19495de6ec
+index 0000000000000000000000000000000000000000..6bb1db697fb8bc440031da2e2cbb67b3264415aa
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2297 @@
+@@ -0,0 +1,2300 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14073,7 +14073,10 @@ index 0000000000000000000000000000000000000000..0632859809c92aa062a10b7be2ba7c19
 +}
 +function quietMergeReady(s, requiredChecks, policy) {
 +	const wait = s.wait;
-+	if (!wait || wait.kind === "external" || wait.wake || !policy.wakeWhenReady || s.pr?.state !== "open" || s.pr.draft) return false;
++	if (!wait || wait.wake) return false;
++	// A manual blocker resolved outside the Babysitter shows up as fully open merge gates.
++	if (wait.kind === "external") return wait.headSha === s.pr?.head?.sha && mergeGatesOpen(s, requiredChecks, policy);
++	if (!policy.wakeWhenReady || s.pr?.state !== "open" || s.pr.draft) return false;
 +	if (wait.headSha !== s.pr.head?.sha || requiredChecks !== "passed" || reviewCheckRunning(s, policy)) return false;
 +	if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty" || s.threads.some((thread) => thread.isResolved !== true)) return false;
 +	const known = new Set(wait.knownFailures ?? []);
