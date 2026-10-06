@@ -6,9 +6,12 @@ inbox, exact-head Git checkouts, CI evidence, repair tools, retries and merge ch
 This project configures repositories, authors, concurrency, model and personal policy.
 
 ```ts
+import { babysitter } from 'vite-hub/agent/presets/babysitter'
+
 export default defineAgent({
-  extends: 'babysitter',
-  babysitter: {
+  preset: 'babysitter',
+  presets: { babysitter },
+  options: {
     filter: {
       repository: { allow: ['your-org/your-repo'] },
       author: { allow: ['your-login'] },
@@ -71,6 +74,9 @@ existing provider proxy. PostHog export is optional through `POSTHOG_API_KEY`.
 Agent State stores the inbox in `.vitehub/agent-state.db`. On first startup the preset
 imports the previous `.vitehub/pull-request-inbox.sqlite` without overwriting newer
 state. Invocation and provider state live under `.vitehub/agents/babysitter`.
+The Console invocation journal is configured by `console.databaseUrl` in
+`vite.config.ts`, pointing at that same durable agent directory, so the deployed
+worker and Console use one source of truth without a systemd database override.
 Run one process per data directory. Back up SQLite through its backup API.
 
 GitHub delivers signed webhooks to `/api/webhooks/github`. Health is at `/api/health`

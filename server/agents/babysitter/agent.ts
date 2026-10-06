@@ -1,4 +1,5 @@
 import { defineAgent } from 'vite-hub/agent'
+import { babysitter } from 'vite-hub/agent/presets/babysitter'
 import { diagnostics } from 'vite-hub/agent/capabilities'
 import { createAgentEvlog } from 'vite-hub/agent/evlog'
 import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
@@ -20,10 +21,11 @@ const telemetry = createAgentEvlog({
 })
 
 export default defineAgent({
-  extends: 'babysitter',
+  preset: 'babysitter',
+  presets: { babysitter },
   name: 'babysitter',
   version: usePublicEnv().releaseRevision,
-  babysitter: {
+  options: {
     filter: {
       repository: {
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
@@ -38,6 +40,7 @@ export default defineAgent({
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
     merge: { strategy: 'direct', method: 'squash' },
   },
+  workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
     model: process.env.BABYSITTER_MODEL || 'gpt-6-astra',

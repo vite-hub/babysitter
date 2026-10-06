@@ -19,7 +19,13 @@ export default defineConfig({
         },
       },
       blob: false,
-      console: { exposure: 'host-managed' },
+      console: {
+        exposure: 'host-managed',
+        // Keep the Console journal beside the worker's durable agent data. This
+        // is part of the project configuration so production does not depend on
+        // a systemd environment override for the active invocation database.
+        databaseUrl: 'file:/home/workspace/babysitter-data/.vitehub/agents/babysitter/invocations.sqlite',
+      },
       database: false,
       kv: { driver: 'fs-lite' },
       schedule: false,
