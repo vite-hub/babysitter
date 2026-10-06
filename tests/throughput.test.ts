@@ -161,8 +161,6 @@ test('a blocked direct merge releases its claim', () => {
   const host = chunk('const hostOnlyChecked = ').source
   const merge = host.match(/async function mergeReadyPullRequest\([\s\S]*?\n\t}\n/)?.[0]
   assert.ok(merge)
-  const blocked = merge.split('return "blocked";').length - 1
-  const released = (merge.match(/await pullRequestInbox\.release\(claim\)(\.catch\(\(\) => \{\}\))?;\n\t+return "blocked";/g) ?? []).length
-  // The aborted-signal exit happens before any claim work; every other blocked exit releases.
-  assert.equal(released, blocked - 1)
+  // In-flight attempt, unconfirmed merge and failed request each release before returning.
+  assert.equal((merge.match(/await pullRequestInbox\.release\(claim\)\.catch\(\(\) => \{\}\);\n\t+return "blocked";/g) ?? []).length, 3)
 })
