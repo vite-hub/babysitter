@@ -13475,10 +13475,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..99cfb08b1451a8e75ca769e55c395a147e299ba5
+index 0000000000000000000000000000000000000000..a0cbf7baea31cbd10ee74d96cf1d40700ce5fea4
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2275 @@
+@@ -0,0 +1,2285 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14041,6 +14041,15 @@ index 0000000000000000000000000000000000000000..99cfb08b1451a8e75ca769e55c395a14
 +	if (currentCheckSignals(s).some((signal) => policy.pendingReviewChecks.has(String(signal.name).toLowerCase()) && pending.has(String(signal.status ?? signal.state))) || requiredChecks === "pending") return [];
 +	if (requiredChecks === "passed") return policy.wakeWhenReady ? ["ready-to-merge"] : [];
 +	return [];
++}
++/** Whether a quiet wait's gates allow a direct merge attempt. The merge gate still decides. */
++function quietMergeReady(s, requiredChecks, policy) {
++	const wait = s.wait;
++	if (!wait || wait.kind === "external" || wait.wake || !policy.wakeWhenReady || s.pr?.state !== "open" || s.pr.draft) return false;
++	if (wait.headSha !== s.pr.head?.sha || requiredChecks !== "passed" || reviewCheckRunning(s, policy)) return false;
++	if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty" || s.threads.some((thread) => thread.isResolved !== true)) return false;
++	const known = new Set(wait.knownFailures ?? []);
++	return failureKeys(s).every((key) => known.has(key));
 +}
 +/** Infer a check wait only from pending current-head provider evidence. */
 +function hasPendingChecks(snapshot, policy) {
@@ -14930,7 +14939,8 @@ index 0000000000000000000000000000000000000000..99cfb08b1451a8e75ca769e55c395a14
 +		for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, idle)) {
 +			const quiet = snapshot.generation <= snapshot.handled && !snapshot.wait?.wake;
 +			// A quiet wait has no new events; only a merge it now allows is worth a wake.
-+			const reasons = wakeReasons(snapshot, await requiredCheckState(snapshot), waitPolicy).filter((reason) => !quiet || reason === "ready-to-merge");
++			const required = await requiredCheckState(snapshot);
++			const reasons = quiet ? quietMergeReady(snapshot, required, waitPolicy) ? ["ready-to-merge"] : [] : wakeReasons(snapshot, required, waitPolicy);
 +			if (quiet && !reasons.length) continue;
 +			if (snapshot.wait?.wake) {
 +				const dependencyKey = `dependency:${snapshot.repository}#${snapshot.number}`;

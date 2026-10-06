@@ -167,7 +167,7 @@ test('a blocked direct merge releases its claim', () => {
 
 test('green PRs never park forever and manual blockers are rechecked once per release', () => {
   const host = chunk('const hostOnlyChecked = ').source
-  assert.match(host, /filter\(\(reason\) => !quiet \|\| reason === "ready-to-merge"\)/)
+  assert.match(host, /const reasons = quiet \? quietMergeReady\(snapshot, required, waitPolicy\) \? \["ready-to-merge"\] : \[\] : wakeReasons\(snapshot, required, waitPolicy\);/)
   assert.match(host, /setMeta\("idle-wait-sweep-next", Date\.now\(\) \+ 6e5\)/)
   assert.match(host, /live\.mergeable === null \|\| live\.mergeable_state === "unknown"/)
   assert.match(host, /wakeManualExternalWaits\(`release:/)
