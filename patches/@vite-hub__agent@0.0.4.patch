@@ -10863,10 +10863,10 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..2cccd19c70eb66571629059b8ac5f2fbd0e6bf03
+index 0000000000000000000000000000000000000000..1da8168658503bbe36396d4dd050ec9c58e055a2
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
-@@ -0,0 +1,2017 @@
+@@ -0,0 +1,2034 @@
 +import { a as isRuntimeRecord } from "./runtime-type-bjeCL9f2.js";
 +import { t as matchesGitHubPullRequestFilter } from "./github-pull-request-filter-CWDmPKCk.js";
 +import { i as isRuntimeNumber, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
@@ -12095,11 +12095,28 @@ index 0000000000000000000000000000000000000000..2cccd19c70eb66571629059b8ac5f2fb
 +		}
 +	}
 +	/** Waiting PRs that received events since the host last evaluated their wait. */
-+	async waitsToEvaluate(includeExternal = false) {
++	async waitsToEvaluate(includeExternal = false, includeIdle = false) {
 +		if (!this.repositories.length) return [];
 +		const repositories = this.repositoryFilter();
 +		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
-+      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && snapshot.wait?.wake);
++      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && snapshot.wait?.wake || includeIdle && snapshot.wait?.kind !== "external");
++	}
++	/** Wakes external waits that have no wake target, so a new release rechecks manual blockers once. */
++	async wakeManualExternalWaits(reason) {
++		await this.init();
++		return await this.transaction(async (tx) => {
++			const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND waiting=1 AND status<>'terminal' AND lease IS NULL`, [this.scope]);
++			let woken = 0;
++			for (const row of rows) {
++				const s = await this.getIn(tx, stringValue(row.repository), Number(row.number));
++				if (!s?.wait || s.wait.kind !== "external" || s.wait.wake || s.lease) continue;
++				delete s.wait;
++				this.dirty(s, reason);
++				await this.put(tx, s);
++				woken++;
++			}
++			return woken;
++		});
 +	}
 +	/** Records that the host evaluated a wait's new events and the wait still holds. */
 +	async acknowledgeWait(observed) {
@@ -13458,10 +13475,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b3d2d18f8
+index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac575761b30b711
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2245 @@
+@@ -0,0 +1,2265 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14501,7 +14518,13 @@ index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b
 +			return "not-ready";
 +		}
 +		try {
-+			const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
++			let [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
++			// GitHub computes mergeability lazily; the first read after a change can be unknown.
++			for (let attempt = 0; attempt < 3 && isRuntimeRecord(live) && (live.mergeable === null || live.mergeable_state === "unknown"); attempt++) {
++				await new Promise((resolve) => setTimeout(resolve, 2e3));
++				signal.throwIfAborted();
++				[live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
++			}
 +			const current = liveMergeReadiness(live, decision.head);
 +			if (!current.ready) {
 +				schedulerEvent("babysitter.direct_merge.skipped", {
@@ -14903,9 +14926,12 @@ index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b
 +		};
 +	}
 +	/** Wakes a parked PR only when its new events need a model pass or a direct merge. */
-+	async function evaluateWaits() {
-+		for (const snapshot of await pullRequestInbox.waitsToEvaluate(true)) {
-+			const reasons = wakeReasons(snapshot, await requiredCheckState(snapshot), waitPolicy);
++	async function evaluateWaits(idle = false) {
++		for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, idle)) {
++			const quiet = snapshot.generation <= snapshot.handled && !snapshot.wait?.wake;
++			// A quiet wait has no new events; only a merge it now allows is worth a wake.
++			const reasons = wakeReasons(snapshot, await requiredCheckState(snapshot), waitPolicy).filter((reason) => !quiet || reason === "ready-to-merge");
++			if (quiet && !reasons.length) continue;
 +			if (snapshot.wait?.wake) {
 +				const dependencyKey = `dependency:${snapshot.repository}#${snapshot.number}`;
 +				const nextReadKey = `dependency-next:${snapshot.repository}#${snapshot.number}`;
@@ -15016,7 +15042,9 @@ index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b
 +		}
 +		await pullRequestInbox.recoverLeases();
 +		try {
-+			await evaluateWaits();
++			const idle = merge.mode === "direct" && (await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now();
++			if (idle) await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 6e5);
++			await evaluateWaits(idle);
 +		} catch (error) {
 +			schedulerError("babysitter.wait.evaluate.failed", error);
 +		}
@@ -15610,7 +15638,16 @@ index 0000000000000000000000000000000000000000..b61ce2e2230998d9bdb6701a1e283c4b
 +			});
 +			inbox.importLegacyFile(".vitehub/pull-request-inbox.sqlite").catch((error) => host.error("babysitter.legacy-import.failed", error)).then(() => inbox.releaseLeases()).then((released) => {
 +				if (released) host.event("babysitter.leases.released", { released });
-+			}, (error) => host.error("babysitter.leases.release-failed", error)).finally(() => {
++			}, (error) => host.error("babysitter.leases.release-failed", error)).then(async () => {
++				const release = String(agent.version ?? "");
++				if (!release || await inbox.meta("external-recheck-release") === release) return;
++				const woken = await inbox.wakeManualExternalWaits(`release:${release.slice(0, 12)}`);
++				await inbox.setMeta("external-recheck-release", release);
++				if (woken) host.event("babysitter.external.rechecked", {
++					release,
++					woken
++				});
++			}).catch((error) => host.error("babysitter.external.recheck-failed", error)).finally(() => {
 +				if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
 +				host.start();
 +			});

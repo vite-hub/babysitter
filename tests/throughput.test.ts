@@ -164,3 +164,13 @@ test('a blocked direct merge releases its claim', () => {
   // In-flight attempt, unconfirmed merge and failed request each release before returning.
   assert.equal((merge.match(/await pullRequestInbox\.release\(claim\)\.catch\(\(\) => \{\}\);\n\t+return "blocked";/g) ?? []).length, 3)
 })
+
+test('green PRs never park forever and manual blockers are rechecked once per release', () => {
+  const host = chunk('const hostOnlyChecked = ').source
+  assert.match(host, /filter\(\(reason\) => !quiet \|\| reason === "ready-to-merge"\)/)
+  assert.match(host, /setMeta\("idle-wait-sweep-next", Date\.now\(\) \+ 6e5\)/)
+  assert.match(host, /live\.mergeable === null \|\| live\.mergeable_state === "unknown"/)
+  assert.match(host, /wakeManualExternalWaits\(`release:/)
+  const inbox = chunk('async wakeManualExternalWaits(').source
+  assert.match(inbox, /if \(!s\?\.wait \|\| s\.wait\.kind !== "external" \|\| s\.wait\.wake \|\| s\.lease\) continue;/)
+})
