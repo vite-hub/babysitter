@@ -10863,7 +10863,7 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..1da8168658503bbe36396d4dd050ec9c58e055a2
+index 0000000000000000000000000000000000000000..f9730be30c72918ee85917c519e9dfadd30fa528
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
 @@ -0,0 +1,2034 @@
@@ -11910,7 +11910,7 @@ index 0000000000000000000000000000000000000000..1da8168658503bbe36396d4dd050ec9c
 +				const s = await this.getIn(tx, repository, number);
 +				if (!s) continue;
 +				if (s.pr && !this.eligible(s.repository, s.pr)) continue;
-+				if (options.skip?.(s)) continue;
++				if (options.skip?.(s) || options.only && !options.only(s)) continue;
 +				s.lease = randomUUID();
 +				s.leaseUntil = now + 72e5;
 +				s.status = "working";
@@ -13475,10 +13475,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac575761b30b711
+index 0000000000000000000000000000000000000000..99cfb08b1451a8e75ca769e55c395a147e299ba5
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2265 @@
+@@ -0,0 +1,2275 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -14951,11 +14951,14 @@ index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac57576
 +					head_sha: snapshot.pr?.head?.sha,
 +					avoided_invocation: true
 +				});
-+			} else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`)) schedulerEvent("babysitter.wait.woken", {
++			} else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`)) {
++				if (reasons.length === 1 && reasons[0] === "ready-to-merge") mergeLane.add(laneKey(snapshot));
++				schedulerEvent("babysitter.wait.woken", {
 +				...owner,
 +				head_sha: snapshot.pr?.head?.sha,
 +				reasons
 +			});
++			}
 +		}
 +	}
 +	/** Moves a stacked PR to the default branch after its parent merged there. */
@@ -14992,6 +14995,9 @@ index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac57576
 +	// PRs checked for host-only work while admission was paused, by generation and revision.
 +	const hostOnlyChecked = /* @__PURE__ */ new Map();
 +	const hostOnlyStamp = (s) => `${s.generation}:${s.revision ?? 0}`;
++	// PRs woken to merge. They are claimed beside the pass limit and run host-only.
++	const mergeLane = /* @__PURE__ */ new Set();
++	const laneKey = (s) => `${s.repository}#${s.number}`;
 +	async function reconcile(reason, { track }, isAccepting = () => true) {
 +		const startedAt = /* @__PURE__ */ new Date();
 +		const schedule = {
@@ -15075,7 +15081,11 @@ index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac57576
 +			}
 +		}
 +		// Host-only claims merge, defer or park without a model, so they may exceed the pass limit.
-+		const jobs = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
++		const lane = mergeLane.size ? await pullRequestInbox.claim(5, { only: (s) => mergeLane.has(laneKey(s)) }) : [];
++		for (const claim of lane) mergeLane.delete(laneKey(claim.snapshot));
++		const regular = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
++		const hostOnlyClaims = new Set(modelAdmission ? lane : [...lane, ...regular]);
++		const jobs = [...lane, ...regular];
 +		if (!jobs.length) return;
 +		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
 +		schedulerEvent("babysitter.queue.selected", {
@@ -15191,11 +15201,11 @@ index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac57576
 +					});
 +					return;
 +				}
-+				if (!modelAdmission) {
++				if (hostOnlyClaims.has(inboxClaim)) {
 +					await pullRequestInbox.release(inboxClaim);
 +					const released = await pullRequestInbox.get(repository, number);
-+					if (released) hostOnlyChecked.set(`${repository}#${number}`, hostOnlyStamp(released));
-+					outcome = "admission-paused";
++					if (released && !modelAdmission) hostOnlyChecked.set(`${repository}#${number}`, hostOnlyStamp(released));
++					outcome = modelAdmission ? "host-only" : "admission-paused";
 +					return;
 +				}
 +				if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
@@ -15404,7 +15414,7 @@ index 0000000000000000000000000000000000000000..48b331f6b5fe198e3cb1a6548ac57576
 +						wait: createCheckWait(inboxClaim.snapshot, waitPolicy)
 +					});
 +					const waiting = await pullRequestInbox.get(repository, number);
-+					if (waiting && merge.mode === "direct") await pullRequestInbox.wake(waiting, `reviewed:${mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy)}`);
++					if (waiting && merge.mode === "direct" && await pullRequestInbox.wake(waiting, `reviewed:${mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy)}`)) mergeLane.add(laneKey(waiting));
 +				} else {
 +					outcome = "retry";
 +					await pullRequestInbox.finish(inboxClaim, {

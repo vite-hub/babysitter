@@ -112,10 +112,10 @@ test('the scheduler defers passes, claims stack parents first and releases lease
 
 test('a paused admission still claims PRs for host-only merges and waits', () => {
   const host = chunk('const hostOnlyChecked = ').source
-  assert.match(host, /if \(!modelAdmission\) \{\n\t+await pullRequestInbox\.release\(inboxClaim\);/)
+  assert.match(host, /if \(hostOnlyClaims\.has\(inboxClaim\)\) \{\n\t+await pullRequestInbox\.release\(inboxClaim\);/)
   // Host-only work must run before the model pass is skipped: merge, reviewed-head park, deferral.
-  assert.ok(host.indexOf('const deferral = await pendingGateDeferral(') < host.indexOf('if (!modelAdmission) {\n'))
-  assert.match(chunk('if (options.skip?.(s)) continue;').source, /async claim\(limit, options = \{\}\)/)
+  assert.ok(host.indexOf('const deferral = await pendingGateDeferral(') < host.indexOf('if (hostOnlyClaims.has(inboxClaim)) {\n'))
+  assert.match(chunk('if (options.skip?.(s) || options.only && !options.only(s)) continue;').source, /async claim\(limit, options = \{\}\)/)
 })
 
 test('pass prompts keep only the newest run per check and drop passing check output', () => {
@@ -173,4 +173,11 @@ test('green PRs never park forever and manual blockers are rechecked once per re
   assert.match(host, /wakeManualExternalWaits\(`release:/)
   const inbox = chunk('async wakeManualExternalWaits(').source
   assert.match(inbox, /if \(!s\?\.wait \|\| s\.wait\.kind !== "external" \|\| s\.wait\.wake \|\| s\.lease\) continue;/)
+})
+
+test('PRs woken to merge are claimed beside the pass limit and run host-only', () => {
+  const host = chunk('const mergeLane = ').source
+  assert.match(host, /if \(reasons\.length === 1 && reasons\[0\] === "ready-to-merge"\) mergeLane\.add\(laneKey\(snapshot\)\);/)
+  assert.match(host, /const lane = mergeLane\.size \? await pullRequestInbox\.claim\(5, \{ only: \(s\) => mergeLane\.has\(laneKey\(s\)\) \}\) : \[\];/)
+  assert.match(host, /const hostOnlyClaims = new Set\(modelAdmission \? lane : \[\.\.\.lane, \.\.\.regular\]\);/)
 })
