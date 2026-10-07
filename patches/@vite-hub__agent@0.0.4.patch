@@ -13506,10 +13506,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..942b1c00d83893139e8eab823c05dcf7d053cfc7
+index 0000000000000000000000000000000000000000..97402e600b76b054cbf65ca7fc5ba43b1f8fd4e9
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2340 @@
+@@ -0,0 +1,2342 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -15389,6 +15389,8 @@ index 0000000000000000000000000000000000000000..942b1c00d83893139e8eab823c05dcf7
 +					const workerDriver = driver;
 +					const activityEnabled = !!verifiedHostIdentity;
 +					const workerName = "babysitter-worker";
++					const workerBox = baseAgent.box ? { ...baseAgent.box } : undefined;
++					if (workerBox) Reflect.deleteProperty(workerBox, "checkout");
 +					const agent = defineAgent({
 +						extends: baseAgent,
 +						name: workerName,
@@ -15406,7 +15408,7 @@ index 0000000000000000000000000000000000000000..942b1c00d83893139e8eab823c05dcf7
 +							env: async (context) => {
 +								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
 +							},
-+							...(baseAgent.box ? {} : { launch: async (context) => {
++							...(baseAgent.box ? undefined : { launch: async (context) => {
 +								if (context.purpose !== "inspection") {
 +									if (!preparedDirectories.has(context.cwd)) {
 +										await prepared.prepareWorkspace(context.cwd);
@@ -15418,7 +15420,7 @@ index 0000000000000000000000000000000000000000..942b1c00d83893139e8eab823c05dcf7
 +								return workerDriver.launch ? await resolveRuntimeValue(workerDriver.launch, context) : { command: context.command };
 +							} })
 +						},
-+						...(baseAgent.box ? { box: { ...baseAgent.box, cwd: async (context) => {
++						...(baseAgent.box ? { box: { ...workerBox, cwd: async (context) => {
 +                            await installDependencies(checkout, abortSignal, owner, workerDriver.env === void 0 ? {} : await resolveRuntimeValue(workerDriver.env, context) ?? {});
 +                            providerDirectory = checkout;
 +                            return checkout;
@@ -15901,7 +15903,7 @@ index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..72de7c99b93676ce79fc95651b9c9664
  	});
 diff --git a/dist/index-ZPJQM7_5.d.ts b/dist/index-ZPJQM7_5.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..224da9214799d36c9dbc7d11713d4e9f618dc6b8
+index 0000000000000000000000000000000000000000..a7233d6afb70309f02efee1ba36955b3997031c5
 --- /dev/null
 +++ b/dist/index-ZPJQM7_5.d.ts
 @@ -0,0 +1,696 @@
@@ -15937,7 +15939,7 @@ index 0000000000000000000000000000000000000000..224da9214799d36c9dbc7d11713d4e9f
 +//#endregion
 +//#region src/presets/babysitter-definition.d.ts
 +interface BabysitterOptions {
-+  capacity?: { memory?: { perInvocationBytes?: number; reserveBytes?: number; pausePressure?: number; resumePressure?: number }; cpu?: { pausePressure?: number; resumePressure?: number }; fallbackConcurrency?: number };
++  capacity?: { memory?: { perInvocationBytes?: number; reserveBytes?: number; hostReserveBytes?: number; pausePressure?: number; resumePressure?: number }; cpu?: { pausePressure?: number; resumePressure?: number }; fallbackConcurrency?: number };
 +  /** Select PRs with the same rules as the GitHub Channel. */
 +  filter: GitHubPullRequestFilter;
 +  /** Provider Driver that repairs each PR in its checkout. Defaults to `"codex"`. Set the model with `driver.model`. */
@@ -16985,19 +16987,35 @@ index ec84ed8521e44b041775838262b837a6496e75c4..0713ec1a5c45ee38fb58d39c5af83718
  function sourceProvenanceInstructions(provenance) {
  	if (!provenance.length) return;
 diff --git a/dist/process-DCkf8-ZD.js b/dist/process-DCkf8-ZD.js
-index ac5fb0b60d94ca19c0077d1435304ac85c8f806e..bf55a5c6411ed7952c661824eb87d7e97e8b9981 100644
+index ac5fb0b60d94ca19c0077d1435304ac85c8f806e..0649cc4fa2463f7783a19d95599d16c3c7755672 100644
 --- a/dist/process-DCkf8-ZD.js
 +++ b/dist/process-DCkf8-ZD.js
-@@ -149,7 +149,7 @@ function createProcessAgentCapacity(options) {
+@@ -127,12 +127,14 @@ function createProcessAgentCapacity(options) {
+ 		pausePressure: options.memory?.pausePressure ?? .05,
+ 		perInvocationBytes: options.memory?.perInvocationBytes ?? 1024 ** 3,
+ 		reserveBytes: options.memory?.reserveBytes ?? 1024 ** 3,
++		hostReserveBytes: options.memory?.hostReserveBytes ?? 0,
+ 		resumePressure: options.memory?.resumePressure ?? .01
+ 	};
+ 	assertPressurePolicy(cpu, "cpu");
+ 	assertPressurePolicy(memory, "memory");
+ 	if (!Number.isFinite(memory.perInvocationBytes) || memory.perInvocationBytes <= 0) throw agentDiagnostics.AGENT_R0737({ message: "[vitehub] createProcessAgentCapacity({ memory.perInvocationBytes }) must be a positive finite number." });
+ 	if (!Number.isFinite(memory.reserveBytes) || memory.reserveBytes < 0) throw agentDiagnostics.AGENT_R0738({ message: "[vitehub] createProcessAgentCapacity({ memory.reserveBytes }) must be a non-negative finite number." });
++	if (!Number.isFinite(memory.hostReserveBytes) || memory.hostReserveBytes < 0) throw agentDiagnostics.AGENT_R0738({ message: "[vitehub] createProcessAgentCapacity({ memory.hostReserveBytes }) must be a non-negative finite number." });
+ 	if (options.sample !== void 0 && typeof options.sample !== "function") throw agentDiagnostics.AGENT_R0739({ message: "[vitehub] createProcessAgentCapacity({ sample }) must be a function." });
+ 	let pressurePaused = false;
+ 	let lastMemoryHighEvents;
+@@ -149,7 +151,8 @@ function createProcessAgentCapacity(options) {
  		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
  		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
  		const availableMemory = Math.min(resources.availableMemory, cgroupAvailableMemory);
 -		const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes));
-+		const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
++		const growthHeadroom = Math.min(availableMemory - memory.reserveBytes, resources.hostAvailableMemory - memory.hostReserveBytes);
++		const additional = Math.max(0, Math.floor((growthHeadroom - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
  		const memoryConcurrency = context.active + additional;
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
-@@ -177,18 +177,23 @@ function assertPressurePolicy(value, name) {
+@@ -177,18 +180,25 @@ function assertPressurePolicy(value, name) {
  	if (!Number.isFinite(value.resumePressure) || value.resumePressure < 0 || value.resumePressure > value.pausePressure) throw agentDiagnostics.AGENT_R0741({ message: `[vitehub] createProcessAgentCapacity({ ${name}.resumePressure }) must be between zero and pausePressure.` });
  }
  async function readProcessResources(signal) {
@@ -17020,9 +17038,11 @@ index ac5fb0b60d94ca19c0077d1435304ac85c8f806e..bf55a5c6411ed7952c661824eb87d7e9
 +    readOptionalCgroupFile("/proc/pressure/memory", signal),
 +  ]);
 +  const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
-+  const nodeAvailable = typeof process.availableMemory === "function" ? process.availableMemory() : freemem();
++  const hostAvailableMemory = hostAvailable ? Number(hostAvailable[1]) * 1024 : Infinity;
++  const nodeAvailable = process.availableMemory();
 +  return {
-+    availableMemory: Math.min(nodeAvailable, hostAvailable ? Number(hostAvailable[1]) * 1024 : Infinity),
++    availableMemory: Math.min(nodeAvailable, hostAvailableMemory),
++    hostAvailableMemory,
 +    cpuPressure: Math.max(cgroup?.cpuPressure ?? 0, parsePressure(cpu ?? "")),
 +    memoryCurrent: cgroup?.memoryCurrent ?? 0,
 +    memoryHigh: cgroup?.memoryHigh ?? Infinity,
@@ -23423,7 +23443,7 @@ index 0000000000000000000000000000000000000000..32c7bc6f8c4b51d15fd366b969091faa
 +//#endregion
 +export { hasChannelChatRoute as a, createTelegramPollingRouteHandler as i, createChannelWebhookRouteHandler as n, installAgentChannelDeliveryWorkflowResolver as o, createDiscordGatewayRouteHandler as r, setAgentChannelDeliveryWorkflowStateResolver as s, createChannelChatRouteHandler as t };
 diff --git a/dist/runtime/process.d.ts b/dist/runtime/process.d.ts
-index b7b59d06dbac1cf65227352f72ee97efa6a0ef80..cc6aad51294ab0e92c85d2e26dc44d095a525414 100644
+index b7b59d06dbac1cf65227352f72ee97efa6a0ef80..6de564e43749846be25a1f367de89f41140f6a53 100644
 --- a/dist/runtime/process.d.ts
 +++ b/dist/runtime/process.d.ts
 @@ -1,4 +1,4 @@
@@ -23432,6 +23452,15 @@ index b7b59d06dbac1cf65227352f72ee97efa6a0ef80..cc6aad51294ab0e92c85d2e26dc44d09
  import { a as SqliteAgentStateExtension } from "../sqlite-BuC-W89Z.js";
  import { ProcessReconcilerOptions, ProcessReconcilerStatus } from "@vite-hub/runtime/node";
  //#region src/runtime/process-host.d.ts
+@@ -49,7 +49,7 @@ export interface ProcessAgentCapacityOptions {
+   memory?: {
+     pausePressure?: number;
+     perInvocationBytes?: number;
+-    reserveBytes?: number;
++    reserveBytes?: number; hostReserveBytes?: number;
+     resumePressure?: number;
+   };
+   queue?: AgentDriverCapacityQueueOptions;
 diff --git a/dist/runtime/workflow.d.ts b/dist/runtime/workflow.d.ts
 index a880b07587c107a6eb32fdcc233b094da9566b63..496395ffea1976fa8b943757e0c037b27b01244a 100644
 --- a/dist/runtime/workflow.d.ts

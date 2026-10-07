@@ -40,7 +40,7 @@ export default defineAgent({
     concurrency: 1,
     capacity: {
       fallbackConcurrency: 0,
-      memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 4 * 1024 ** 3 },
+      memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 1024 ** 3, hostReserveBytes: 4 * 1024 ** 3 },
     },
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],

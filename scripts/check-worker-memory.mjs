@@ -11,6 +11,20 @@ const missing = await resolveBox({ runtime: {
 await assert.rejects(async () => { const unexpected = await missing.open(); await unexpected.close() }, /cgroup|memory controller/)
 console.log('Configured limits fail closed without delegation.')
 
+if (process.env.VITEHUB_TEST_ADMISSION === '1') {
+  const { createProcessAgentCapacity } = await import('vite-hub/agent/runtime/process')
+  const sample = createProcessAgentCapacity({
+    concurrency: 1,
+    fallbackConcurrency: 0,
+    // This proof isolates memory arithmetic from unrelated host CPU/PSI load.
+    cpu: { pausePressure: 1, resumePressure: 1 },
+    memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 1024 ** 3, hostReserveBytes: 4 * 1024 ** 3, pausePressure: 1, resumePressure: 1 },
+  }).adaptive.sample
+  const result = await sample({ active: 0, concurrency: 1, pending: 1, signal: new AbortController().signal })
+  assert.equal(result.concurrency, 1, result.reason)
+  console.log('The first 4 GiB worker can be admitted under the staged service budget.')
+}
+
 if (process.env.VITEHUB_TEST_DELEGATED_MEMORY === '1') {
   const membership = (await readFile('/proc/self/cgroup', 'utf8')).split('\n').find(line => line.startsWith('0::')).slice(3)
   const parent = dirname(join('/sys/fs/cgroup', membership))
@@ -23,6 +37,7 @@ if (process.env.VITEHUB_TEST_DELEGATED_MEMORY === '1') {
   const sibling = await box.open()
   try {
     const alive = await sibling.spawn('sleep', ['30'])
+    await sibling.exec(process.execPath, ['-e', "const fs=require('node:fs'); const member=fs.readFileSync('/proc/self/cgroup','utf8').trim().slice(3); fs.mkdirSync('/sys/fs/cgroup'+member+'/nested/leaf', {recursive:true})"])
     const held = await worker.spawn(process.execPath, ['-e', "const b=Buffer.alloc(48*1024**2, 1); process.stdout.write('ready'); setInterval(()=>b[0], 100)"])
     const reader = held.stdout.getReader()
     assert.equal(new TextDecoder().decode((await reader.read()).value), 'ready')

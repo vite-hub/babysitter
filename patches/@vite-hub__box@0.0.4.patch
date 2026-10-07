@@ -20,110 +20,123 @@ index f031f7369356b630f07a8da62973acab0955447e..7352b8dbcdfa1d48e50955d835d28108
    };
 diff --git a/dist/session-memory.js b/dist/session-memory.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..9d018fd69f9b5a4a43442f1a7e459fb8ff408641
+index 0000000000000000000000000000000000000000..16d6fd999ffda14350893e0aef78f5a9fa15b1c6
 --- /dev/null
 +++ b/dist/session-memory.js
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,113 @@
 +import { spawn } from "node:child_process";
 +import { randomUUID } from "node:crypto";
 +import { constants } from "node:fs";
-+import { access, mkdir, readFile, rmdir, statfs, writeFile } from "node:fs/promises";
++import { access, mkdir, readFile, readdir, rmdir, statfs, writeFile } from "node:fs/promises";
 +import { isAbsolute, join } from "node:path";
 +import { setTimeout as delay } from "node:timers/promises";
 +import { defineDiagnostics } from "nostics";
 +const diagnostics = defineDiagnostics({
-+    docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
-+    codes: {
-+        BOX_R0157: { why: ({ message }) => message },
-+        BOX_R0158: { why: ({ message }) => message },
-+    },
++  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
++  codes: {
++    BOX_R0157: { why: ({ message }) => message },
++    BOX_R0158: { why: ({ message }) => message }
++  }
 +});
-+export function validateTrustedHostResources(resources) {
-+    if (process.platform !== "linux" || !isAbsolute(resources.cgroupParent)) {
-+        throw diagnostics.BOX_R0157({ message: "Box memory limits require Linux and an absolute delegated cgroupParent." });
++function validateTrustedHostResources(resources) {
++  if (process.platform !== "linux" || !isAbsolute(resources.cgroupParent)) {
++    throw diagnostics.BOX_R0157({ message: "Box memory limits require Linux and an absolute delegated cgroupParent." });
++  }
++  for (const [key, value] of Object.entries({
++    memoryMaxBytes: resources.memoryMaxBytes,
++    memoryHighBytes: resources.memoryHighBytes ?? resources.memoryMaxBytes,
++    memorySwapMaxBytes: resources.memorySwapMaxBytes ?? 0
++  })) {
++    if (!Number.isSafeInteger(value) || value < 0 || key !== "memorySwapMaxBytes" && value === 0) {
++      throw diagnostics.BOX_R0157({ message: `Box ${key} must be a safe integer byte limit.` });
 +    }
-+    for (const [key, value] of Object.entries({
-+        memoryMaxBytes: resources.memoryMaxBytes,
-+        memoryHighBytes: resources.memoryHighBytes ?? resources.memoryMaxBytes,
-+        memorySwapMaxBytes: resources.memorySwapMaxBytes ?? 0,
-+    })) {
-+        if (!Number.isSafeInteger(value) || value < 0 || (key !== "memorySwapMaxBytes" && value === 0)) {
-+            throw diagnostics.BOX_R0157({ message: `Box ${key} must be a safe integer byte limit.` });
++  }
++  if ((resources.memoryHighBytes ?? resources.memoryMaxBytes) > resources.memoryMaxBytes) {
++    throw diagnostics.BOX_R0157({ message: "Box memoryHighBytes must not exceed memoryMaxBytes." });
++  }
++}
++async function createSessionMemory(resources) {
++  validateTrustedHostResources(resources);
++  const parent = resources.cgroupParent;
++  if ((await statfs(parent)).type !== 1667723888) {
++    throw diagnostics.BOX_R0157({ message: "Box cgroupParent must be on a cgroup v2 filesystem." });
++  }
++  const controllers = (await readFile(join(parent, "cgroup.controllers"), "utf8")).trim().split(/\s+/);
++  if (!controllers.includes("memory")) {
++    throw diagnostics.BOX_R0157({ message: "Box cgroupParent does not delegate the memory controller." });
++  }
++  await writeFile(join(parent, "cgroup.subtree_control"), "+memory");
++  const path = join(parent, `vitehub-box-${randomUUID()}`);
++  await mkdir(path);
++  try {
++    await writeFile(join(path, "memory.max"), String(resources.memoryMaxBytes));
++    if (resources.memoryHighBytes !== void 0) await writeFile(join(path, "memory.high"), String(resources.memoryHighBytes));
++    await writeFile(join(path, "memory.swap.max"), String(resources.memorySwapMaxBytes ?? 0));
++    await writeFile(join(path, "memory.oom.group"), "1");
++    await access(join(path, "cgroup.procs"), constants.W_OK);
++    await access(join(path, "cgroup.kill"), constants.W_OK);
++  } catch (error) {
++    await rmdir(path);
++    throw error;
++  }
++  let closed = false;
++  return {
++    async assertHealthy() {
++      if (closed) throw diagnostics.BOX_R0157({ message: "Box resource group is closed." });
++      const failure = await readSessionMemoryFailure(path, resources.memoryMaxBytes);
++      if (failure) throw failure;
++    },
++    spawn(command, options) {
++      return spawn("/bin/sh", ["-c", 'printf "%s" "$$" > "$1/cgroup.procs" || exit 125; shift; exec /bin/sh -c "$1"', "vitehub-box", path, command], options);
++    },
++    async kill() {
++      if (!closed) await writeFile(join(path, "cgroup.kill"), "1");
++    },
++    async close() {
++      if (closed) return;
++      await writeFile(join(path, "cgroup.kill"), "1");
++      for (let attempt = 0; ; attempt++) {
++        try {
++          await removeSessionMemoryGroup(path);
++          closed = true;
++          return;
++        } catch (error) {
++          if (!(error instanceof Error) || !("code" in error) || error.code !== "EBUSY" || attempt === 39) throw error;
++          await delay(25);
 +        }
++      }
 +    }
-+    if ((resources.memoryHighBytes ?? resources.memoryMaxBytes) > resources.memoryMaxBytes) {
-+        throw diagnostics.BOX_R0157({ message: "Box memoryHighBytes must not exceed memoryMaxBytes." });
-+    }
++  };
 +}
-+export async function createSessionMemory(resources) {
-+    validateTrustedHostResources(resources);
-+    const parent = resources.cgroupParent;
-+    // Never silently create ordinary files in a directory that is not a cgroup mount.
-+    if ((await statfs(parent)).type !== 0x63677270) {
-+        throw diagnostics.BOX_R0157({ message: "Box cgroupParent must be on a cgroup v2 filesystem." });
-+    }
-+    const controllers = (await readFile(join(parent, "cgroup.controllers"), "utf8")).trim().split(/\s+/);
-+    if (!controllers.includes("memory")) {
-+        throw diagnostics.BOX_R0157({ message: "Box cgroupParent does not delegate the memory controller." });
-+    }
-+    await writeFile(join(parent, "cgroup.subtree_control"), "+memory");
-+    const path = join(parent, `vitehub-box-${randomUUID()}`);
-+    await mkdir(path);
-+    try {
-+        await writeFile(join(path, "memory.max"), String(resources.memoryMaxBytes));
-+        if (resources.memoryHighBytes !== undefined)
-+            await writeFile(join(path, "memory.high"), String(resources.memoryHighBytes));
-+        await writeFile(join(path, "memory.swap.max"), String(resources.memorySwapMaxBytes ?? 0));
-+        // Kill the whole worker, including its compiler and provider, on a local OOM.
-+        await writeFile(join(path, "memory.oom.group"), "1");
-+        await access(join(path, "cgroup.procs"), constants.W_OK);
-+        await access(join(path, "cgroup.kill"), constants.W_OK);
-+    }
-+    catch (error) {
-+        await rmdir(path);
-+        throw error;
-+    }
-+    let closed = false;
-+    return {
-+        async assertHealthy() {
-+            if (closed)
-+                throw diagnostics.BOX_R0157({ message: "Box resource group is closed." });
-+            const events = await readFile(join(path, "memory.events"), "utf8");
-+            const kills = Number(/^oom_kill (\d+)/m.exec(events)?.[1] ?? 0);
-+            if (kills > 0) {
-+                const peak = (await readFile(join(path, "memory.peak"), "utf8")).trim();
-+                throw diagnostics.BOX_R0158({ message: `Box memory limit exceeded: limit=${resources.memoryMaxBytes} bytes, peak=${peak} bytes, oom_kill=${kills}. Retry only after reducing the workload or changing its budget.` });
-+            }
-+        },
-+        spawn(command, options) {
-+            // The shell joins before it executes user code. Children inherit membership.
-+            // Arguments carry the path and command without shell interpolation.
-+            return spawn("/bin/sh", ["-c", 'printf "%s" "$$" > "$1/cgroup.procs" || exit 125; shift; exec /bin/sh -c "$1"', "vitehub-box", path, command], options);
-+        },
-+        async kill() {
-+            if (!closed)
-+                await writeFile(join(path, "cgroup.kill"), "1");
-+        },
-+        async close() {
-+            if (closed)
-+                return;
-+            await writeFile(join(path, "cgroup.kill"), "1");
-+            // A killed process can remain in the group until the kernel finishes exit.
-+            for (let attempt = 0;; attempt++) {
-+                try {
-+                    await rmdir(path);
-+                    closed = true;
-+                    return;
-+                }
-+                catch (error) {
-+                    if (error.code !== "EBUSY" || attempt === 39)
-+                        throw error;
-+                    await delay(25);
-+                }
-+            }
-+        },
-+    };
++async function readSessionMemoryFailure(path, memoryMaxBytes) {
++  const [events, localEvents] = await Promise.all([
++    readFile(join(path, "memory.events"), "utf8"),
++    readFile(join(path, "memory.events.local"), "utf8")
++  ]);
++  const kills = Number(/^oom_kill (\d+)/m.exec(events)?.[1] ?? 0);
++  if (kills === 0) return;
++  const localOom = Number(/^oom (\d+)/m.exec(localEvents)?.[1] ?? 0);
++  let peak = "unavailable";
++  try {
++    peak = (await readFile(join(path, "memory.peak"), "utf8")).trim();
++  } catch (error) {
++    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
++  }
++  const cause = localOom > 0 ? "Box memory limit exceeded" : "Box process killed by an OOM outside the session limit";
++  const advice = localOom > 0 ? "Retry only after reducing the workload or changing its budget." : "Inspect ancestor, host, and descendant memory budgets before retrying.";
++  return diagnostics.BOX_R0158({ message: `${cause}: limit=${memoryMaxBytes} bytes, peak=${peak} bytes, local_oom=${localOom}, oom_kill=${kills}. ${advice}` });
 +}
++async function removeSessionMemoryGroup(path) {
++  for (const entry of await readdir(path, { withFileTypes: true })) {
++    if (entry.isDirectory()) await removeSessionMemoryGroup(join(path, entry.name));
++  }
++  await rmdir(path);
++}
++export {
++  createSessionMemory,
++  readSessionMemoryFailure,
++  validateTrustedHostResources
++};
 diff --git a/dist/trusted-host-0kxGRTYA.js b/dist/trusted-host-0kxGRTYA.js
 index a5ab0766710b8abd384981fdc6a7e504a09484ee..8fb703eecf0c306b50d125e772f57010490bfadc 100644
 --- a/dist/trusted-host-0kxGRTYA.js
