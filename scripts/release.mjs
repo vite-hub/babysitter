@@ -82,8 +82,22 @@ const portFree = port => new Promise(resolve => {
   socket.once('error', () => resolve(true))
 })
 function tmpUsage(path = '/tmp') {
-  const stats = statfsSync(path)
-  return 100 * (1 - stats.bavail / stats.blocks)
+  try {
+    const stats = statfsSync(path)
+    return 100 * (1 - stats.bavail / stats.blocks)
+  } catch (error) {
+    // The live service keeps its TMPDIR under /home/workspace, which is
+    // intentionally inaccessible to the release user. Read the same mount's
+    // usage through the already-authorized sudo boundary instead of silently
+    // skipping the resource watch.
+    const result = spawnSync('sudo', ['-n', 'df', '-P', '-k', path], { encoding: 'utf8' })
+    if (result.status === 0) {
+      const fields = result.stdout.trim().split(/\s+/)
+      const capacity = fields.at(-2)
+      if (capacity?.endsWith('%')) return Number.parseFloat(capacity)
+    }
+    throw error
+  }
 }
 function workspaceFree() {
   // The workspace is not readable by maxi; its filesystem is /home's.
