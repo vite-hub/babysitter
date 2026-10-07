@@ -32,7 +32,11 @@ test('published CI recovery and admission guards are present', () => {
 })
 
 test('published scheduler preserves active repairs across new webhook evidence', () => {
-  assert.doesNotMatch(source, /Pull request evidence changed\./)
+  // The published host still uses this error for a genuinely changed head.
+  // The regression is the old generation-only abort, which also interrupted
+  // the worker's own pushed repair before it could finish.
+  assert.doesNotMatch(source, /current\.generation !== inboxClaim\.generation\) throw new DOMException\("Pull request evidence changed\./)
+  assert.match(source, /current\.generation !== inboxClaim\.generation && \(!pushedHead \|\| current\.pr\?\.head\?\.sha !== pushedHead\)/)
   assert.match(source, /function claimStopReason\(/)
   assert.match(source, /stackBlocked/)
 })
