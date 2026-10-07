@@ -112,9 +112,9 @@ test('the scheduler defers passes, claims stack parents first and releases lease
 
 test('a paused admission still claims PRs for host-only merges and waits', () => {
   const host = chunk('const hostOnlyChecked = ').source
-  assert.match(host, /if \(hostOnlyClaims\.has\(inboxClaim\)\) \{\n\t+await pullRequestInbox\.release\(inboxClaim\);/)
+  assert.match(host, /if \(hostOnlyClaims\.has\(inboxClaim\) && !ciRecoveryClaims\.has\(inboxClaim\)\) \{\n\t+await pullRequestInbox\.release\(inboxClaim\);/)
   // Host-only work must run before the model pass is skipped: merge, reviewed-head park, deferral.
-  assert.ok(host.indexOf('const deferral = await pendingGateDeferral(') < host.indexOf('if (hostOnlyClaims.has(inboxClaim)) {\n'))
+  assert.ok(host.indexOf('const deferral = await pendingGateDeferral(') < host.indexOf('if (hostOnlyClaims.has(inboxClaim) && !ciRecoveryClaims.has(inboxClaim)) {\n'))
   assert.match(chunk('if (options.skip?.(s) || options.only && !options.only(s)) continue;').source, /async claim\(limit, options = \{\}\)/)
 })
 
@@ -134,7 +134,7 @@ test('a zero token budget pauses every claim; a spent budget only pauses model p
   const spent = decision({ windows, hourlyInputTokens: 16e6 }, limits)
   assert.equal(spent.accepting, false)
   assert.equal(spent.hostOnly, true)
-  assert.match(host, /if \(!admission\.hostOnly\) return;/)
+  assert.match(host, /if \(!admission\.hostOnly && !ciRecoveryLane\.size\) return;/)
 })
 
 test('pnpm installs reuse hardlinked node_modules keyed by the lockfile and verify offline', () => {
@@ -178,7 +178,7 @@ test('green PRs never park forever and manual blockers are rechecked once per re
 test('PRs woken to merge are claimed beside the pass limit and run host-only', () => {
   const host = chunk('const mergeLane = ').source
   assert.match(host, /if \(reasons\.length === 1 && reasons\[0\] === "ready-to-merge"\) mergeLane\.add\(laneKey\(snapshot\)\);/)
-  assert.match(host, /const lane = mergeLane\.size \? await pullRequestInbox\.claim\(5, \{/)
+  assert.match(host, /const lane = mergeLane\.size \|\| ciRecoveryLane\.size \? await pullRequestInbox\.claim\(5, \{/)
   assert.match(host, /const hostOnlyClaims = new Set\(modelAdmission \? lane : \[\.\.\.lane, \.\.\.regular\]\);/)
 })
 
@@ -189,7 +189,7 @@ test('an exhausted budget stops model passes, not merges, and new reviews reset 
   assert.match(inbox, /event === "pull_request_review" && payload\.action === "submitted"/)
   const host = chunk('function mergeGatesOpen(').source
   assert.match(host, /pullRequestInbox\.nudge\(snapshot, "budget:merge-gates-open"\)/)
-  assert.match(host, /only: \(s\) => mergeLane\.has\(laneKey\(s\)\),\n\t+includeBlocked: true/)
+  assert.match(host, /only: \(s\) => mergeLane\.has\(laneKey\(s\)\) \|\| ciRecoveryLane\.has\(laneKey\(s\)\),\n\t+includeBlocked: true/)
 })
 
 test('a manual external wait wakes into the merge lane once every merge gate is open', () => {
@@ -207,4 +207,83 @@ test('native stack members merge bottom-first through the async stack merge endp
   assert.equal(stackMergeRoute({ base: { ref: 'fix/parent' }, stack: { base: { ref: 'main' }, position: 2 } }), 'stacked on an unmerged pull request')
   assert.match(host, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/merge-async`,\n\t+"-f",\n\t+`merge_method=\$\{merge\.method\}`,\n\t+"-f",\n\t+"merge_action=direct_merge"/)
   assert.match(host, /route === "stack" \? response\.status !== "merged" : response\.merged !== true/)
+})
+
+test('failed GitHub Actions reruns are bounded and durable per PR head', async () => {
+  const source = chunk('async function rerunFailedActions(').source
+  const functionSource = source.match(/async function rerunFailedActions[\s\S]*?\n}\n\/\/\#endregion/)?.[0]?.replace(/\n\/\/\#endregion$/, '')
+  assert.ok(functionSource)
+  const isRuntimeRecord = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const failed = (value: Record<string, unknown>) => value.status === 'completed' && value.conclusion === 'failure'
+  const actionLocation = (_repository: string, check: Record<string, unknown>) => check.runId ? { runId: check.runId } : undefined
+  const key = (_kind: string, value: unknown) => `rerun:${JSON.stringify(value)}`
+  const rerun = new Function('isRuntimeRecord', 'failed$1', 'actionLocation', 'key', `${functionSource}\nreturn rerunFailedActions`)(isRuntimeRecord, failed, actionLocation, key) as Function
+  const metadata = new Map<string, unknown>()
+  const inbox = {
+    meta: async (name: string) => metadata.get(name),
+    setMeta: async (name: string, value: unknown) => { metadata.set(name, value) },
+  }
+  const claim = { snapshot: {
+    repository: 'acme/app',
+    pr: { head: { sha: 'head' } },
+    checks: {
+      one: { status: 'completed', conclusion: 'failure', head_sha: 'head', runId: 42, name: 'CI' },
+      duplicate: { status: 'completed', conclusion: 'failure', head_sha: 'head', runId: 42, name: 'CI / duplicate' },
+    },
+  } }
+  const commands: string[][] = []
+  const command = async (args: string[]) => { commands.push(args); return { stdout: '' } }
+  const first = await rerun(inbox, claim, command, 1_000)
+  assert.equal(first.state, 'rerun')
+  assert.deepEqual(commands, [['api', '-X', 'POST', 'repos/acme/app/actions/runs/42/rerun-failed-jobs']])
+  const second = await rerun(inbox, claim, command, 1_001)
+  assert.equal(second.state, 'waiting')
+  assert.match(second.reason, /already attempted/)
+  assert.equal(commands.length, 1)
+})
+
+test('Actions rerun permission errors become a durable external wait', async () => {
+  const source = chunk('async function rerunFailedActions(').source
+  const functionSource = source.match(/async function rerunFailedActions[\s\S]*?\n}\n\/\/\#endregion/)?.[0]?.replace(/\n\/\/\#endregion$/, '')
+  assert.ok(functionSource)
+  const isRuntimeRecord = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value)
+  const failed = (value: Record<string, unknown>) => value.status === 'completed' && value.conclusion === 'failure'
+  const actionLocation = () => ({ runId: 9 })
+  const key = (_kind: string, value: unknown) => `rerun:${JSON.stringify(value)}`
+  const rerun = new Function('isRuntimeRecord', 'failed$1', 'actionLocation', 'key', `${functionSource}\nreturn rerunFailedActions`)(isRuntimeRecord, failed, actionLocation, key) as Function
+  const metadata = new Map<string, unknown>()
+  const inbox = {
+    meta: async (name: string) => metadata.get(name),
+    setMeta: async (name: string, value: unknown) => { metadata.set(name, value) },
+  }
+  const claim = { snapshot: {
+    repository: 'acme/app',
+    pr: { head: { sha: 'head' } },
+    checks: { one: { status: 'completed', conclusion: 'failure', head_sha: 'head', name: 'CI' } },
+  } }
+  const result = await rerun(inbox, claim, async () => { throw new Error('HTTP 403: Resource not accessible by integration') }, 1_000)
+  assert.equal(result.state, 'blocked')
+  assert.match(result.reason, /Actions run 9/)
+  const stored = [...metadata.values()][0] as { status: string, retryAt: number }
+  assert.equal(stored.status, 'blocked')
+  assert.ok(stored.retryAt > 1_000)
+})
+
+test('stack-blocked children are visible in queue summaries and excluded from ready counts', () => {
+  const inbox = chunk('async summary()').source
+  assert.match(inbox, /stackBlocked: true/)
+  assert.match(inbox, /stackParent: parent/)
+  const host = chunk('stackBlocked: queue.filter((item) => item.stackBlocked).length').source
+  assert.match(host, /ready: queue\.filter\(\(item\) => item\.status === "ready" && item\.dirty && !item\.stackBlocked\)/)
+  assert.match(host, /stackBlocked: queue\.filter\(\(item\) => item\.stackBlocked\)\.length/)
+})
+
+test('idle failed-check waits enter a host-only recovery lane without a webhook', () => {
+  const host = chunk('const ciRecoveryLane').source
+  assert.match(host, /const idle = \(await pullRequestInbox\.metaNumber\("idle-wait-sweep-next"\) \?\? 0\) <= Date\.now\(\);/)
+  assert.match(host, /waitsToEvaluate\(false, true\)/)
+  assert.match(host, /ci-recovery-next:/)
+  assert.match(host, /pullRequestInbox\.wake\(snapshot, `ci-recovery:\$\{head\}`\)/)
+  assert.match(host, /ciRecoveryClaims\.has\(inboxClaim\)/)
+  assert.match(host, /ciRecovery\?\.state === "waiting"/)
 })

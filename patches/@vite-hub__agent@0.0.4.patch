@@ -10848,10 +10848,38 @@ index 0000000000000000000000000000000000000000..402ba40bd37efaf6ae81191ab145fd51
 +//#endregion
 +export { createGitHubPullRequests as a, createGitHubInvocationWorkspaceHandler as c, createGitHubHost as d, parseGraphQLRateLimit as f, createGitHubPullRequestRun as i, createGitHubWorkspaceInspector as l, evaluateGitHubRequiredChecks as n, parseRequiredChecks as o, prepareGitHubPullRequestWorkspace as p, createGitHubPullRequestOperations as r, pullRequestCheckState as s, createGitHubRequiredCheckPolicyReader as t, createGitHubAppCredentials as u };
 diff --git a/dist/github-inbox-BOdzkU_0.js b/dist/github-inbox-BOdzkU_0.js
-index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5ccf83da72 100644
+index 58742e7b290aadf593fb2f0549512fe192dffb4c..117a43a653e87955bbc7e92a1ce7c231cf082e73 100644
 --- a/dist/github-inbox-BOdzkU_0.js
 +++ b/dist/github-inbox-BOdzkU_0.js
-@@ -1952,7 +1952,8 @@ function snapshotPullRequest(snapshot) {
+@@ -1270,7 +1270,26 @@ var PullRequestInbox = class {
+ 	async summary() {
+ 		if (!this.repositories.length) return [];
+ 		const repositories = this.repositoryFilter();
+-		return (await this.read(`SELECT summary FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])).map((row) => parseSummary(JSON.parse(stringValue(row.summary))));
++		const rows = await this.read(`SELECT summary, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args]);
++		const entries = rows.map((row) => ({
++			summary: parseSummary(JSON.parse(stringValue(row.summary))),
++			value: JSON.parse(stringValue(row.value))
++		}));
++		const openHeads = new Map();
++		for (const entry of entries) {
++			const pr = entry.value?.pr;
++			const repository = entry.summary.repository;
++			const head = isRuntimeRecord(pr?.head) ? pr.head.ref : void 0;
++			if (String(pr?.state ?? "").toLowerCase() === "open" && typeof head === "string" && Number.isSafeInteger(entry.summary.number)) openHeads.set(`${repository}:${head}`, { number: entry.summary.number, state: "open" });
++		}
++		return entries.map(({ summary, value }) => {
++			if (summary.status !== "ready" || !summary.dirty) return summary;
++			const pr = value?.pr;
++			const base = isRuntimeRecord(pr?.base) ? pr.base.ref : void 0;
++			const parent = typeof base === "string" ? openHeads.get(`${summary.repository}:${base}`) : void 0;
++			if (!parent || parent.number === summary.number) return summary;
++			return { ...summary, stackBlocked: true, stackParent: parent };
++		});
+ 	}
+ 	/** The open, unleased PR that a reconciliation probe checked longest ago, with that probe time. */
+ 	async nextProbe() {
+@@ -1952,7 +1971,8 @@ function snapshotPullRequest(snapshot) {
  function claimStopReason(claim, current, acceptedSelfHead) {
  	if (!current || current.lease !== claim.token || current.leaseUntil <= Date.now()) return "Pull request lease lost.";
  	if (current.status === "terminal" || current.pr?.state === "closed") return "Pull request is no longer open.";
@@ -10863,10 +10891,10 @@ index 58742e7b290aadf593fb2f0549512fe192dffb4c..e650f97adc81523de8d461dcc33b7e5c
  function createClaimStopCheck(claim, readCurrent, readProviderHead) {
 diff --git a/dist/github-inbox-Dt_sOkdE.js b/dist/github-inbox-Dt_sOkdE.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..bc1a3bc8d94d5252a7d9ec26d7942c8e1b70cb95
+index 0000000000000000000000000000000000000000..fb7ac4c8396a19a256da6976b8e9733f46ef1a2f
 --- /dev/null
 +++ b/dist/github-inbox-Dt_sOkdE.js
-@@ -0,0 +1,2056 @@
+@@ -0,0 +1,2075 @@
 +import { a as isRuntimeRecord } from "./runtime-type-bjeCL9f2.js";
 +import { t as matchesGitHubPullRequestFilter } from "./github-pull-request-filter-CWDmPKCk.js";
 +import { i as isRuntimeNumber, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
@@ -12200,7 +12228,26 @@ index 0000000000000000000000000000000000000000..bc1a3bc8d94d5252a7d9ec26d7942c8e
 +	async summary() {
 +		if (!this.repositories.length) return [];
 +		const repositories = this.repositoryFilter();
-+		return (await this.read(`SELECT summary FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])).map((row) => parseSummary(JSON.parse(stringValue(row.summary))));
++		const rows = await this.read(`SELECT summary, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args]);
++		const entries = rows.map((row) => ({
++			summary: parseSummary(JSON.parse(stringValue(row.summary))),
++			value: JSON.parse(stringValue(row.value))
++		}));
++		const openHeads = new Map();
++		for (const entry of entries) {
++			const pr = entry.value?.pr;
++			const repository = entry.summary.repository;
++			const head = isRuntimeRecord(pr?.head) ? pr.head.ref : void 0;
++			if (String(pr?.state ?? "").toLowerCase() === "open" && typeof head === "string" && Number.isSafeInteger(entry.summary.number)) openHeads.set(`${repository}:${head}`, { number: entry.summary.number, state: "open" });
++		}
++		return entries.map(({ summary, value }) => {
++			if (summary.status !== "ready" || !summary.dirty) return summary;
++			const pr = value?.pr;
++			const base = isRuntimeRecord(pr?.base) ? pr.base.ref : void 0;
++			const parent = typeof base === "string" ? openHeads.get(`${summary.repository}:${base}`) : void 0;
++			if (!parent || parent.number === summary.number) return summary;
++			return { ...summary, stackBlocked: true, stackParent: parent };
++		});
 +	}
 +	/** The open, unleased PR that a reconciliation probe checked longest ago, with that probe time. */
 +	async nextProbe() {
@@ -13497,10 +13544,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcbb61d091f
+index 0000000000000000000000000000000000000000..4cd14240ccb7d1897a06b6cc8bc686b80fed6f6f
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2335 @@
+@@ -0,0 +1,2460 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -13771,6 +13818,68 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +	}
 +	return inbox.hydrate(claim, { ciEvidence: evidence });
 +}
++async function rerunFailedActions(inbox, claim, command, now = Date.now()) {
++	const { repository } = claim.snapshot, headSha = claim.snapshot.pr?.head?.sha;
++	if (!headSha) return;
++	const runs = new Map();
++	for (const check of Object.values(claim.snapshot.checks)) {
++		if (!failed$1(check) || check.head_sha !== headSha) continue;
++		const location = actionLocation(repository, check);
++		if (!location || !Number.isSafeInteger(location.runId)) continue;
++		if (!runs.has(location.runId)) runs.set(location.runId, {
++			runId: location.runId,
++			checkName: check.name
++		});
++	}
++	if (!runs.size) return;
++	const rerun = [], blocked = [], waiting = [];
++	for (const run of [...runs.values()].slice(0, 3)) {
++		const metadataKey = key("rerun", [repository, headSha, run.runId]);
++		const previous = await inbox.meta(metadataKey);
++		if (isRuntimeRecord(previous) && previous.status === "succeeded") {
++			waiting.push({ ...run, reason: "A rerun was already attempted for this PR head; waiting for the next check result." });
++			continue;
++		}
++		if (isRuntimeRecord(previous) && (previous.status === "blocked" || previous.status === "failed") && Number(previous.retryAt ?? 0) > now) {
++			blocked.push({ ...run, reason: String(previous.reason ?? "Automatic GitHub Actions rerun is waiting for a retry window.") });
++			continue;
++		}
++		try {
++			await command([
++				"api",
++				"-X",
++				"POST",
++				`repos/${repository}/actions/runs/${run.runId}/rerun-failed-jobs`
++			], { repository, timeout: 6e4 });
++			await inbox.setMeta(metadataKey, { status: "succeeded", runId: run.runId, headSha, attemptedAt: now });
++			rerun.push(run);
++		} catch (error) {
++			const reason = error instanceof Error ? error.message : String(error);
++			const permission = /\b403\b|forbidden|resource not accessible|permission|not permitted/i.test(reason);
++			const retryAt = now + (permission ? 15 * 60e3 : 2 * 60e3);
++			await inbox.setMeta(metadataKey, {
++				status: permission ? "blocked" : "failed",
++				runId: run.runId,
++				headSha,
++				attemptedAt: now,
++				retryAt,
++				reason
++			});
++			blocked.push({ ...run, reason });
++		}
++	}
++	if (rerun.length) return { state: "rerun", runs: rerun };
++	if (waiting.length) return {
++		state: "waiting",
++		runs: waiting,
++		reason: waiting.map((run) => `Actions run ${run.runId}: ${run.reason}`).join("; ")
++	};
++	if (blocked.length) return {
++		state: "blocked",
++		reason: blocked.map((run) => `Actions run ${run.runId}: ${run.reason}`).join("; ")
++	};
++}
++//#endregion
 +//#endregion
 +//#region src/presets/babysitter/repair.ts
 +const noArguments = {
@@ -15049,17 +15158,25 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +			const parent = parents.find((value) => isRuntimeRecord(value) && String(value.state).toLowerCase() === "open" && Number.isSafeInteger(value.number));
 +			return isRuntimeRecord(parent) && hasRuntimeType(parent.number, "number") ? { parent: parent.number } : void 0;
 +		}
-+		await github.command([
-+			"api",
-+			"-X",
-+			"PATCH",
-+			`repos/${snapshot.repository}/pulls/${snapshot.number}`,
-+			"-f",
-+			`base=${to}`
-+		], {
-+			repository: snapshot.repository,
-+			timeout: 6e4
-+		});
++		try {
++			await github.command([
++				"api",
++				"-X",
++				"PATCH",
++				`repos/${snapshot.repository}/pulls/${snapshot.number}`,
++				"-f",
++				`base=${to}`
++			], {
++				repository: snapshot.repository,
++				timeout: 6e4
++			});
++		} catch (error) {
++			// A stale stack snapshot can race a webhook or another worker. GitHub
++			// returns 422 when the PR is already on the requested base; prove that
++			// state before surfacing the error so the operation is idempotent.
++			const [current] = await readRest(`repos/${snapshot.repository}/pulls/${snapshot.number}`, ".");
++			if (field(current, "base", "ref") !== to) throw error;
++		}
 +		return {
 +			from: base,
 +			to
@@ -15073,7 +15190,13 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +	const hostOnlyStamp = (s) => `${s.generation}:${s.revision ?? 0}`;
 +	// PRs woken to merge. They are claimed beside the pass limit and run host-only.
 +	const mergeLane = /* @__PURE__ */ new Set();
++	// Failed Actions waits are periodically woken without a webhook and rerun host-only.
++	const ciRecoveryLane = /* @__PURE__ */ new Set();
 +	const laneKey = (s) => `${s.repository}#${s.number}`;
++	const hasFailedActions = (s) => {
++		const head = s.pr?.head?.sha;
++		return Boolean(head && Object.values(s.checks).some((check) => failed$1(check) && check.head_sha === head && actionLocation(s.repository, check)?.runId));
++	};
 +	async function reconcile(reason, { track }, isAccepting = () => true) {
 +		const startedAt = /* @__PURE__ */ new Date();
 +		const schedule = {
@@ -15124,10 +15247,26 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +		}
 +		await pullRequestInbox.recoverLeases();
 +		try {
-+			const idle = merge.mode === "direct" && (await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now();
++			const idle = (await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now();
 +			if (idle) {
 +				await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 6e5);
 +				for (const snapshot of await pullRequestInbox.progressBlocked()) if (mergeGatesOpen(snapshot, await requiredCheckState(snapshot), waitPolicy) && (snapshot.generation > snapshot.handled || await pullRequestInbox.nudge(snapshot, "budget:merge-gates-open"))) mergeLane.add(laneKey(snapshot));
++				for (const snapshot of await pullRequestInbox.waitsToEvaluate(false, true)) {
++					if (!hasFailedActions(snapshot)) continue;
++					const head = snapshot.pr?.head?.sha;
++					if (!head) continue;
++					const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
++					if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
++					await pullRequestInbox.setMeta(recoveryKey, Date.now() + 6e5);
++					if (await pullRequestInbox.wake(snapshot, `ci-recovery:${head}`)) {
++						ciRecoveryLane.add(laneKey(snapshot));
++						schedulerEvent("babysitter.ci.recovery.woken", {
++							repository: snapshot.repository,
++							pull_request: snapshot.number,
++							head_sha: head
++						});
++					}
++				}
 +			}
 +			await evaluateWaits(idle);
 +		} catch (error) {
@@ -15156,16 +15295,20 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +					await pullRequestInbox.setMeta("admission-skipped", skipped);
 +					schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
 +				}
-+				if (!admission.hostOnly) return;
++				if (!admission.hostOnly && !ciRecoveryLane.size) return;
 +			}
 +		}
 +		// Host-only claims merge, defer or park without a model, so they may exceed the pass limit.
-+		const lane = mergeLane.size ? await pullRequestInbox.claim(5, {
-+			only: (s) => mergeLane.has(laneKey(s)),
++		const lane = mergeLane.size || ciRecoveryLane.size ? await pullRequestInbox.claim(5, {
++			only: (s) => mergeLane.has(laneKey(s)) || ciRecoveryLane.has(laneKey(s)),
 +			includeBlocked: true
 +		}) : [];
-+		for (const claim of lane) mergeLane.delete(laneKey(claim.snapshot));
-+		const regular = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
++		const ciRecoveryClaims = new Set(lane.filter((claim) => ciRecoveryLane.has(laneKey(claim.snapshot))));
++		for (const claim of lane) {
++			mergeLane.delete(laneKey(claim.snapshot));
++			ciRecoveryLane.delete(laneKey(claim.snapshot));
++		}
++		const regular = modelAdmission ? await pullRequestInbox.claim(Math.max(0, ownerLimit - active.size)) : ciRecoveryClaims.size ? [] : await pullRequestInbox.claim(Math.max(0, ownerLimit + 5 - active.size), { skip: (s) => hostOnlyChecked.get(`${s.repository}#${s.number}`) === hostOnlyStamp(s) });
 +		const hostOnlyClaims = new Set(modelAdmission ? lane : [...lane, ...regular]);
 +		const jobs = [...lane, ...regular];
 +		if (!jobs.length) return;
@@ -15283,7 +15426,7 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +					});
 +					return;
 +				}
-+				if (hostOnlyClaims.has(inboxClaim)) {
++				if (hostOnlyClaims.has(inboxClaim) && !ciRecoveryClaims.has(inboxClaim)) {
 +					await pullRequestInbox.release(inboxClaim);
 +					const released = await pullRequestInbox.get(repository, number);
 +					if (released && !modelAdmission) hostOnlyChecked.set(`${repository}#${number}`, hostOnlyStamp(released));
@@ -15299,6 +15442,34 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +					})).stdout
 +				})) {
 +					await pullRequestInbox.release(inboxClaim);
++					return;
++				}
++				const ciRecovery = await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, { ...request, signal: passSignal }));
++				if (ciRecovery?.state === "rerun") {
++					outcome = "waiting";
++					await pullRequestInbox.finish(inboxClaim, {
++						text: `Automatically reran failed GitHub Actions run${ciRecovery.runs.length === 1 ? "" : "s"} ${ciRecovery.runs.map((run) => run.runId).join(", ")}; waiting for the new check result.`,
++						wait: createCheckWait(inboxClaim.snapshot, waitPolicy)
++					});
++					schedulerEvent("babysitter.ci.rerun", { ...owner, runs: ciRecovery.runs.map((run) => run.runId) });
++					return;
++				}
++				if (ciRecovery?.state === "blocked") {
++					outcome = "waiting";
++					await pullRequestInbox.finish(inboxClaim, {
++						text: `Automatic GitHub Actions rerun is blocked: ${ciRecovery.reason}`,
++						wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason: ciRecovery.reason }
++					});
++					schedulerEvent("babysitter.ci.rerun.blocked", { ...owner, reason: ciRecovery.reason });
++					return;
++				}
++				if (ciRecovery?.state === "waiting") {
++					outcome = "waiting";
++					await pullRequestInbox.finish(inboxClaim, {
++						text: `Automatic GitHub Actions rerun already attempted; waiting for the new check result${ciRecovery.reason ? `: ${ciRecovery.reason}` : "."}`,
++						wait: createCheckWait(inboxClaim.snapshot, waitPolicy)
++					});
++					schedulerEvent("babysitter.ci.rerun.waiting", { ...owner, reason: ciRecovery.reason });
 +					return;
 +				}
 +				const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
@@ -15827,7 +15998,8 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +				queue: {
 +					items: queue,
 +					working: queue.filter((item) => item.status === "working").length,
-+					ready: queue.filter((item) => item.status === "ready" && item.dirty).length,
++					ready: queue.filter((item) => item.status === "ready" && item.dirty && !item.stackBlocked).length,
++					stackBlocked: queue.filter((item) => item.stackBlocked).length,
 +					waiting: queue.filter((item) => item.status === "waiting").length
 +				}
 +			};
@@ -15837,7 +16009,7 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +//#endregion
 +export { createBabysitterProcessHost };
 diff --git a/dist/host-DAtdf_LJ.js b/dist/host-DAtdf_LJ.js
-index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..f956d5c9b1cdcb7fed5f1881c5f18a717b0d6adb 100644
+index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..f4ae2c0e4fd8baa471949b5b2b4b442304390743 100644
 --- a/dist/host-DAtdf_LJ.js
 +++ b/dist/host-DAtdf_LJ.js
 @@ -431,20 +431,21 @@ function createBabysitterRuntime(options) {
@@ -15876,6 +16048,16 @@ index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..f956d5c9b1cdcb7fed5f1881c5f18a71
  							env: async (context) => {
  								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
  							},
+@@ -1128,7 +1129,8 @@ async function createBabysitterProcessHost(context) {
+ 				repositories,
+ 				queue: {
+ 					working: queue.filter((item) => item.status === "working").length,
+-					ready: queue.filter((item) => item.status === "ready" && item.dirty).length,
++					ready: queue.filter((item) => item.status === "ready" && item.dirty && !item.stackBlocked).length,
++					stackBlocked: queue.filter((item) => item.stackBlocked).length,
+ 					waiting: queue.filter((item) => item.status === "waiting").length
+ 				}
+ 			};
 diff --git a/dist/index-ZPJQM7_5.d.ts b/dist/index-ZPJQM7_5.d.ts
 new file mode 100644
 index 0000000000000000000000000000000000000000..2b29742cc23cc347ab61461866c13a1e34dc4893
