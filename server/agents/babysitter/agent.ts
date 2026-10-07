@@ -33,7 +33,9 @@ export default defineAgent({
       },
       author: { allow: ['onmax'] },
     },
-    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 1),
+    // Keep the scheduler ceiling high enough to use the available PR lanes. The
+    // host's admission guard and worker gate still pause work when resources are tight.
+    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.

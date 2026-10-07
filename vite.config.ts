@@ -14,13 +14,13 @@ export default defineConfig({
       agent: {
         providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } },
         routes: {
-          host: { health: '/api/health', drain: '/api/drain' },
           aliases: { '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' } },
         },
       },
       blob: false,
       console: {
         exposure: 'host-managed',
+        authorize: './server/console-authorize.ts',
         // Keep the Console journal beside the worker's durable agent data. This
         // is part of the project configuration so production does not depend on
         // a systemd environment override for the active invocation database.

@@ -29,6 +29,7 @@ const DISK_MIN_FREE = 20 * 2 ** 30
 // Other sessions share this disk, so only an absolute floor is a Babysitter signal.
 // The token guard is a per-window cap. Usage well past it means the cap is not enforced.
 const TOKEN_CAP_FACTOR = 1.5
+const FLEET_QUEUE = '/home/maxi/.local/bin/fleet-queue'
 
 const args = process.argv.slice(2)
 const smokeOnly = args.includes('--smoke-only')
@@ -44,6 +45,9 @@ function run(command, argv, options = {}) {
   const result = spawnSync(command, argv, { stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', encoding: 'utf8', ...options })
   if (result.status !== 0 && !options.allowFailure) fail(`${command} ${argv.join(' ')} exited ${result.status}${options.capture ? `\n${result.stderr}` : ''}`)
   return result
+}
+function queued(command, argv, options = {}) {
+  return run(FLEET_QUEUE, [command, ...argv], options)
 }
 const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
@@ -77,8 +81,8 @@ const portFree = port => new Promise(resolve => {
   socket.once('connect', () => { socket.destroy(); resolve(false) })
   socket.once('error', () => resolve(true))
 })
-function tmpUsage() {
-  const stats = statfsSync('/tmp')
+function tmpUsage(path = '/tmp') {
+  const stats = statfsSync(path)
   return 100 * (1 - stats.bavail / stats.blocks)
 }
 function workspaceFree() {
@@ -104,9 +108,9 @@ const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cac
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
 run('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
 // The build generates the #vitehub/env types that typecheck needs.
-run('corepack', ['pnpm', 'build'], inSource)
-run('corepack', ['pnpm', 'typecheck'], inSource)
-run('corepack', ['pnpm', 'test'], inSource)
+queued('corepack', ['pnpm', 'build'], inSource)
+queued('corepack', ['pnpm', 'typecheck'], inSource)
+queued('corepack', ['pnpm', 'test'], inSource)
 
 // 2. Stage the server output next to the earlier releases.
 let releaseName = `babysitter-release-${short}`
@@ -213,8 +217,10 @@ async function drainAndRestart(expectedRelease) {
     return (!expectedRelease || health.agent?.release === expectedRelease) && (await json(`${LIVE}/api/drain`)).status === 'accepting'
   })
 }
-const baseline = { tmp: tmpUsage(), free: workspaceFree() }
-log(`baseline: /tmp ${baseline.tmp.toFixed(0)}%, ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
+const initialHealth = await babysitterHealth(LIVE)
+const serviceTmp = initialHealth.agent?.budget?.tmp?.dir || '/tmp'
+const baseline = { tmp: tmpUsage(serviceTmp), free: workspaceFree() }
+log(`baseline: service tmp ${baseline.tmp.toFixed(0)}% (${serviceTmp}), ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
 const previousRelease = (await babysitterHealth(LIVE).catch(() => undefined))?.agent?.release
 installReleaseConf(nextConf)
 await drainAndRestart(sha)
@@ -225,13 +231,14 @@ let problem
 // Health can miss one sample while passes start; three in a row (90 s) is an outage.
 let healthFailures = 0
 for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await sleep(SAMPLE_MS)) {
-  const tmp = tmpUsage()
+  const health = await babysitterHealth(LIVE).catch(error => ({ error }))
+  const tmpDir = health.agent?.budget?.tmp?.dir || serviceTmp
+  const tmp = tmpUsage(tmpDir)
   const free = workspaceFree()
-  if (tmp >= TMP_MAX_PERCENT) problem = `/tmp at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
+  if (tmp >= TMP_MAX_PERCENT) problem = `service tmp ${tmpDir} at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
   else if (free < DISK_MIN_FREE) problem = `free disk ${(free / 2 ** 30).toFixed(0)} GiB (baseline ${(baseline.free / 2 ** 30).toFixed(0)} GiB)`
   else if (out('systemctl', ['is-active', UNIT]) !== 'active') problem = `${UNIT} is not active`
   else {
-    const health = await babysitterHealth(LIVE).catch(error => ({ error }))
     const hourly = health.agent?.budget?.hourly
     healthFailures = health.error ? healthFailures + 1 : 0
     if (healthFailures >= 3) problem = `health failed ${healthFailures} times in a row: ${health.error.message}`
@@ -243,7 +250,7 @@ for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await 
       }
     }
     const budgetErrors = health.agent?.budget?.errors?.join('; ')
-    log(`watch: /tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
+    log(`watch: service tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
   }
 }
 if (!problem) {
