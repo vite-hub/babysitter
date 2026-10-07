@@ -9,9 +9,18 @@ index 6c3c1b313b855f3a781c4b13f3de0fba4540f3db..bda3c80d7590fda001348ebf5bd21646
  import { Agent, ModelMessage, ToolLoopAgentSettings, ToolSet } from "ai";
  //#region src/ai-sdk.d.ts
 diff --git a/dist/babysitter-BOFIYz3N.js b/dist/babysitter-BOFIYz3N.js
-index cde55c1c273e5d6b361df7a267ffe131cea2fb46..1009bf5bfb6bbbc1704ef0964e1154b8cae27387 100644
+index cde55c1c273e5d6b361df7a267ffe131cea2fb46..3ad81023216b3ac51cd6bab0daccb3beccb7dc6f 100644
 --- a/dist/babysitter-BOFIYz3N.js
 +++ b/dist/babysitter-BOFIYz3N.js
+@@ -13,7 +13,7 @@ Read the supplied PR snapshot first. Its title and body describe the requested b
+ 
+ Inspect the diff and current-head checks. Address actionable feedback from humans and any review bot. Evaluate each finding against the code before changing it. Outdated feedback can describe an unfixed defect; an unresolved thread is not resolved merely because its lines are outdated. Do not require a particular review service or request reviews from a hardcoded bot.
+ 
+-Use previousPass as a starting point and verify its diagnosis. Fix the requested behavior, conflicts, failing checks and valid review findings. Keep the repair scoped to this PR. Run the relevant checks and review the final diff. Stage only intentional repair files; do not commit generated provider instruction files or injected skills. Commit locally, then call pushRepair. GitHub writes go through the supplied tools, which are bound to this PR. Do not use shell credentials, direct API calls, branch deletion, PR closure, or direct merging.
++Use previousPass as a starting point and verify its diagnosis. Fix the requested behavior, conflicts, failing checks and valid review findings. Keep the repair scoped to this PR. Run focused local tests and lint, then review the final diff. Use hosted CI for full typechecks, builds and broad validation. Run a local full check only when a current maintainer explicitly requires it or a focused reproduction needs it; use the worker budget, and stop after a memory-limit failure instead of retrying the same command. Stage only intentional repair files; do not commit generated provider instruction files or injected skills. Commit locally, then call pushRepair. GitHub writes go through the supplied tools, which are bound to this PR. Do not use shell credentials, direct API calls, branch deletion, PR closure, or direct merging.
+ 
+ After addressing a review thread, resolve it through resolveReviewThread and explain the verified fix when needed through commentOnPullRequest. Preserve unrelated body content when updating metadata. Before reporting an external blocker, reproduce it now; previous generated blocker notes are not proof. Explain the exact external action needed without repeating an existing unchanged comment.
+ 
 @@ -207,7 +207,7 @@ const babysitter = defineAgent({
  			channels: { github: babysitterIntake },
  			driver: {
@@ -13497,10 +13506,10 @@ index 0000000000000000000000000000000000000000..9f8d6aea8057470dacf5418d47c2d3d7
 \ No newline at end of file
 diff --git a/dist/host-BiLUDg6a.js b/dist/host-BiLUDg6a.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcbb61d091f
+index 0000000000000000000000000000000000000000..942b1c00d83893139e8eab823c05dcf7d053cfc7
 --- /dev/null
 +++ b/dist/host-BiLUDg6a.js
-@@ -0,0 +1,2335 @@
+@@ -0,0 +1,2340 @@
 +import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-bjeCL9f2.js";
 +import { createMessage } from "./messages.js";
 +import { l as defineCapability } from "./capability-runtime-C3qZgIdA.js";
@@ -15397,7 +15406,7 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +							env: async (context) => {
 +								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
 +							},
-+							launch: async (context) => {
++							...(baseAgent.box ? {} : { launch: async (context) => {
 +								if (context.purpose !== "inspection") {
 +									if (!preparedDirectories.has(context.cwd)) {
 +										await prepared.prepareWorkspace(context.cwd);
@@ -15407,16 +15416,20 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +									providerDirectory = context.cwd;
 +								}
 +								return workerDriver.launch ? await resolveRuntimeValue(workerDriver.launch, context) : { command: context.command };
-+							}
++							} })
 +						},
-+						workspace: {
++						...(baseAgent.box ? { box: { ...baseAgent.box, cwd: async (context) => {
++                            await installDependencies(checkout, abortSignal, owner, workerDriver.env === void 0 ? {} : await resolveRuntimeValue(workerDriver.env, context) ?? {});
++                            providerDirectory = checkout;
++                            return checkout;
++                          } } } : { workspace: {
 +							commit: false,
 +							mode: "write",
 +							store: {
 +								provider: "local",
 +								root: checkout
 +							}
-+						}
++						} })
 +					});
 +					const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
 +					const snapshotContext = snapshotPrompt(webhookSnapshot);
@@ -15689,6 +15702,7 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +		// scheduler still bounds PR owners by configured concurrency, while the
 +		// timeout guarantees a stuck provider does not retain a checkout forever.
 +		capacity: {
++			...agent.options.capacity,
 +			concurrency: agent.options.concurrency,
 +			queue: {
 +				maxPending: agent.options.concurrency,
@@ -15837,7 +15851,7 @@ index 0000000000000000000000000000000000000000..8b122efb67814693f4841b6552ff7dcb
 +//#endregion
 +export { createBabysitterProcessHost };
 diff --git a/dist/host-DAtdf_LJ.js b/dist/host-DAtdf_LJ.js
-index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..f956d5c9b1cdcb7fed5f1881c5f18a717b0d6adb 100644
+index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..72de7c99b93676ce79fc95651b9c9664289bd58e 100644
 --- a/dist/host-DAtdf_LJ.js
 +++ b/dist/host-DAtdf_LJ.js
 @@ -431,20 +431,21 @@ function createBabysitterRuntime(options) {
@@ -15876,12 +15890,21 @@ index 4d3770e6a0a0ff3a555b72a7a3aa80ce148d029a..f956d5c9b1cdcb7fed5f1881c5f18a71
  							env: async (context) => {
  								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
  							},
+@@ -1079,7 +1080,7 @@ async function createBabysitterProcessHost(context) {
+ 	const host = await createProcessAgentHost({
+ 		name: context.agentName,
+ 		dataDir: context.dataDir,
+-		capacity: { concurrency: agent.options.concurrency },
++		capacity: { ...agent.options.capacity, concurrency: agent.options.concurrency },
+ 		intervalMs: 1e4,
+ 		run: async (reason, run, accepting) => await runtime?.reconcile(reason, run, accepting)
+ 	});
 diff --git a/dist/index-ZPJQM7_5.d.ts b/dist/index-ZPJQM7_5.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b29742cc23cc347ab61461866c13a1e34dc4893
+index 0000000000000000000000000000000000000000..224da9214799d36c9dbc7d11713d4e9f618dc6b8
 --- /dev/null
 +++ b/dist/index-ZPJQM7_5.d.ts
-@@ -0,0 +1,695 @@
+@@ -0,0 +1,696 @@
 +import { Ba as GitHubPullRequestFilter, Bc as AgentInvocationController, D as AgentCapabilitiesInput, Ei as AgentSettings, Gt as AgentChannelMessageOf, H as AgentCapabilityContext, Ii as AgentToolDefinition, Kl as StreamEvent, Li as AgentToolExecutionContext, Ri as AgentToolInspection, Sn as AgentDriver, Sr as AgentInvokerProfile, T as AgentCallbackContext, Ta as WorkspaceAgentWorkspaceConfig, U as AgentCapabilityDefinition, Ui as AgentToolSchema, Wi as AgentToolSet, Xn as AgentInput, _a as MaybePromise, _i as AgentRunResult, _n as AgentDefinition, _t as AgentChannelDeliveryFinishEffectCallback, a as AgentActivityTarget, aa as AgentWebhookInvocationOwnership, bi as AgentRuntimeConfig, c as AgentActivityUpdate, ca as BuiltInAgentDriver, da as CodexDriverOptions, dc as AgentPublicErrorDetails, ga as IsTypedAgentStaticCapabilitiesList, gi as AgentRunMetadata, gn as AgentDataOutputCarrier, gr as AgentInvocationContextValues, hc as AgentInvocationJournal, hi as AgentRunInputContextValues, hn as AgentDataCarrier, k as AgentCapabilitiesResolver, ki as AgentStaticCapabilitiesList, la as BuiltInAgentDriverName, lt as AgentChannelDeliveryEffectIntent, ma as CustomAgentDriver, mi as AgentRunInput, mr as AgentInterceptOutputCarrier, nt as AgentCapabilityTypeContract, oa as AgentWebhookRegistrationDefinition, pr as AgentInterceptHandler, rr as AgentInspectionMetadata, sa as AgentWorkflowRuntimeBinding, si as AgentRegistry, u as AgentAdapter, ua as ClaudeCodeDriverOptions, uc as AgentPublicErrorCode, wa as ResolvedAgentTriggerDefinition, xi as AgentRuntimeContext, xr as AgentInvokerOptions, yn as AgentDefinitionHooks } from "./types-BeFP3LaI.js";
 +import { B as PullRequestWake, b as Snapshot } from "./github-inbox-xhTtMaIa.js";
 +import { l as GitHubRequiredCheckState } from "./github-required-checks-B1_nWGtP.js";
@@ -15914,6 +15937,7 @@ index 0000000000000000000000000000000000000000..2b29742cc23cc347ab61461866c13a1e
 +//#endregion
 +//#region src/presets/babysitter-definition.d.ts
 +interface BabysitterOptions {
++  capacity?: { memory?: { perInvocationBytes?: number; reserveBytes?: number; pausePressure?: number; resumePressure?: number }; cpu?: { pausePressure?: number; resumePressure?: number }; fallbackConcurrency?: number };
 +  /** Select PRs with the same rules as the GitHub Channel. */
 +  filter: GitHubPullRequestFilter;
 +  /** Provider Driver that repairs each PR in its checkout. Defaults to `"codex"`. Set the model with `driver.model`. */
@@ -16960,6 +16984,55 @@ index ec84ed8521e44b041775838262b837a6496e75c4..0713ec1a5c45ee38fb58d39c5af83718
  //#region src/presets/workspace.ts
  function sourceProvenanceInstructions(provenance) {
  	if (!provenance.length) return;
+diff --git a/dist/process-DCkf8-ZD.js b/dist/process-DCkf8-ZD.js
+index ac5fb0b60d94ca19c0077d1435304ac85c8f806e..bf55a5c6411ed7952c661824eb87d7e97e8b9981 100644
+--- a/dist/process-DCkf8-ZD.js
++++ b/dist/process-DCkf8-ZD.js
+@@ -149,7 +149,7 @@ function createProcessAgentCapacity(options) {
+ 		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
+ 		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
+ 		const availableMemory = Math.min(resources.availableMemory, cgroupAvailableMemory);
+-		const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes) / memory.perInvocationBytes));
++		const additional = Math.max(0, Math.floor((availableMemory - memory.reserveBytes - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
+ 		const memoryConcurrency = context.active + additional;
+ 		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
+ 		return concurrency > context.active ? {
+@@ -177,18 +177,23 @@ function assertPressurePolicy(value, name) {
+ 	if (!Number.isFinite(value.resumePressure) || value.resumePressure < 0 || value.resumePressure > value.pausePressure) throw agentDiagnostics.AGENT_R0741({ message: `[vitehub] createProcessAgentCapacity({ ${name}.resumePressure }) must be between zero and pausePressure.` });
+ }
+ async function readProcessResources(signal) {
+-	const cgroup = await readCgroupResources(signal).catch((error) => {
+-		if (signal.aborted) throw error;
+-	});
+-	return {
+-		availableMemory: typeof process.availableMemory === "function" ? process.availableMemory() : freemem(),
+-		cpuPressure: cgroup?.cpuPressure ?? 0,
+-		memoryCurrent: cgroup?.memoryCurrent ?? 0,
+-		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
+-		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
+-		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
+-		memoryPressure: cgroup?.memoryPressure ?? 0
+-	};
++  const [cgroup, meminfo, cpu, memory] = await Promise.all([
++    readCgroupResources(signal).catch(error => { if (signal.aborted) throw error; return undefined; }),
++    readOptionalCgroupFile("/proc/meminfo", signal),
++    readOptionalCgroupFile("/proc/pressure/cpu", signal),
++    readOptionalCgroupFile("/proc/pressure/memory", signal),
++  ]);
++  const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
++  const nodeAvailable = typeof process.availableMemory === "function" ? process.availableMemory() : freemem();
++  return {
++    availableMemory: Math.min(nodeAvailable, hostAvailable ? Number(hostAvailable[1]) * 1024 : Infinity),
++    cpuPressure: Math.max(cgroup?.cpuPressure ?? 0, parsePressure(cpu ?? "")),
++    memoryCurrent: cgroup?.memoryCurrent ?? 0,
++    memoryHigh: cgroup?.memoryHigh ?? Infinity,
++    memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
++    memoryMax: cgroup?.memoryMax ?? Infinity,
++    memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
++  };
+ }
+ async function readCgroupResources(signal) {
+ 	const relative = (await readFile("/proc/self/cgroup", {
 diff --git a/dist/provider-agent.d.ts b/dist/provider-agent.d.ts
 index e85030c4a0676edd227cbfd4649b16a1b543d170..9692b3ca2a84530fc959c39171ee22dc76cfd96d 100644
 --- a/dist/provider-agent.d.ts
@@ -23568,7 +23641,7 @@ index de3054e5fb43773ac90dbfe9ab4c44c6ad76a96c..4a6cc82daf49039d4a06058eb63f59a4
  //#region src/server/console-delivery.ts
 diff --git a/dist/src-CcZ5onAy.js b/dist/src-CcZ5onAy.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..4ae4d925c1e56d4f86607a033efa229e989476b2
+index 0000000000000000000000000000000000000000..2546d7c239f1a489b446567f18225de567827fde
 --- /dev/null
 +++ b/dist/src-CcZ5onAy.js
 @@ -0,0 +1,6415 @@
@@ -23616,7 +23689,7 @@ index 0000000000000000000000000000000000000000..4ae4d925c1e56d4f86607a033efa229e
 +
 +Use preloaded ciEvidence first. It contains job identity, failed steps, bounded diagnostic excerpts, omitted line ranges and availability status. An unavailable log is an API read failure, not proof of an additional CI failure. Read full logs through readCheckLogs only when an excerpt cannot answer the diagnosis. Use readBaseCheckEvidence and readBaseCheckLogs for exact-base CI evidence; GitHub credentials stay on the host. Separate setup failures from code failures. Reproduce the original failure or nearest useful focused case. Prove a claimed base regression on the exact base SHA with the same command; if that CI dependency is pending, record a structured wake for that base SHA rather than the PR HEAD. Do not repeatedly rerun a failure without inspecting its cause. A completed pass without a pushed repair, merge, or concrete durable wait is not progress.
 +
-+Use previousPass as a starting point and verify its diagnosis. Fix the requested behavior, conflicts, failing checks and valid review findings. Keep the repair scoped to this PR. Run the relevant checks and review the final diff. Stage only intentional repair files; do not commit generated provider instruction files or injected skills. Commit locally, then call pushRepair. A push records every supplied finding as handled, so fix or explicitly reject each one before pushing. GitHub writes go through the supplied tools, which are bound to this PR. Do not use shell credentials, direct API calls, branch deletion, PR closure, or direct merging.
++Use previousPass as a starting point and verify its diagnosis. Fix the requested behavior, conflicts, failing checks and valid review findings. Keep the repair scoped to this PR. Run focused local tests and lint, then review the final diff. Use hosted CI for full typechecks, builds and broad validation. Run a local full check only when a current maintainer explicitly requires it or a focused reproduction needs it; use the worker budget, and stop after a memory-limit failure instead of retrying the same command. Stage only intentional repair files; do not commit generated provider instruction files or injected skills. Commit locally, then call pushRepair. A push records every supplied finding as handled, so fix or explicitly reject each one before pushing. GitHub writes go through the supplied tools, which are bound to this PR. Do not use shell credentials, direct API calls, branch deletion, PR closure, or direct merging.
 +
 +After addressing a review thread, resolve it through resolveReviewThread and explain the verified fix when needed through commentOnPullRequest. Preserve unrelated body content when updating metadata. Before reporting an external blocker, reproduce it now; previous generated blocker notes are not proof. Explain the exact external action needed without repeating an existing unchanged comment.
 +

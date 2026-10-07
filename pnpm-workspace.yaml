@@ -1,3 +1,4 @@
 patchedDependencies:
   '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch
+  '@vite-hub/box@0.0.4': patches/@vite-hub__box@0.0.4.patch
   '@vite-hub/workspace': patches/@vite-hub__workspace.patch

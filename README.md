@@ -97,3 +97,5 @@ The local checkout test exercises the installed patched package.
 To update the patch, use `pnpm patch @vite-hub/agent@0.0.4`, update the extracted
 package from a tested framework build, then run `pnpm patch-commit <directory>`.
 Retire the patch when these changes are included in the pinned ViteHub version.
+
+Worker memory containment and its deployment prerequisite are described in [ops/worker-memory](ops/worker-memory/README.md). The staged policy starts with one 4 GiB repair worker and uses GitHub Actions for full typechecks and builds.

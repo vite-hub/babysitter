@@ -144,11 +144,13 @@ const smokeEnv = {
   TMPDIR: join(scratch, 'tmp'),
   VITEHUB_CONSOLE_DATABASE_URL: `file:${join(scratch, 'console.sqlite')}`,
   BABYSITTER_HOURLY_INPUT_TOKENS: '0',
+  BABYSITTER_WORKER_CGROUP_PARENT: `/sys/fs/cgroup/system.slice/${smokeUnit}.service`,
 }
 sudo(['systemd-run', `--unit=${smokeUnit}`, '--collect', '--quiet',
   '-p', 'User=svc-babysitter', '-p', 'Group=codex-workspace', '-p', 'UMask=0002',
   '-p', `WorkingDirectory=${scratch}`, '-p', 'NoNewPrivileges=yes', '-p', 'PrivateTmp=yes',
   '-p', 'ProtectSystem=strict', '-p', 'ProtectHome=read-only', '-p', `ReadWritePaths=${scratch}`,
+  '-p', 'Delegate=memory', '-p', 'DelegateSubgroup=controller', '-p', 'ProtectControlGroups=no',
   '-p', 'MemoryMax=2G', ...envFiles.flatMap(file => ['-p', `EnvironmentFile=${file}`]),
   ...Object.entries(smokeEnv).map(([key, value]) => `--setenv=${key}=${value}`),
   '/usr/local/bin/node', entry])

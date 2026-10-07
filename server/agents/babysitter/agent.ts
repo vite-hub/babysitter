@@ -19,6 +19,11 @@ const telemetry = createAgentEvlog({
   } : {}),
 })
 
+const workerCgroupParent = process.env.BABYSITTER_WORKER_CGROUP_PARENT
+if (process.env.NODE_ENV === 'production' && !workerCgroupParent) {
+  throw new Error('BABYSITTER_WORKER_CGROUP_PARENT must name the delegated service cgroup before production workers can start.')
+}
+
 export default defineAgent({
   extends: 'babysitter',
   name: 'babysitter',
@@ -31,12 +36,28 @@ export default defineAgent({
       },
       author: { allow: ['onmax'] },
     },
-    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 1),
+    // Raise this only after measuring complete worker memory peaks on this host.
+    concurrency: 1,
+    capacity: {
+      fallbackConcurrency: 0,
+      memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 4 * 1024 ** 3 },
+    },
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
     merge: { strategy: 'direct', method: 'squash' },
+  },
+  box: {
+    runtime: {
+      kind: 'trusted-host',
+      ...(workerCgroupParent ? { resources: {
+        cgroupParent: workerCgroupParent,
+        memoryHighBytes: 3 * 1024 ** 3,
+        memoryMaxBytes: 4 * 1024 ** 3,
+        memorySwapMaxBytes: 128 * 1024 ** 2,
+      } } : {}),
+    },
   },
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
@@ -45,7 +66,7 @@ export default defineAgent({
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
-      NODE_OPTIONS: '--max-old-space-size=4096',
+      NODE_OPTIONS: '--max-old-space-size=2048',
       // The worker bin wraps node with the shared typecheck/test slot gate.
       ...(process.env.BABYSITTER_WORKER_BIN ? { PATH: `${process.env.BABYSITTER_WORKER_BIN}:${process.env.PATH}` } : {}),
     }),
@@ -62,9 +83,11 @@ mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call th
 directly. Push only through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
-not run local builds or broad validation matrices; use CI logs to diagnose remote
-build failures.
+Make at most one repair commit per pass. Run focused local tests and lint. Use
+GitHub Actions for full typechecks, builds and broad validation. Run a local full
+check only for a maintainer's explicit request or a focused reproduction, within
+the worker memory budget. If a command hits its memory limit, stop and report the
+command and failure; reduce the workload before retrying.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in

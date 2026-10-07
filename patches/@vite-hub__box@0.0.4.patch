@@ -1,0 +1,241 @@
+diff --git a/dist/index-D6IERRFq.d.ts b/dist/index-D6IERRFq.d.ts
+index f031f7369356b630f07a8da62973acab0955447e..7352b8dbcdfa1d48e50955d835d281084a4d3325 100644
+--- a/dist/index-D6IERRFq.d.ts
++++ b/dist/index-D6IERRFq.d.ts
+@@ -168,6 +168,7 @@ interface CrabboxOptions {
+ //#endregion
+ //#region src/internal/trusted-host.d.ts
+ interface TrustedHostOptions {
++  resources?: { cgroupParent: string; memoryMaxBytes: number; memoryHighBytes?: number; memorySwapMaxBytes?: number };
+   stateRoot?: string;
+ }
+ //#endregion
+@@ -476,6 +477,7 @@ interface BoxResolvedRequirement {
+   readonly timeout?: number;
+ }
+ interface BoxPlan {
++  readonly resources?: { cgroupParent: string; memoryMaxBytes: number; memoryHighBytes?: number; memorySwapMaxBytes?: number };
+   readonly cache: {
+     readonly state: "disposable";
+   };
+diff --git a/dist/session-memory.js b/dist/session-memory.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..9d018fd69f9b5a4a43442f1a7e459fb8ff408641
+--- /dev/null
++++ b/dist/session-memory.js
+@@ -0,0 +1,100 @@
++import { spawn } from "node:child_process";
++import { randomUUID } from "node:crypto";
++import { constants } from "node:fs";
++import { access, mkdir, readFile, rmdir, statfs, writeFile } from "node:fs/promises";
++import { isAbsolute, join } from "node:path";
++import { setTimeout as delay } from "node:timers/promises";
++import { defineDiagnostics } from "nostics";
++const diagnostics = defineDiagnostics({
++    docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
++    codes: {
++        BOX_R0157: { why: ({ message }) => message },
++        BOX_R0158: { why: ({ message }) => message },
++    },
++});
++export function validateTrustedHostResources(resources) {
++    if (process.platform !== "linux" || !isAbsolute(resources.cgroupParent)) {
++        throw diagnostics.BOX_R0157({ message: "Box memory limits require Linux and an absolute delegated cgroupParent." });
++    }
++    for (const [key, value] of Object.entries({
++        memoryMaxBytes: resources.memoryMaxBytes,
++        memoryHighBytes: resources.memoryHighBytes ?? resources.memoryMaxBytes,
++        memorySwapMaxBytes: resources.memorySwapMaxBytes ?? 0,
++    })) {
++        if (!Number.isSafeInteger(value) || value < 0 || (key !== "memorySwapMaxBytes" && value === 0)) {
++            throw diagnostics.BOX_R0157({ message: `Box ${key} must be a safe integer byte limit.` });
++        }
++    }
++    if ((resources.memoryHighBytes ?? resources.memoryMaxBytes) > resources.memoryMaxBytes) {
++        throw diagnostics.BOX_R0157({ message: "Box memoryHighBytes must not exceed memoryMaxBytes." });
++    }
++}
++export async function createSessionMemory(resources) {
++    validateTrustedHostResources(resources);
++    const parent = resources.cgroupParent;
++    // Never silently create ordinary files in a directory that is not a cgroup mount.
++    if ((await statfs(parent)).type !== 0x63677270) {
++        throw diagnostics.BOX_R0157({ message: "Box cgroupParent must be on a cgroup v2 filesystem." });
++    }
++    const controllers = (await readFile(join(parent, "cgroup.controllers"), "utf8")).trim().split(/\s+/);
++    if (!controllers.includes("memory")) {
++        throw diagnostics.BOX_R0157({ message: "Box cgroupParent does not delegate the memory controller." });
++    }
++    await writeFile(join(parent, "cgroup.subtree_control"), "+memory");
++    const path = join(parent, `vitehub-box-${randomUUID()}`);
++    await mkdir(path);
++    try {
++        await writeFile(join(path, "memory.max"), String(resources.memoryMaxBytes));
++        if (resources.memoryHighBytes !== undefined)
++            await writeFile(join(path, "memory.high"), String(resources.memoryHighBytes));
++        await writeFile(join(path, "memory.swap.max"), String(resources.memorySwapMaxBytes ?? 0));
++        // Kill the whole worker, including its compiler and provider, on a local OOM.
++        await writeFile(join(path, "memory.oom.group"), "1");
++        await access(join(path, "cgroup.procs"), constants.W_OK);
++        await access(join(path, "cgroup.kill"), constants.W_OK);
++    }
++    catch (error) {
++        await rmdir(path);
++        throw error;
++    }
++    let closed = false;
++    return {
++        async assertHealthy() {
++            if (closed)
++                throw diagnostics.BOX_R0157({ message: "Box resource group is closed." });
++            const events = await readFile(join(path, "memory.events"), "utf8");
++            const kills = Number(/^oom_kill (\d+)/m.exec(events)?.[1] ?? 0);
++            if (kills > 0) {
++                const peak = (await readFile(join(path, "memory.peak"), "utf8")).trim();
++                throw diagnostics.BOX_R0158({ message: `Box memory limit exceeded: limit=${resources.memoryMaxBytes} bytes, peak=${peak} bytes, oom_kill=${kills}. Retry only after reducing the workload or changing its budget.` });
++            }
++        },
++        spawn(command, options) {
++            // The shell joins before it executes user code. Children inherit membership.
++            // Arguments carry the path and command without shell interpolation.
++            return spawn("/bin/sh", ["-c", 'printf "%s" "$$" > "$1/cgroup.procs" || exit 125; shift; exec /bin/sh -c "$1"', "vitehub-box", path, command], options);
++        },
++        async kill() {
++            if (!closed)
++                await writeFile(join(path, "cgroup.kill"), "1");
++        },
++        async close() {
++            if (closed)
++                return;
++            await writeFile(join(path, "cgroup.kill"), "1");
++            // A killed process can remain in the group until the kernel finishes exit.
++            for (let attempt = 0;; attempt++) {
++                try {
++                    await rmdir(path);
++                    closed = true;
++                    return;
++                }
++                catch (error) {
++                    if (error.code !== "EBUSY" || attempt === 39)
++                        throw error;
++                    await delay(25);
++                }
++            }
++        },
++    };
++}
+diff --git a/dist/trusted-host-0kxGRTYA.js b/dist/trusted-host-0kxGRTYA.js
+index a5ab0766710b8abd384981fdc6a7e504a09484ee..8fb703eecf0c306b50d125e772f57010490bfadc 100644
+--- a/dist/trusted-host-0kxGRTYA.js
++++ b/dist/trusted-host-0kxGRTYA.js
+@@ -1,3 +1,4 @@
++import { createSessionMemory, validateTrustedHostResources } from "./session-memory.js";
+ import { r as markBuiltInBoxRuntime, t as boxErrorDiagnostics } from "./error-diagnostics-BFBkxA3F.js";
+ import { a as boxRequirementSignal, i as boxRequirementSecrets, n as boxRequirementError, o as collectBoxRequirementOutput, r as boxRequirementPlan, s as materializeGitCheckout, t as createBoxSession } from "./session-Bq_WHwZ4.js";
+ import { createHash, randomUUID } from "node:crypto";
+@@ -51,6 +52,7 @@ function createTrustedHostRuntime(options = {}) {
+ 	return markBuiltInBoxRuntime({
+ 		name: "trusted-host",
+ 		async prepare(input) {
++			if (options.resources) validateTrustedHostResources(options.resources);
+ 			const { cwd, stateRoot } = await resolveTrustedHostInput(input, options);
+ 			preparedInputs.set(input, {
+ 				cwd,
+@@ -60,6 +62,7 @@ function createTrustedHostRuntime(options = {}) {
+ 				cache: { state: "disposable" },
+ 				environment: { env: {} },
+ 				executionAuthority: trustedHostExecutionAuthority,
++				...(options.resources ? { resources: { ...options.resources } } : {}),
+ 				home: stateRoot ? { state: input.plan.state.map((state) => ({
+ 					identity: createHash("sha256").update(JSON.stringify([
+ 						stateRoot,
+@@ -90,7 +93,7 @@ function createTrustedHostRuntime(options = {}) {
+ 			const runtimeSession = await createSession({
+ 				...input,
+ 				...resolved.cwd ? { cwd: resolved.cwd } : {}
+-			}, { stateRoot: resolved.stateRoot }, {
++			}, { ...options, stateRoot: resolved.stateRoot }, {
+ 				abortSignal: openOptions?.signal,
+ 				...openOptions?.initialize ? { async initialize(session) {
+ 					initializedSession = createBoxSession(session, openOptions, resolved.cwd ? join(session.defaultWorkingDirectory, "workspace") : void 0);
+@@ -146,6 +149,7 @@ async function createSession(input, options, createOptions) {
+ 			env,
+ 			home,
+ 			release: releases,
++			resources: options.resources,
+ 			root,
+ 			sessionId: createOptions.sessionId,
+ 			workspace: input.cwd
+@@ -302,6 +306,7 @@ async function createTrustedHostSession(options) {
+ 	const workspace = join(options.root, "workspace");
+ 	if (options.workspace) await symlink(options.workspace, workspace, "dir");
+ 	else await mkdir(workspace, { recursive: true });
++	const memory = options.resources ? await createSessionMemory(options.resources) : undefined;
+ 	let destroyPromise;
+ 	const processes = /* @__PURE__ */ new Set();
+ 	const processGroups = /* @__PURE__ */ new Set();
+@@ -318,6 +323,7 @@ async function createTrustedHostSession(options) {
+ 			destroyPromise ??= (async () => {
+ 				try {
+ 					await this.stop();
++					await memory?.close();
+ 					await rm(options.root, {
+ 						force: true,
+ 						recursive: true
+@@ -407,7 +413,8 @@ async function createTrustedHostSession(options) {
+ 			assertCommandEnvironment(runOptions.env);
+ 			const cwd = await physicalSessionPath(options.root, runOptions.workingDirectory ?? this.defaultWorkingDirectory);
+ 			runOptions.abortSignal?.throwIfAborted();
+-			const child = spawn(runOptions.command, {
++			await memory?.assertHealthy();
++			const child = (memory ? memory.spawn : spawn)(runOptions.command, {
+ 				cwd,
+ 				detached: process.platform !== "win32",
+ 				env: {
+@@ -417,7 +424,7 @@ async function createTrustedHostSession(options) {
+ 					OLDPWD: cwd,
+ 					PWD: cwd
+ 				},
+-				shell: true
++				shell: !memory
+ 			});
+ 			processes.add(child);
+ 			if (child.pid && process.platform !== "win32") processGroups.add(child.pid);
+@@ -425,7 +432,7 @@ async function createTrustedHostSession(options) {
+ 				processes.delete(child);
+ 				if (child.pid && process.platform !== "win32" && !processGroupExists(child.pid)) processGroups.delete(child.pid);
+ 			});
+-			return processHandle(child, runOptions.abortSignal);
++			return processHandle(child, runOptions.abortSignal, () => memory?.assertHealthy());
+ 		},
+ 		async stop() {
+ 			const active = [...processes];
+@@ -434,6 +441,7 @@ async function createTrustedHostSession(options) {
+ 			await Promise.race([Promise.all(active.map(waitForExit)), new Promise((resolvePromise) => setTimeout(resolvePromise, 250))]);
+ 			for (const pid of processGroups) signalProcessGroup(pid, "SIGKILL");
+ 			if (process.platform === "win32") for (const child of active) signalProcessTree(child, "SIGKILL");
++			await memory?.kill();
+ 			await Promise.all(active.map(waitForExit));
+ 			processes.clear();
+ 			processGroups.clear();
+@@ -673,7 +681,7 @@ async function bytesFromStream(stream) {
+ async function collect(stream) {
+ 	return await new Response(stream).text();
+ }
+-function processHandle(child, abortSignal) {
++function processHandle(child, abortSignal, afterExit) {
+ 	let abortReason;
+ 	let forceKillTimer;
+ 	const abort = () => {
+@@ -690,9 +698,10 @@ function processHandle(child, abortSignal) {
+ 			abortSignal?.removeEventListener("abort", abort);
+ 			if (forceKillTimer) clearTimeout(forceKillTimer);
+ 			if (abortReason) reject(abortReason);
+-			else resolvePromise({ exitCode: code ?? 1 });
++			else Promise.resolve().then(afterExit).then(() => resolvePromise({ exitCode: code ?? 1 }), reject);
+ 		});
+ 	});
++	void wait.catch(() => undefined);
+ 	if (abortSignal?.aborted) abort();
+ 	let stdin;
+ 	return {

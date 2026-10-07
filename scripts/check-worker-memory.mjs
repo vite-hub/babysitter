@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict'
+import { readFile, readdir } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { resolveBox } from 'vite-hub/box'
+
+const MiB = 1024 ** 2
+const missing = await resolveBox({ runtime: {
+  kind: 'trusted-host',
+  resources: { cgroupParent: '/missing-vitehub-cgroup', memoryMaxBytes: 96 * MiB, memorySwapMaxBytes: 0 },
+} }, {})
+await assert.rejects(async () => { const unexpected = await missing.open(); await unexpected.close() }, /cgroup|memory controller/)
+console.log('Configured limits fail closed without delegation.')
+
+if (process.env.VITEHUB_TEST_DELEGATED_MEMORY === '1') {
+  const membership = (await readFile('/proc/self/cgroup', 'utf8')).split('\n').find(line => line.startsWith('0::')).slice(3)
+  const parent = dirname(join('/sys/fs/cgroup', membership))
+  const before = await readdir(parent)
+  const box = await resolveBox({ runtime: {
+    kind: 'trusted-host',
+    resources: { cgroupParent: parent, memoryMaxBytes: 96 * MiB, memorySwapMaxBytes: 0 },
+  } }, {})
+  const worker = await box.open()
+  const sibling = await box.open()
+  try {
+    const alive = await sibling.spawn('sleep', ['30'])
+    const held = await worker.spawn(process.execPath, ['-e', "const b=Buffer.alloc(48*1024**2, 1); process.stdout.write('ready'); setInterval(()=>b[0], 100)"])
+    const reader = held.stdout.getReader()
+    assert.equal(new TextDecoder().decode((await reader.read()).value), 'ready')
+    reader.releaseLock()
+    await assert.rejects(worker.exec(process.execPath, ['-e', 'const b=Buffer.alloc(48*1024**2, 1); setTimeout(()=>process.exit(b[0]-1), 150)']), /memory limit exceeded.*peak=/)
+    await assert.rejects(held.wait(), /memory limit exceeded/)
+    await assert.rejects(worker.exec('true'), /memory limit exceeded/)
+    assert.equal((await sibling.exec('kill', ['-0', String(alive.pid)])).code, 0)
+    console.log('Worker OOM was contained; sibling and controller survived.')
+  } finally {
+    await worker.close()
+    await sibling.close()
+  }
+  assert.deepEqual((await readdir(parent)).sort(), before.sort())
+  console.log('Worker cgroups were removed.')
+}
