@@ -67,9 +67,12 @@ mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call th
 directly. Stage and commit explicit repair files through commitRepair, then push through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
-not run local builds or broad validation matrices; use CI logs to diagnose remote
-build failures.
+Make at most one repair commit per pass. Run focused tests, lint and typecheck for
+code you change. When no source repair remains, use completed current-head CI and
+report reviewedHead instead of rerunning local checks. Do not run local builds or
+broad validation matrices; use CI logs to diagnose remote build failures. Missing
+workspace build outputs are a setup limitation; do not repeat full typechecks that
+cannot load those outputs.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in
