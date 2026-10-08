@@ -124,7 +124,7 @@ mkdirSync(inSource.env.TMPDIR, { recursive: true })
 // Keep the finite release checks in one queue job. Re-entering the FIFO after
 // each check can delay recovery behind unrelated builds at every stage.
 // The build generates the #vitehub/env types that typecheck needs.
-queued('bash', ['-c', 'set -e\ncorepack pnpm install --frozen-lockfile --prefer-offline\ncorepack pnpm build\ncorepack pnpm typecheck\ncorepack pnpm test'], inSource)
+queued('bash', ['-c', 'set -e\numask 022\ncorepack pnpm install --frozen-lockfile --prefer-offline\ncorepack pnpm build\ncorepack pnpm typecheck\ncorepack pnpm test'], inSource)
 
 // 2. Stage the server output next to the earlier releases.
 let releaseName = `babysitter-release-${short}`

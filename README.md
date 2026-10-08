@@ -124,7 +124,22 @@ after preparation, preserving tracked instruction changes. Terminal provider usa
 retained after successful, failed, and aborted turns for admission accounting.
 
 The host preserves a validated Yarn linker while isolating project plugins and
-package-manager executables. Linker changes invalidate installed dependencies.
+package-manager executables. Virtual peer locators retain validation of their
+nested source. Linker changes invalidate installed dependencies. Linked package
+commands contribute their contents and executable mode to the installation
+fingerprint. Protected commit validation reads generated commands through the
+validated file descriptor and rejects concurrent path replacement.
+
+Prepared checkout ownership is explicit. Ordinary provider launchers still
+create their Workspace baseline; host-prepared repair launches retain their Git
+ancestry and merge index. The checkout watcher checks the actual provider HEAD
+before an older push receipt. Lease renewal and durable finish retain the
+verified publication chain while synchronize webhooks are pending. Source-branch
+push evidence fences unrelated SHAs and original-head rollbacks before the PR head
+updates. Failed CI for a verified pending repair head still revokes publication.
+Stack retargeting checks the live child and durable claim before changing its base.
+Host installation requires Git and Corepack in trusted PATH. Dynamic admission is
+checked again after setup before dispatching a provider.
 
 The upstream package owns durable status delivery and recovery of worker failures. Saving a pass result also queues its
 managed PR comment in the same SQLite transaction. GitHub delivery retries survive
@@ -133,19 +148,32 @@ results. Hosts claim each delivery atomically and renew the five-minute lease
 until its external write settles. Deferred repair comments yield the batch to
 other PRs. Up to five publications run outside scheduling, remain tracked during
 drain, and request cancellation after twenty seconds. Saved statuses use their
-own activity run IDs. New feedback, active claims, and replaced heads discard obsolete deliveries. If a replaced writer settles late, the host queues a corrective replay of the latest saved result with a fresh activity identity. GitHub comments are eventually consistent because a lease cannot revoke an HTTP write already accepted remotely. Posting does not require a
+own activity run IDs. New feedback, active claims, and replaced heads discard obsolete deliveries. If a replaced writer settles late, the host queues a corrective replay of the latest saved result with a fresh activity identity. A lease cannot revoke an HTTP write already accepted by GitHub. Posting does not require a
 model invocation or native MCP approval. The host selects the GitHub App installation
 for each repository owner, using configured mappings or App discovery. Concurrent
 admission checks share one journal scan. Health can reuse its timestamped accounting
 for at most two minutes while dispatch waits for the current scan.
 
-Replaced writers retain durable correction until explicit settlement. Orphaned
-writers keep a five-minute replay interval after their active deadline. Reopening
+Replaced writers retain durable correction for fifteen minutes after their last
+delivery lease. Active writers extend this deadline with lease heartbeats. A
+crashed writer's marker then retires so the outbox can drain. Observed late
+settlement queues the current status again; an unobserved remote write after the
+deadline can still overwrite the comment. Channels using the same GitHub host
+serialize publication before resolving credentials, even when callbacks differ
+or tokens rotate. Credential resolution and read stages have thirty-second bounds
+combined with caller cancellation. A stalled credential or lookup callback releases
+the local queue. An already-started write requests cancellation at the deadline but
+retains target ordering and its durable delivery lease until its transport settles.
+A custom transport that never settles can hold that target queue. Reopening
 a closed PR queues the new status even while worker capacity is unavailable.
+A reopen releases custody from the closed lifetime. A late saved status during a
+worker pass queues a running correction bound to that worker's durable claim,
+so it can publish before the pass ends.
 
 Known worker blockers, such as rejected MCP approvals or read-only Git metadata,
 are rechecked once per application release. An unchanged worker failure stays
 parked for that release. External dependencies retain their existing wake rules.
+Idle CI recovery preserves worker blockers so deployment can retry them.
 The published provider adapter already preapproves the exact host-authorized tool
 names for unattended runs.
 
