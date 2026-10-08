@@ -9,7 +9,8 @@
 // service, then watches /tmp, free disk and token rate. A spike, a failed health
 // check or a stopped service restores the previous release.conf.
 //
-// The smoke boot forces a zero token budget, so it reads GitHub but never claims a PR.
+// The smoke boot excludes real authors and uses a zero token budget. Host-only
+// merges and retargeting remain available under model admission blocks.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statfsSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
@@ -29,6 +30,7 @@ const DISK_MIN_FREE = 20 * 2 ** 30
 // Other sessions share this disk, so only an absolute floor is a Babysitter signal.
 // The token guard is a per-window cap. Usage well past it means the cap is not enforced.
 const TOKEN_CAP_FACTOR = 1.5
+const FLEET_QUEUE = '/home/maxi/.local/bin/fleet-queue'
 
 const args = process.argv.slice(2)
 const smokeOnly = args.includes('--smoke-only')
@@ -44,6 +46,9 @@ function run(command, argv, options = {}) {
   const result = spawnSync(command, argv, { stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', encoding: 'utf8', ...options })
   if (result.status !== 0 && !options.allowFailure) fail(`${command} ${argv.join(' ')} exited ${result.status}${options.capture ? `\n${result.stderr}` : ''}`)
   return result
+}
+function queued(command, argv, options = {}) {
+  return run(FLEET_QUEUE, [command, ...argv], options)
 }
 const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
@@ -77,9 +82,23 @@ const portFree = port => new Promise(resolve => {
   socket.once('connect', () => { socket.destroy(); resolve(false) })
   socket.once('error', () => resolve(true))
 })
-function tmpUsage() {
-  const stats = statfsSync('/tmp')
-  return 100 * (1 - stats.bavail / stats.blocks)
+function tmpUsage(path = '/tmp') {
+  try {
+    const stats = statfsSync(path)
+    return 100 * (1 - stats.bavail / stats.blocks)
+  } catch (error) {
+    // The live service keeps its TMPDIR under /home/workspace, which is
+    // intentionally inaccessible to the release user. Read the same mount's
+    // usage through the already-authorized sudo boundary instead of silently
+    // skipping the resource watch.
+    const result = spawnSync('sudo', ['-n', 'df', '-P', '-k', path], { encoding: 'utf8' })
+    if (result.status === 0) {
+      const fields = result.stdout.trim().split(/\s+/)
+      const capacity = fields.at(-2)
+      if (capacity?.endsWith('%')) return Number.parseFloat(capacity)
+    }
+    throw error
+  }
 }
 function workspaceFree() {
   // The workspace is not readable by maxi; its filesystem is /home's.
@@ -104,9 +123,9 @@ const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cac
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
 run('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
 // The build generates the #vitehub/env types that typecheck needs.
-run('corepack', ['pnpm', 'build'], inSource)
-run('corepack', ['pnpm', 'typecheck'], inSource)
-run('corepack', ['pnpm', 'test'], inSource)
+queued('corepack', ['pnpm', 'build'], inSource)
+queued('corepack', ['pnpm', 'typecheck'], inSource)
+queued('corepack', ['pnpm', 'test'], inSource)
 
 // 2. Stage the server output next to the earlier releases.
 let releaseName = `babysitter-release-${short}`
@@ -144,6 +163,7 @@ const smokeEnv = {
   TMPDIR: join(scratch, 'tmp'),
   VITEHUB_CONSOLE_DATABASE_URL: `file:${join(scratch, 'console.sqlite')}`,
   BABYSITTER_HOURLY_INPUT_TOKENS: '0',
+  BABYSITTER_SMOKE_ONLY: '1',
 }
 sudo(['systemd-run', `--unit=${smokeUnit}`, '--collect', '--quiet',
   '-p', 'User=svc-babysitter', '-p', 'Group=codex-workspace', '-p', 'UMask=0002',
@@ -165,10 +185,9 @@ try {
   const drain = await json(`http://127.0.0.1:${port}/api/drain`)
   if (drain.status !== 'accepting') throw new Error(`smoke drain status is ${drain.status}`)
   log(`smoke ok: release ${short}, admission paused (${agent.admission.detail}), drain ${drain.status}`)
-  // A ready PR in the bootstrapped inbox reaches the claim point and records the skip.
-  const skipped = await waitFor('smoke admission skip', 60_000, async () =>
-    (await babysitterHealth(`http://127.0.0.1:${port}`)).agent?.admission?.lastSkip)
-  log(`smoke skipped a pass: ${skipped.reason}, ${skipped.detail}`)
+  if (agent.workload?.active !== 0 || agent.queue?.working !== 0 || agent.queue?.ready !== 0)
+    throw new Error('smoke configuration admitted real PR work')
+  log('smoke has no eligible PR work')
 }
 catch (error) {
   sudo(['journalctl', '-u', smokeUnit, '-n', '40', '--no-pager'], { allowFailure: true })
@@ -201,7 +220,7 @@ async function drainAndRestart(expectedRelease) {
     if (status === 'drained') break
     if (Date.now() - lastReport >= 60_000) {
       lastReport = Date.now()
-      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.running, () => '?')
+      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.active, () => '?')
       log(`drain ${status}, ${running} passes running, ${Math.round((Date.now() - started) / 60_000)} min`)
     }
     await sleep(5_000)
@@ -213,10 +232,17 @@ async function drainAndRestart(expectedRelease) {
     return (!expectedRelease || health.agent?.release === expectedRelease) && (await json(`${LIVE}/api/drain`)).status === 'accepting'
   })
 }
-const baseline = { tmp: tmpUsage(), free: workspaceFree() }
-log(`baseline: /tmp ${baseline.tmp.toFixed(0)}%, ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
+const initialHealth = await babysitterHealth(LIVE)
+const serviceTmp = initialHealth.agent?.budget?.tmp?.dir || '/tmp'
+const baseline = { tmp: tmpUsage(serviceTmp), free: workspaceFree() }
+log(`baseline: service tmp ${baseline.tmp.toFixed(0)}% (${serviceTmp}), ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
 const previousRelease = (await babysitterHealth(LIVE).catch(() => undefined))?.agent?.release
 installReleaseConf(nextConf)
+const preflight = sudo(['-u', 'svc-babysitter', '/home/workspace/babysitter-data/bin/verify-merge-gate'], { allowFailure: true })
+if (preflight.status !== 0) {
+  installReleaseConf(previousConf)
+  fail('release preflight failed; restored the previous systemd target')
+}
 await drainAndRestart(sha)
 log(`live on ${release}`)
 
@@ -225,13 +251,14 @@ let problem
 // Health can miss one sample while passes start; three in a row (90 s) is an outage.
 let healthFailures = 0
 for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await sleep(SAMPLE_MS)) {
-  const tmp = tmpUsage()
+  const health = await babysitterHealth(LIVE).catch(error => ({ error }))
+  const tmpDir = health.agent?.budget?.tmp?.dir || serviceTmp
+  const tmp = tmpUsage(tmpDir)
   const free = workspaceFree()
-  if (tmp >= TMP_MAX_PERCENT) problem = `/tmp at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
+  if (tmp >= TMP_MAX_PERCENT) problem = `service tmp ${tmpDir} at ${tmp.toFixed(0)}% (baseline ${baseline.tmp.toFixed(0)}%)`
   else if (free < DISK_MIN_FREE) problem = `free disk ${(free / 2 ** 30).toFixed(0)} GiB (baseline ${(baseline.free / 2 ** 30).toFixed(0)} GiB)`
   else if (out('systemctl', ['is-active', UNIT]) !== 'active') problem = `${UNIT} is not active`
   else {
-    const health = await babysitterHealth(LIVE).catch(error => ({ error }))
     const hourly = health.agent?.budget?.hourly
     healthFailures = health.error ? healthFailures + 1 : 0
     if (healthFailures >= 3) problem = `health failed ${healthFailures} times in a row: ${health.error.message}`
@@ -243,7 +270,7 @@ for (const until = Date.now() + WATCH_MS; Date.now() < until && !problem; await 
       }
     }
     const budgetErrors = health.agent?.budget?.errors?.join('; ')
-    log(`watch: /tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
+    log(`watch: service tmp ${tmp.toFixed(0)}%, ${(free / 2 ** 30).toFixed(0)} GiB free, ${health.error ? `health failed (${health.error.message})` : typeof hourly?.inputTokens === 'number' ? `${(hourly.inputTokens / 1e6).toFixed(1)}M of ${(hourly.limit / 1e6).toFixed(0)}M tokens this hour` : 'no budget data'}${budgetErrors ? ` [${budgetErrors}]` : ''}, admission ${health.agent?.admission?.accepting === false ? `paused (${health.agent.admission.reason})` : 'open'}`)
   }
 }
 if (!problem) {

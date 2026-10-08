@@ -6,9 +6,12 @@ inbox, exact-head Git checkouts, CI evidence, repair tools, retries and merge ch
 This project configures repositories, authors, concurrency, model and personal policy.
 
 ```ts
+import { babysitter } from 'vite-hub/agent/presets/babysitter'
+
 export default defineAgent({
-  extends: 'babysitter',
-  babysitter: {
+  preset: 'babysitter',
+  presets: { babysitter },
+  options: {
     filter: {
       repository: { allow: ['your-org/your-repo'] },
       author: { allow: ['your-login'] },
@@ -71,6 +74,9 @@ existing provider proxy. PostHog export is optional through `POSTHOG_API_KEY`.
 Agent State stores the inbox in `.vitehub/agent-state.db`. On first startup the preset
 imports the previous `.vitehub/pull-request-inbox.sqlite` without overwriting newer
 state. Invocation and provider state live under `.vitehub/agents/babysitter`.
+The Console invocation journal is configured by `console.databaseUrl` in
+`vite.config.ts`, pointing at that same durable agent directory, so the deployed
+worker and Console use one source of truth without a systemd database override.
 Run one process per data directory. Back up SQLite through its backup API.
 
 GitHub delivers signed webhooks to `/api/webhooks/github`. Health is at `/api/health`
@@ -86,14 +92,15 @@ curl -fsS http://127.0.0.1:3028/api/drain
 sudo systemctl restart babysitter-vitehub.service
 ```
 
-## Package patch
+## Framework preview
 
-`pnpm-workspace.yaml` registers the framework patch in `patches/`; the lockfile pins
-its hash. A frozen installation applies it automatically. The patch contains the
-module-style preset API and shared worker changes, so no scheduler files are needed
-in this application. Owner regression tests live with the ViteHub source changes.
-The local checkout test exercises the installed patched package.
+The dependency and lockfile pin an immutable pkg.pr.new build from
+[ViteHub PR #1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable
+CI recovery, host repair commits and dependency installation, protected native
+tool authorization, and asynchronous merges. These fixes live upstream; this
+application uses no local pnpm patch.
 
-To update the patch, use `pnpm patch @vite-hub/agent@0.0.4`, update the extracted
-package from a tested framework build, then run `pnpm patch-commit <directory>`.
-Retire the patch when these changes are included in the pinned ViteHub version.
+Update the preview after validating the ViteHub source, then run the release
+script against the exact application commit. The release script builds and tests
+that commit, smoke-boots scratch data, verifies the systemd preflight, drains the
+worker, and watches the new release for health and resource failures.
