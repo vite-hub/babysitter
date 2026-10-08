@@ -1,0 +1,301 @@
+diff --git a/dist/babysitter-status-recovery.js b/dist/babysitter-status-recovery.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..572002fe0ded749f368d64b15e0a1101c9ecc602
+--- /dev/null
++++ b/dist/babysitter-status-recovery.js
+@@ -0,0 +1,122 @@
++import { createHash, randomUUID } from "node:crypto";
++
++const outboxPrefix = "status-outbox:v1:";
++const sentPrefix = "status-sent:v1:";
++const workerPrefix = "worker-blocker:v1:";
++const digest = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
++const targetKey = snapshot => `${snapshot.repository}#${snapshot.number}`;
++
++// Persist with the result transaction. Publishing must never depend on a model tool call.
++export async function enqueueStatusResult(inbox, tx, snapshot, claim = {}) {
++  if (!inbox.activityAuthors.size || !snapshot.lastResult?.trim()) return;
++  const head = snapshot.pr?.head?.sha;
++  if (!head || claim.snapshot && claim.snapshot.pr?.head?.sha !== head && claim.resultHead !== head) return;
++  const key = targetKey(snapshot);
++  const contentKey = digest([head, snapshot.generation, snapshot.status, snapshot.lastResult]);
++  const sent = await inbox.metaIn(tx, `${sentPrefix}${key}`);
++  const pending = await inbox.metaIn(tx, `${outboxPrefix}${key}`);
++  if (sent?.contentKey === contentKey || pending?.contentKey === contentKey) return;
++  const now = inbox.clock();
++  await inbox.setMetaIn(tx, `${outboxPrefix}${key}`, {
++    version: randomUUID(), contentKey, repository: snapshot.repository, number: snapshot.number,
++    head, generation: snapshot.generation, text: snapshot.lastResult, attempts: 0, nextAt: now,
++    activity: {
++      runId: claim.runId ?? `saved:${key}:${snapshot.generation}:${head}`,
++      status: snapshot.status === "ready" ? "failed" : "completed",
++      startedAt: claim.startedAt ? new Date(claim.startedAt).toISOString() : undefined,
++      updatedAt: new Date(now).toISOString(), links: claim.activity?.links ?? [], tasks: [],
++      summary: snapshot.lastResult
++    }
++  });
++}
++
++export function isWorkerBlocker(snapshot) {
++  if (snapshot.wait?.kind !== "external" || snapshot.wait.wake) return false;
++  const text = `${snapshot.wait.reason}\n${snapshot.lastResult ?? ""}`;
++  return /MCP tool call requires approval|approval policy is never|read.only[^\n]{0,80}\.git|\.git[^\n]{0,80}read.only|writable (?:\.git|Git (?:metadata|checkout))|restore frozen-lockfile dependency installation/i.test(text);
++}
++
++// Uses the existing managed GitHub activity publisher, including its restart-safe comment lookup.
++export function createBabysitterStatusRecovery({ inbox, revision, publish, event = () => {}, error = () => {} }) {
++  let flushing;
++  let initialized = false;
++  async function updatePending(key, observed, update) {
++    return inbox.transaction(async tx => {
++      const current = await inbox.metaIn(tx, key);
++      if (current?.version !== observed.version) return false;
++      await update(tx, current);
++      return true;
++    });
++  }
++  async function flushPending() {
++    const now = inbox.clock();
++    const entries = (await inbox.metaEntries(outboxPrefix)).filter(([, value]) => value?.nextAt <= now).slice(0, 5);
++    for (const [key, pending] of entries) {
++      try {
++        const snapshot = await inbox.get(pending.repository, pending.number);
++        if (!snapshot || snapshot.pr?.head?.sha !== pending.head) {
++          await updatePending(key, pending, tx => tx.execute(`DELETE FROM ${inbox.tables.meta} WHERE scope=? AND key=?`, [inbox.scope, key]));
++          continue;
++        }
++        await publish(pending);
++        await updatePending(key, pending, async tx => {
++          await inbox.setMetaIn(tx, `${sentPrefix}${targetKey(pending)}`, { contentKey: pending.contentKey, head: pending.head, deliveredAt: inbox.clock() });
++          await tx.execute(`DELETE FROM ${inbox.tables.meta} WHERE scope=? AND key=?`, [inbox.scope, key]);
++        });
++        event("babysitter.status.delivered", { repository: pending.repository, pull_request: pending.number });
++      } catch (failure) {
++        await updatePending(key, pending, async (tx, current) => {
++          const attempts = current.attempts + 1;
++          await inbox.setMetaIn(tx, key, { ...current, attempts, nextAt: inbox.clock() + Math.min(900000, 60000 * 2 ** Math.min(attempts - 1, 4)), lastError: String(failure).slice(0, 1000) });
++        });
++        error("babysitter.status.delivery.failed", failure, { repository: pending.repository, pull_request: pending.number });
++      }
++    }
++  }
++  return {
++    async flush() {
++      if (!publish) return;
++      if (!flushing) flushing = flushPending().finally(() => { flushing = undefined; });
++      await flushing;
++    },
++    async recordWorkerBlocker(snapshot, reason) {
++      if (isWorkerBlocker({ ...snapshot, wait: { kind: "external", reason } })) {
++        await inbox.setMeta(`${workerPrefix}${targetKey(snapshot)}`, { revision, head: snapshot.pr?.head?.sha });
++      }
++    },
++    async recover() {
++      // Backfill results from older releases once, without an invocation or a synthetic webhook.
++      const snapshots = await inbox.waitsToEvaluate(true, true);
++      if (!initialized) {
++        for (const snapshot of snapshots) await inbox.transaction(tx => enqueueStatusResult(inbox, tx, snapshot));
++        initialized = true;
++      }
++      for (const snapshot of snapshots) {
++        if (!isWorkerBlocker(snapshot)) continue;
++        const key = `${workerPrefix}${targetKey(snapshot)}`;
++        const observed = await inbox.meta(key);
++        const head = snapshot.pr?.head?.sha;
++        if (observed?.revision === revision && observed.head === head) continue;
++        if (await inbox.wake(snapshot, digest(["worker-release", revision, head]), { recovery: true })) {
++          await inbox.setMeta(key, { revision, head });
++          event("babysitter.worker.recovery.woken", { repository: snapshot.repository, pull_request: snapshot.number, head_sha: head, revision });
++        }
++      }
++    }
++  };
++}
++
++// Dispatch waits for fresh accounting. Health may reuse a bounded, timestamped snapshot
++// while that same journal read is in flight, without launching another expensive scan.
++export function coalesceBabysitterAdmission(read, clock = Date.now) {
++  let pending, latest;
++  function check(...args) {
++    if (!pending) pending = Promise.resolve().then(() => read(...args)).then(result => {
++      latest = { ...result, observedAt: clock() };
++      return latest;
++    }).finally(() => { pending = undefined; });
++    return pending;
++  }
++  check.health = () => latest && clock() - latest.observedAt <= 120000 ? Promise.resolve(latest) : check();
++  return check;
++}
+diff --git a/dist/channel-env-DiKFZkq6.js b/dist/channel-env-DiKFZkq6.js
+index 13335e509e1950b7c78c3b34fc4621de12eb557a..ef6bde7430cf32390e71e66e90c1e04d53838e7d 100644
+--- a/dist/channel-env-DiKFZkq6.js
++++ b/dist/channel-env-DiKFZkq6.js
+@@ -23,6 +23,8 @@ const builtInChannelEnv = {
+ 	github: {
+ 		appId: { names: ["GITHUB_APP_ID"] },
+ 		appInstallationId: { names: ["GITHUB_APP_INSTALLATION_ID"] },
++		appOwner: { names: ["GITHUB_APP_OWNER"] },
++		appInstallations: { names: ["GITHUB_APP_INSTALLATIONS"] },
+ 		appPrivateKey: {
+ 			names: ["GITHUB_APP_PRIVATE_KEY"],
+ 			secret: true
+diff --git a/dist/github-DDLcfv2O.js b/dist/github-DDLcfv2O.js
+index 12c375ee3cef1e959d90415da09194dbc6d8900a..c4824eadf7f1c9649412d8572fd32e5e1ef285fe 100644
+--- a/dist/github-DDLcfv2O.js
++++ b/dist/github-DDLcfv2O.js
+@@ -384,7 +384,9 @@ function createGitHubAppCredentials(app) {
+ 	return {
+ 		async credentials(context) {
+ 			if (!context.repository) return { token: app.token };
+-			const installationId = app.installationId ?? await installation(context.repository, context.signal);
++			const repositoryOwner = owner(context.repository);
++			const configured = app.installations?.[repositoryOwner] ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined);
++			const installationId = configured ?? await installation(context.repository, context.signal);
+ 			return {
+ 				appId: app.appId,
+ 				installationId,
+diff --git a/dist/github-inbox-URC4e3Wj.js b/dist/github-inbox-URC4e3Wj.js
+index ef5b4b23584e85dbeb9bdf491562c1b0bf7df8a6..ad6f0675e7b2ac6534deb8768cf1ea7331df6df9 100644
+--- a/dist/github-inbox-URC4e3Wj.js
++++ b/dist/github-inbox-URC4e3Wj.js
+@@ -1,3 +1,4 @@
++import { enqueueStatusResult } from "./babysitter-status-recovery.js";
+ import { a as isRuntimeRecord } from "./runtime-type-VTnJJ_sX.js";
+ import { t as matchesGitHubPullRequestFilter } from "./github-pull-request-filter-CWDmPKCk.js";
+ import { i as isRuntimeNumber, o as isRuntimeString } from "./runtime-value-AnCEk2nX.js";
+@@ -1202,6 +1203,7 @@ var PullRequestInbox = class {
+ 				s.handled = Math.max(s.handled, claim.generation);
+ 				s.reasons = s.generation > claim.generation ? s.reasons : [];
+ 				s.revision = (s.revision ?? 0) + 1;
++				await enqueueStatusResult(this, tx, s, { ...claim, resultHead: pinnedHead });
+ 				await this.put(tx, s);
+ 				return true;
+ 			}
+@@ -1250,6 +1252,7 @@ var PullRequestInbox = class {
+ 				s.nextAt = 0;
+ 				s.reasons = ["no-progress-budget-exhausted"];
+ 			}
++			await enqueueStatusResult(this, tx, s, claim);
+ 			await this.put(tx, s);
+ 			return true;
+ 		});
+diff --git a/dist/host-CW3jKyAw.js b/dist/host-CW3jKyAw.js
+index 91df805695316777d9c6858c2db2712422ea2ed5..d24b1357f20c4b3204da47e37679c54e4fe651bc 100644
+--- a/dist/host-CW3jKyAw.js
++++ b/dist/host-CW3jKyAw.js
+@@ -1,9 +1,10 @@
++import { createBabysitterStatusRecovery, coalesceBabysitterAdmission } from "./babysitter-status-recovery.js";
+ import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-VTnJJ_sX.js";
+ import { createMessage } from "./messages.js";
+ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from "./capability-runtime-C-c2MbLm.js";
+ import { n as channelEnv } from "./channel-env-DiKFZkq6.js";
+ import { C as asMetadataTarget, E as getAgentLayerOptions, w as copyDefinitionDecorations } from "./workspace-agent-DvvMoRyl.js";
+-import { i as defineAgent, p as runAgent } from "./src-L6ftUUTF.js";
++import { c as publishAgentActivity, i as defineAgent, p as runAgent } from "./src-L6ftUUTF.js";
+ import { i as createProcessAgentHost } from "./process-CPffl0jl.js";
+ import { a as mergeReviewEvidenceKey, i as liveMergeReadiness, n as babysitterPassResultSchema, o as resolveBabysitterMerge, r as directMergeReadiness, s as snapshotCheckEvidence } from "./babysitter-CzWJXL5w.js";
+ import { r as registerAgentProcessHostIntake } from "./agent-process-host-C8eMgdBg.js";
+@@ -1108,7 +1109,7 @@ function createBabysitterAdmission(options) {
+ 	const usage = /* @__PURE__ */ new Map();
+ 	let readAt;
+ 	let cursor;
+-	return async function check(now = Date.now()) {
++	return coalesceBabysitterAdmission(async function check(now = Date.now()) {
+ 		const windows = babysitterBudgetWindows(now);
+ 		const state = {
+ 			windows,
+@@ -1147,7 +1148,7 @@ function createBabysitterAdmission(options) {
+ 			state,
+ 			limits: options.limits
+ 		};
+-	};
++	});
+ }
+ //#endregion
+ //#region src/presets/babysitter/server.ts
+@@ -1201,6 +1202,14 @@ function createBabysitterRuntime(options) {
+ 	};
+ 	const schedulerEvent = (name, properties = {}) => options.event?.(name, properties);
+ 	const schedulerError = (name, error, properties = {}) => options.error?.(name, error, properties);
++	const statusChannel = verifiedHostIdentity ? github.channel({ activity: true, pullRequest: { workspace: false } }) : undefined;
++	const statusRecovery = createBabysitterStatusRecovery({
++		inbox: pullRequestInbox,
++		revision: baseAgent.version ?? "unattended-status-v1",
++		publish: statusChannel ? pending => publishAgentActivity({ name: `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`, channels: { github: statusChannel } }, { channelId: "github", target: { repository: pending.repository, issue: pending.number }, activity: pending.activity }) : undefined,
++		event: schedulerEvent,
++		error: schedulerError
++	});
+ 	const active = /* @__PURE__ */ new Set();
+ 	const execFileAsync = promisify(execFile);
+ 	async function readRest(path, projection = ".[]", signal) {
+@@ -1556,6 +1565,7 @@ function createBabysitterRuntime(options) {
+ 		return checksDependencyEvidence(wake, readRest);
+ 	}
+ 	async function externalWait(observed, wake, reason) {
++		if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
+ 		if (!wake) return {
+ 			...createCheckWait(observed, waitPolicy),
+ 			kind: "external",
+@@ -1663,6 +1673,8 @@ function createBabysitterRuntime(options) {
+ 		};
+ 		const { publicUrl, repositories } = options;
+ 		if (!isAccepting()) return;
++		await statusRecovery.recover();
++		await statusRecovery.flush();
+ 		let modelAdmission = true;
+ 		if (options.admission) {
+ 			const admission = await options.admission();
+@@ -1773,6 +1785,8 @@ function createBabysitterRuntime(options) {
+ 				runId
+ 			};
+ 			const startedAt = Date.now();
++			inboxClaim.runId = runId;
++			inboxClaim.startedAt = startedAt;
+ 			let outcome = "completed";
+ 			let disposition;
+ 			let resultText = "";
+@@ -2123,6 +2137,7 @@ function createBabysitterRuntime(options) {
+ 						publicUrl: publicUrl ?? resolvePublicUrl({ agentName: options.agentName ?? baseAgent.name })
+ 					});
+ 					githubRun.threadId = `${githubRun.threadId}:${runId}`;
++					inboxClaim.activity = githubRun.activity;
+ 					const result = await runWithProviderRetry(() => runAgent(agent, {
+ 						runtime: "vite",
+ 						run: githubRun,
+@@ -2349,6 +2364,19 @@ async function readGitHubAppEnvironment(context = {}) {
+ 		privateKey
+ 	};
+ 	if (installation) app.installationId = Number(installation);
++	app.owner = envString(env.appOwner)?.toLowerCase();
++	const configuredInstallations = envString(env.appInstallations);
++	if (configuredInstallations) {
++		const mappings = JSON.parse(configuredInstallations);
++		if (!isRuntimeRecord(mappings)) throw new Error("GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
++		app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
++			const installationId = Number(id);
++			if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
++			return [owner.toLowerCase(), installationId];
++		}));
++	}
++	// An unscoped default must not silently authorize unrelated repository owners.
++	if (!app.owner) delete app.installationId;
+ 	return app;
+ }
+ /** The repositories that the PR filter allows. The Babysitter discovers open PRs only there. */
+@@ -2431,7 +2459,7 @@ async function createBabysitterProcessHost(context) {
+ 		async health() {
+ 			const health = await host.health();
+ 			const queue = await inbox.summary();
+-			const guard = await admission();
++			const guard = await admission.health();
+ 			const lastSkip = await inbox.meta("admission-skipped");
+ 			return {
+ 				...health,
+@@ -2452,6 +2480,7 @@ async function createBabysitterProcessHost(context) {
+ 					lastSkip
+ 				},
+ 				budget: {
++					observedAt: new Date(guard.observedAt).toISOString(),
+ 					hourly: {
+ 						inputTokens: guard.state.hourlyInputTokens,
+ 						limit: guard.limits.hourlyInputTokens,
