@@ -3,11 +3,11 @@ set -eu
 # Run as root. This exposes only the empty queue lock inode to provider sandboxes.
 # The service receives read access; the queue owner keeps its existing write access.
 fleet_lock=${1:-/home/maxi/.local/state/fleet-queue/slot.lock}
-worker_directory=${2:-/home/workspace/babysitter-data/bin/worker}
+gate_directory=${2:-/home/workspace/babysitter-data/bin/worker}
 service_user=${3:-svc-babysitter}
-shared_lock="$worker_directory/heavy-command.lock"
+shared_lock="$gate_directory/heavy-command.lock"
 test -f "$fleet_lock"
-test -d "$worker_directory"
+test -d "$gate_directory"
 if [ -e "$shared_lock" ]; then
   test "$fleet_lock" -ef "$shared_lock"
 else

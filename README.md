@@ -83,9 +83,11 @@ GitHub delivers signed webhooks to `/api/webhooks/github`. Health is at `/api/he
 and drain state is at `/api/drain`. The standard ViteHub host routes remain available.
 The Console is served at `/_vitehub`.
 
-Worker checks share the host fleet queue lock, while model passes can use all 16 owner slots. Provider sandboxes have private `/tmp` and PID namespaces, so PID files under `/tmp` do not limit host concurrency. The Node wrapper opens a persistent lock read-only and acquires a kernel `flock` on its shared inode. Install the anchor once before copying `scripts/heavy-command-gate.cjs` to the service worker bin:
+Worker checks share the host fleet queue lock, while model passes can use all 16 owner slots. Provider sandboxes have private `/tmp` and PID namespaces, so PID files under `/tmp` do not limit host concurrency. The Node wrapper opens a persistent lock read-only and acquires a kernel `flock` on its shared inode. Set `BABYSITTER_WORKER_BIN=/home/workspace/babysitter-data/bin/worker/worker-bin`. Install the wrapper there and put the gate and lock in its parent directory:
 
 ```sh
+sudo install -d /home/workspace/babysitter-data/bin/worker/worker-bin
+sudo install -m 0755 scripts/worker-bin/node /home/workspace/babysitter-data/bin/worker/worker-bin/node
 sudo scripts/install-worker-verification-lock.sh
 sudo install -m 0644 scripts/heavy-command-gate.cjs /home/workspace/babysitter-data/bin/worker/heavy-command-gate.cjs
 ```
