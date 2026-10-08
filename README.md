@@ -117,6 +117,11 @@ Conflict preparation reads the live target branch ref. A stale PR base snapshot
 cannot turn a real conflict into an empty merge. Repair commit and push guards
 check that live ref again before publication.
 
+The host fetches the exact live base before preparing that merge and binds base-CI
+tools to the same commit. Generated provider instructions are injected after merge
+preparation, preserving tracked instruction changes. Terminal provider usage is
+retained after successful, failed, and aborted turns for admission accounting.
+
 The host preserves a validated Yarn linker while isolating project plugins and
 package-manager executables. Linker changes invalidate installed dependencies.
 
