@@ -117,6 +117,9 @@ Conflict preparation reads the live target branch ref. A stale PR base snapshot
 cannot turn a real conflict into an empty merge. Repair commit and push guards
 check that live ref again before publication.
 
+The host preserves a validated Yarn linker while isolating project plugins and
+package-manager executables. Linker changes invalidate installed dependencies.
+
 The upstream package owns durable status delivery and recovery of worker failures. Saving a pass result also queues its
 managed PR comment in the same SQLite transaction. GitHub delivery retries survive
 restarts, find an existing comment after an uncertain response, and coalesce newer
