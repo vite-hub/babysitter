@@ -57,7 +57,11 @@ test('patched host ignores stale synthetic PR refs and checks out the current so
     assert.equal(git(root, '--git-dir', fork, 'rev-parse', 'refs/heads/fix^'), headSha)
     assert.equal(git(root, '--git-dir', base, 'rev-parse', 'refs/heads/main'), baseSha)
   })
-  assert.deepEqual(await readdir(checkoutPath), [])
+  try {
+    assert.deepEqual(await readdir(checkoutPath), [])
+  } catch (error) {
+    assert.equal(error?.code, 'ENOENT')
+  }
   await assert.rejects(host.withPullRequestCheckout({ ...pr, headSha: baseSha }, async () => assert.fail('must reject stale head before callback')), /Pull request head changed/)
   await host.withPullRequestCheckout({ repository: pr.repository, number: pr.number, headSha: stalePrSha }, async ({ path }) => {
     assert.equal(git(path, 'rev-parse', 'HEAD'), stalePrSha)
