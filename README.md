@@ -118,8 +118,9 @@ cannot turn a real conflict into an empty merge. Repair commit and push guards
 check that live ref again before publication.
 
 The host fetches the exact live base before preparing that merge and binds base-CI
-tools to the same commit. Generated provider instructions are injected after merge
-preparation, preserving tracked instruction changes. Terminal provider usage is
+tools to the same commit. Copied instruction files are restored to the assigned PR
+head before base preparation, then generated provider instructions are injected
+after preparation, preserving tracked instruction changes. Terminal provider usage is
 retained after successful, failed, and aborted turns for admission accounting.
 
 The host preserves a validated Yarn linker while isolating project plugins and
