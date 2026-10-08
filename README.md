@@ -106,8 +106,24 @@ sudo systemctl restart babysitter-vitehub.service
 The dependency and lockfile pin an immutable pkg.pr.new build from
 [ViteHub PR #1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable
 CI recovery, host repair commits and dependency installation, protected native
-tool authorization, and asynchronous merges. These fixes live upstream; this
-application uses no local pnpm patch.
+tool authorization, and asynchronous merges.
+
+`pnpm-workspace.yaml` applies a local `@vite-hub/agent` patch for durable status
+delivery and recovery of worker failures. Saving a pass result also queues its
+managed PR comment in the same SQLite transaction. GitHub delivery retries survive
+restarts, find an existing comment after an uncertain response, and coalesce newer
+results. Replaced heads discard obsolete deliveries. Posting does not require a
+model invocation or native MCP approval.
+
+Known worker blockers, such as rejected MCP approvals or read-only Git metadata,
+are rechecked once per application release. An unchanged worker failure stays
+parked for that release. External dependencies retain their existing wake rules.
+The published provider adapter already preapproves the exact host-authorized tool
+names for unattended runs.
+
+The patch regression tests use the installed package, a durable SQLite inbox, and
+the existing GitHub activity publisher. Retire the patch when these changes are
+included in the pinned upstream package.
 
 Update the preview after validating the ViteHub source, then run the release
 script against the exact application commit. The release script builds and tests
