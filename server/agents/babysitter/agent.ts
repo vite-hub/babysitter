@@ -31,7 +31,7 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      author: { allow: ['onmax'] },
+      author: { allow: [process.env.BABYSITTER_SMOKE_ONLY === '1' ? 'vitehub-release-smoke-no-author' : 'onmax'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
@@ -60,11 +60,11 @@ current maintainer explicitly requests it for this PR. Remove stale blockers bas
 only on a generic media requirement.
 
 The checkout has full Git history and network access, but no GitHub credentials. The
-host installs dependencies with the frozen lockfile before you start. The PR tools are MCP tools named mcp__t3_code__pushRepair,
+host installs dependencies with the frozen lockfile before you start. The PR tools are MCP tools named mcp__t3_code__commitRepair, mcp__t3_code__pushRepair,
 mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
 mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
 mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them
-directly. Push only through pushRepair. The host merges a ready PR after you report
+directly. Stage and commit explicit repair files through commitRepair, then push through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
 Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do

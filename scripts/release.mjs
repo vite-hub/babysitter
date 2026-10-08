@@ -9,7 +9,8 @@
 // service, then watches /tmp, free disk and token rate. A spike, a failed health
 // check or a stopped service restores the previous release.conf.
 //
-// The smoke boot forces a zero token budget, so it reads GitHub but never claims a PR.
+// The smoke boot excludes real authors and uses a zero token budget. Host-only
+// merges and retargeting remain available under model admission blocks.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statfsSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
@@ -162,6 +163,7 @@ const smokeEnv = {
   TMPDIR: join(scratch, 'tmp'),
   VITEHUB_CONSOLE_DATABASE_URL: `file:${join(scratch, 'console.sqlite')}`,
   BABYSITTER_HOURLY_INPUT_TOKENS: '0',
+  BABYSITTER_SMOKE_ONLY: '1',
 }
 sudo(['systemd-run', `--unit=${smokeUnit}`, '--collect', '--quiet',
   '-p', 'User=svc-babysitter', '-p', 'Group=codex-workspace', '-p', 'UMask=0002',
@@ -183,10 +185,9 @@ try {
   const drain = await json(`http://127.0.0.1:${port}/api/drain`)
   if (drain.status !== 'accepting') throw new Error(`smoke drain status is ${drain.status}`)
   log(`smoke ok: release ${short}, admission paused (${agent.admission.detail}), drain ${drain.status}`)
-  // A ready PR in the bootstrapped inbox reaches the claim point and records the skip.
-  const skipped = await waitFor('smoke admission skip', 60_000, async () =>
-    (await babysitterHealth(`http://127.0.0.1:${port}`)).agent?.admission?.lastSkip)
-  log(`smoke skipped a pass: ${skipped.reason}, ${skipped.detail}`)
+  if (agent.workload?.active !== 0 || agent.queue?.working !== 0 || agent.queue?.ready !== 0)
+    throw new Error('smoke configuration admitted real PR work')
+  log('smoke has no eligible PR work')
 }
 catch (error) {
   sudo(['journalctl', '-u', smokeUnit, '-n', '40', '--no-pager'], { allowFailure: true })
@@ -219,7 +220,7 @@ async function drainAndRestart(expectedRelease) {
     if (status === 'drained') break
     if (Date.now() - lastReport >= 60_000) {
       lastReport = Date.now()
-      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.running, () => '?')
+      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.active, () => '?')
       log(`drain ${status}, ${running} passes running, ${Math.round((Date.now() - started) / 60_000)} min`)
     }
     await sleep(5_000)
@@ -237,6 +238,11 @@ const baseline = { tmp: tmpUsage(serviceTmp), free: workspaceFree() }
 log(`baseline: service tmp ${baseline.tmp.toFixed(0)}% (${serviceTmp}), ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
 const previousRelease = (await babysitterHealth(LIVE).catch(() => undefined))?.agent?.release
 installReleaseConf(nextConf)
+const preflight = sudo(['-u', 'svc-babysitter', '/home/workspace/babysitter-data/bin/verify-merge-gate'], { allowFailure: true })
+if (preflight.status !== 0) {
+  installReleaseConf(previousConf)
+  fail('release preflight failed; restored the previous systemd target')
+}
 await drainAndRestart(sha)
 log(`live on ${release}`)
 
