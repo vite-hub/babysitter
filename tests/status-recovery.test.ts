@@ -153,3 +153,23 @@ test('historical results are backfilled once and worker recovery survives restar
   assert.equal((await restored.get(repository, 239)).status, 'waiting')
   assert.equal((await restored.metaEntries('status-outbox:v1:')).length, 0)
 })
+
+
+test('GitHub App credentials select each owner installation instead of reusing the default', async t => {
+  const { createGitHubAppCredentials } = await import('vite-hub/agent/server/github')
+  const { generateKeyPairSync } = await import('node:crypto')
+  const privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch })
+  const discovered: string[] = []
+  globalThis.fetch = async input => {
+    discovered.push(String(input))
+    return Response.json({ id: 303 })
+  }
+  const credentials = createGitHubAppCredentials({ appId: 1, privateKey, installationId: 101, owner: 'vite-hub', installations: { onmax: 202 } } as any)
+  assert.equal((await credentials.credentials({ repository: 'vite-hub/vitehub' })).installationId, 101)
+  assert.equal((await credentials.credentials({ repository: 'onmax/vite-doctor' })).installationId, 202)
+  assert.equal((await credentials.credentials({ repository: 'nuxt-modules/better-auth' })).installationId, 303)
+  assert.equal((await credentials.credentials({ repository: 'nuxt-modules/another' })).installationId, 303)
+  assert.deepEqual(discovered, ['https://api.github.com/repos/nuxt-modules/better-auth/installation'])
+})

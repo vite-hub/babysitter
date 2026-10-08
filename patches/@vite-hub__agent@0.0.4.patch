@@ -111,6 +111,34 @@ index 0000000000000000000000000000000000000000..0d575f79d29ffee2b9508670dc174fd6
 +    }
 +  };
 +}
+diff --git a/dist/channel-env-DiKFZkq6.js b/dist/channel-env-DiKFZkq6.js
+index 13335e509e1950b7c78c3b34fc4621de12eb557a..ef6bde7430cf32390e71e66e90c1e04d53838e7d 100644
+--- a/dist/channel-env-DiKFZkq6.js
++++ b/dist/channel-env-DiKFZkq6.js
+@@ -23,6 +23,8 @@ const builtInChannelEnv = {
+ 	github: {
+ 		appId: { names: ["GITHUB_APP_ID"] },
+ 		appInstallationId: { names: ["GITHUB_APP_INSTALLATION_ID"] },
++		appOwner: { names: ["GITHUB_APP_OWNER"] },
++		appInstallations: { names: ["GITHUB_APP_INSTALLATIONS"] },
+ 		appPrivateKey: {
+ 			names: ["GITHUB_APP_PRIVATE_KEY"],
+ 			secret: true
+diff --git a/dist/github-DDLcfv2O.js b/dist/github-DDLcfv2O.js
+index 12c375ee3cef1e959d90415da09194dbc6d8900a..c4824eadf7f1c9649412d8572fd32e5e1ef285fe 100644
+--- a/dist/github-DDLcfv2O.js
++++ b/dist/github-DDLcfv2O.js
+@@ -384,7 +384,9 @@ function createGitHubAppCredentials(app) {
+ 	return {
+ 		async credentials(context) {
+ 			if (!context.repository) return { token: app.token };
+-			const installationId = app.installationId ?? await installation(context.repository, context.signal);
++			const repositoryOwner = owner(context.repository);
++			const configured = app.installations?.[repositoryOwner] ?? (!app.owner || app.owner.toLowerCase() === repositoryOwner ? app.installationId : undefined);
++			const installationId = configured ?? await installation(context.repository, context.signal);
+ 			return {
+ 				appId: app.appId,
+ 				installationId,
 diff --git a/dist/github-inbox-URC4e3Wj.js b/dist/github-inbox-URC4e3Wj.js
 index ef5b4b23584e85dbeb9bdf491562c1b0bf7df8a6..ad6f0675e7b2ac6534deb8768cf1ea7331df6df9 100644
 --- a/dist/github-inbox-URC4e3Wj.js
@@ -137,7 +165,7 @@ index ef5b4b23584e85dbeb9bdf491562c1b0bf7df8a6..ad6f0675e7b2ac6534deb8768cf1ea73
  			return true;
  		});
 diff --git a/dist/host-CW3jKyAw.js b/dist/host-CW3jKyAw.js
-index 91df805695316777d9c6858c2db2712422ea2ed5..17e7b8d1ea9c6531e3b434ad728e2915392eec3f 100644
+index 91df805695316777d9c6858c2db2712422ea2ed5..ca4b81db3da143d244c315075c2fefd5f989638e 100644
 --- a/dist/host-CW3jKyAw.js
 +++ b/dist/host-CW3jKyAw.js
 @@ -1,9 +1,10 @@
@@ -201,3 +229,23 @@ index 91df805695316777d9c6858c2db2712422ea2ed5..17e7b8d1ea9c6531e3b434ad728e2915
  					const result = await runWithProviderRetry(() => runAgent(agent, {
  						runtime: "vite",
  						run: githubRun,
+@@ -2349,6 +2364,19 @@ async function readGitHubAppEnvironment(context = {}) {
+ 		privateKey
+ 	};
+ 	if (installation) app.installationId = Number(installation);
++	app.owner = envString(env.appOwner)?.toLowerCase();
++	const configuredInstallations = envString(env.appInstallations);
++	if (configuredInstallations) {
++		const mappings = JSON.parse(configuredInstallations);
++		if (!isRuntimeRecord(mappings)) throw new Error("GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
++		app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
++			const installationId = Number(id);
++			if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
++			return [owner.toLowerCase(), installationId];
++		}));
++	}
++	// An unscoped default must not silently authorize unrelated repository owners.
++	if (!app.owner) delete app.installationId;
+ 	return app;
+ }
+ /** The repositories that the PR filter allows. The Babysitter discovers open PRs only there. */
