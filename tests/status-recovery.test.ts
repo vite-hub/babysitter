@@ -21,12 +21,22 @@ async function fixture(t: import('node:test').TestContext) {
 }
 
 test('saving a blocked pass also persists its PR status delivery', async t => {
-  const { inbox, claim } = await fixture(t)
+  const { inbox, claim, open } = await fixture(t)
   await inbox.finish(claim, { text: 'Cannot commit because .git is read-only.', wait: { kind: 'external', headSha: head, reason: 'Provide writable .git metadata.', evidenceKey: 'blocker' } })
   assert.equal((await inbox.get(repository, 239))?.status, 'waiting')
   const pending = await inbox.pendingStatusDeliveries()
   assert.equal(pending.length, 1, 'a saved result must not depend on a model successfully posting a comment')
   assert.equal((await inbox.pendingStatusDeliveries())[0]?.text, 'Cannot commit because .git is read-only.')
+  const [delivery] = await inbox.claimStatusDeliveries()
+  assert.ok(delivery?.lease)
+  assert.notEqual(delivery.activity.runId, claim.runId)
+  assert.equal(await inbox.renewStatusDelivery(delivery), true)
+  assert.equal(await inbox.renewStatusDelivery({ ...delivery, lease: 'old-host' }), false)
+  const other = open()
+  t.after(() => other.close())
+  assert.deepEqual(await other.claimStatusDeliveries(), [])
+  assert.equal(await inbox.finishStatusDelivery(delivery, 'delivered'), true)
+  assert.deepEqual(await other.pendingStatusDeliveries(), [])
 })
 
 test('GitHub App credentials select each owner installation instead of reusing the default', async t => {
@@ -48,4 +58,24 @@ test('GitHub App credentials select each owner installation instead of reusing t
   assert.deepEqual(discovered, ['https://api.github.com/repos/nuxt-modules/better-auth/installation'])
 })
 
-
+for (const change of ['closed', 'feedback'] as const) test(`the installed package persists status correction after concurrent ${change}`, async t => {
+  const { inbox, claim, open } = await fixture(t)
+  await inbox.finish(claim, { text: 'Waiting for old checks', wait: { kind: 'checks', headSha: head, reason: 'Old checks remain pending', evidenceKey: 'old-checks' } })
+  const [delivery] = await inbox.claimStatusDeliveries()
+  assert.ok(delivery)
+  if (change === 'closed') await inbox.seed(repository, { ...pr, state: 'closed' })
+  else await inbox.ingest('feedback-during-write', 'issue_comment', {
+    repository: { full_name: repository }, action: 'created', issue: { number: pr.number, pull_request: {} },
+    comment: { id: 1, body: 'New requirements', user: { login: 'reviewer' } },
+  })
+  assert.equal(await inbox.finishStatusDelivery(delivery, 'delivered'), false)
+  const restarted = open()
+  t.after(() => restarted.close())
+  const [correction] = await restarted.claimStatusDeliveries()
+  assert.ok(correction)
+  assert.equal(correction.text, change === 'closed' ? 'Pull request closed.' : 'New pull request evidence is queued.')
+  assert.equal(await restarted.finishStatusDelivery(correction, 'delivered'), true)
+  const snapshot = (await restarted.get(repository, pr.number))!
+  assert.equal(snapshot.lastResult, 'Waiting for old checks')
+  if (change === 'feedback') assert.ok(snapshot.generation > snapshot.handled)
+})

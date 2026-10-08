@@ -111,12 +111,16 @@ The dependency and lockfile pin an immutable pkg.pr.new build from
 [#1984](https://github.com/vite-hub/vitehub/pull/1984), and
 [#1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable CI recovery,
 host repair commits, serialized dependency installation with a two-minute admission
-timeout, protected native tool authorization, and asynchronous merges.
+timeout, private validated dependency snapshots, protected native tool authorization, and asynchronous merges.
 
 The upstream package owns durable status delivery and recovery of worker failures. Saving a pass result also queues its
 managed PR comment in the same SQLite transaction. GitHub delivery retries survive
 restarts, find an existing comment after an uncertain response, and coalesce newer
-results. Replaced heads discard obsolete deliveries. Posting does not require a
+results. Hosts claim each delivery atomically and renew the five-minute lease
+until its external write settles. Deferred repair comments yield the batch to
+other PRs. Up to five publications run outside scheduling, remain tracked during
+drain, and request cancellation after twenty seconds. Saved statuses use their
+own activity run IDs. New feedback, active claims, and replaced heads discard obsolete deliveries. If a replaced writer settles late, the host queues a corrective replay of the latest saved result with a fresh activity identity. GitHub comments are eventually consistent because a lease cannot revoke an HTTP write already accepted remotely. Posting does not require a
 model invocation or native MCP approval. The host selects the GitHub App installation
 for each repository owner, using configured mappings or App discovery. Concurrent
 admission checks share one journal scan. Health can reuse its timestamped accounting

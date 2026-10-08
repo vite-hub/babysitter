@@ -121,11 +121,10 @@ mkdirSync(cache, { recursive: true })
 run('git', ['-C', repo, 'worktree', 'add', '--detach', '--force', source, sha])
 const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cache, 'tmp'), BABYSITTER_PUBLIC_URL: publicUrl } }
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
-queued('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
+// Keep the finite release checks in one queue job. Re-entering the FIFO after
+// each check can delay recovery behind unrelated builds at every stage.
 // The build generates the #vitehub/env types that typecheck needs.
-queued('corepack', ['pnpm', 'build'], inSource)
-queued('corepack', ['pnpm', 'typecheck'], inSource)
-queued('corepack', ['pnpm', 'test'], inSource)
+queued('bash', ['-c', 'set -e\ncorepack pnpm install --frozen-lockfile --prefer-offline\ncorepack pnpm build\ncorepack pnpm typecheck\ncorepack pnpm test'], inSource)
 
 // 2. Stage the server output next to the earlier releases.
 let releaseName = `babysitter-release-${short}`
