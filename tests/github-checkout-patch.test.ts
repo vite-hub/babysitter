@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, access } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -57,7 +57,7 @@ test('patched host ignores stale synthetic PR refs and checks out the current so
     assert.equal(git(root, '--git-dir', fork, 'rev-parse', 'refs/heads/fix^'), headSha)
     assert.equal(git(root, '--git-dir', base, 'rev-parse', 'refs/heads/main'), baseSha)
   })
-  await assert.rejects(access(checkoutPath), { code: 'ENOENT' })
+  assert.deepEqual(await readdir(checkoutPath), [])
   await assert.rejects(host.withPullRequestCheckout({ ...pr, headSha: baseSha }, async () => assert.fail('must reject stale head before callback')), /Pull request head changed/)
   await host.withPullRequestCheckout({ repository: pr.repository, number: pr.number, headSha: stalePrSha }, async ({ path }) => {
     assert.equal(git(path, 'rev-parse', 'HEAD'), stalePrSha)
