@@ -114,7 +114,9 @@ managed PR comment in the same SQLite transaction. GitHub delivery retries survi
 restarts, find an existing comment after an uncertain response, and coalesce newer
 results. Replaced heads discard obsolete deliveries. Posting does not require a
 model invocation or native MCP approval. The host selects the GitHub App installation
-for each repository owner, using configured mappings or App discovery.
+for each repository owner, using configured mappings or App discovery. Concurrent
+admission checks share one journal scan. Health can reuse its timestamped accounting
+for at most two minutes while dispatch waits for the current scan.
 
 Known worker blockers, such as rejected MCP approvals or read-only Git metadata,
 are rechecked once per application release. An unchanged worker failure stays

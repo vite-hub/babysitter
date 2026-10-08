@@ -173,3 +173,32 @@ test('GitHub App credentials select each owner installation instead of reusing t
   assert.equal((await credentials.credentials({ repository: 'nuxt-modules/another' })).installationId, 303)
   assert.deepEqual(discovered, ['https://api.github.com/repos/nuxt-modules/better-auth/installation'])
 })
+
+
+test('health reuses bounded admission accounting while dispatch shares a fresh journal read', async () => {
+  const { coalesceBabysitterAdmission } = await loadRecovery()
+  let now = 1000, reads = 0, release: (() => void) | undefined
+  const check = coalesceBabysitterAdmission(async () => {
+    reads++
+    if (reads > 1) await new Promise<void>(resolve => { release = resolve })
+    return { accepting: true, state: { hourlyInputTokens: reads * 10 } }
+  }, () => now)
+  const first = await check()
+  now += 60000
+  const refresh = check()
+  const anotherDispatch = check()
+  await Promise.resolve()
+  assert.equal(reads, 2, 'concurrent dispatches must share one journal read')
+  assert.equal((await check.health()).state.hourlyInputTokens, first.state.hourlyInputTokens)
+  now += 60001
+  let healthFinished = false
+  const expiredHealth = check.health().then(value => { healthFinished = true; return value })
+  await Promise.resolve()
+  assert.equal(healthFinished, false, 'expired accounting must wait for the current read')
+  release!()
+  const [fresh, same, healthy] = await Promise.all([refresh, anotherDispatch, expiredHealth])
+  assert.equal(fresh.state.hourlyInputTokens, 20)
+  assert.equal(same, fresh)
+  assert.equal(healthy, fresh)
+  assert.equal(healthy.observedAt, now)
+})

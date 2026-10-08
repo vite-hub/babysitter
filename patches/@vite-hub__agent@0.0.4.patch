@@ -1,9 +1,9 @@
 diff --git a/dist/babysitter-status-recovery.js b/dist/babysitter-status-recovery.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..0d575f79d29ffee2b9508670dc174fd6415c7c25
+index 0000000000000000000000000000000000000000..572002fe0ded749f368d64b15e0a1101c9ecc602
 --- /dev/null
 +++ b/dist/babysitter-status-recovery.js
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,122 @@
 +import { createHash, randomUUID } from "node:crypto";
 +
 +const outboxPrefix = "status-outbox:v1:";
@@ -111,6 +111,21 @@ index 0000000000000000000000000000000000000000..0d575f79d29ffee2b9508670dc174fd6
 +    }
 +  };
 +}
++
++// Dispatch waits for fresh accounting. Health may reuse a bounded, timestamped snapshot
++// while that same journal read is in flight, without launching another expensive scan.
++export function coalesceBabysitterAdmission(read, clock = Date.now) {
++  let pending, latest;
++  function check(...args) {
++    if (!pending) pending = Promise.resolve().then(() => read(...args)).then(result => {
++      latest = { ...result, observedAt: clock() };
++      return latest;
++    }).finally(() => { pending = undefined; });
++    return pending;
++  }
++  check.health = () => latest && clock() - latest.observedAt <= 120000 ? Promise.resolve(latest) : check();
++  return check;
++}
 diff --git a/dist/channel-env-DiKFZkq6.js b/dist/channel-env-DiKFZkq6.js
 index 13335e509e1950b7c78c3b34fc4621de12eb557a..ef6bde7430cf32390e71e66e90c1e04d53838e7d 100644
 --- a/dist/channel-env-DiKFZkq6.js
@@ -165,11 +180,11 @@ index ef5b4b23584e85dbeb9bdf491562c1b0bf7df8a6..ad6f0675e7b2ac6534deb8768cf1ea73
  			return true;
  		});
 diff --git a/dist/host-CW3jKyAw.js b/dist/host-CW3jKyAw.js
-index 91df805695316777d9c6858c2db2712422ea2ed5..ca4b81db3da143d244c315075c2fefd5f989638e 100644
+index 91df805695316777d9c6858c2db2712422ea2ed5..d24b1357f20c4b3204da47e37679c54e4fe651bc 100644
 --- a/dist/host-CW3jKyAw.js
 +++ b/dist/host-CW3jKyAw.js
 @@ -1,9 +1,10 @@
-+import { createBabysitterStatusRecovery } from "./babysitter-status-recovery.js";
++import { createBabysitterStatusRecovery, coalesceBabysitterAdmission } from "./babysitter-status-recovery.js";
  import { a as isRuntimeRecord, n as hasRuntimeType } from "./runtime-type-VTnJJ_sX.js";
  import { createMessage } from "./messages.js";
  import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from "./capability-runtime-C-c2MbLm.js";
@@ -180,6 +195,24 @@ index 91df805695316777d9c6858c2db2712422ea2ed5..ca4b81db3da143d244c315075c2fefd5
  import { i as createProcessAgentHost } from "./process-CPffl0jl.js";
  import { a as mergeReviewEvidenceKey, i as liveMergeReadiness, n as babysitterPassResultSchema, o as resolveBabysitterMerge, r as directMergeReadiness, s as snapshotCheckEvidence } from "./babysitter-CzWJXL5w.js";
  import { r as registerAgentProcessHostIntake } from "./agent-process-host-C8eMgdBg.js";
+@@ -1108,7 +1109,7 @@ function createBabysitterAdmission(options) {
+ 	const usage = /* @__PURE__ */ new Map();
+ 	let readAt;
+ 	let cursor;
+-	return async function check(now = Date.now()) {
++	return coalesceBabysitterAdmission(async function check(now = Date.now()) {
+ 		const windows = babysitterBudgetWindows(now);
+ 		const state = {
+ 			windows,
+@@ -1147,7 +1148,7 @@ function createBabysitterAdmission(options) {
+ 			state,
+ 			limits: options.limits
+ 		};
+-	};
++	});
+ }
+ //#endregion
+ //#region src/presets/babysitter/server.ts
 @@ -1201,6 +1202,14 @@ function createBabysitterRuntime(options) {
  	};
  	const schedulerEvent = (name, properties = {}) => options.event?.(name, properties);
@@ -249,3 +282,20 @@ index 91df805695316777d9c6858c2db2712422ea2ed5..ca4b81db3da143d244c315075c2fefd5
  	return app;
  }
  /** The repositories that the PR filter allows. The Babysitter discovers open PRs only there. */
+@@ -2431,7 +2459,7 @@ async function createBabysitterProcessHost(context) {
+ 		async health() {
+ 			const health = await host.health();
+ 			const queue = await inbox.summary();
+-			const guard = await admission();
++			const guard = await admission.health();
+ 			const lastSkip = await inbox.meta("admission-skipped");
+ 			return {
+ 				...health,
+@@ -2452,6 +2480,7 @@ async function createBabysitterProcessHost(context) {
+ 					lastSkip
+ 				},
+ 				budget: {
++					observedAt: new Date(guard.observedAt).toISOString(),
+ 					hourly: {
+ 						inputTokens: guard.state.hourlyInputTokens,
+ 						limit: guard.limits.hourlyInputTokens,
