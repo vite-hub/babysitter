@@ -83,6 +83,15 @@ GitHub delivers signed webhooks to `/api/webhooks/github`. Health is at `/api/he
 and drain state is at `/api/drain`. The standard ViteHub host routes remain available.
 The Console is served at `/_vitehub`.
 
+Worker checks share the host fleet queue lock, while model passes can use all 16 owner slots. Provider sandboxes have private `/tmp` and PID namespaces, so PID files under `/tmp` do not limit host concurrency. The Node wrapper opens a persistent lock read-only and acquires a kernel `flock` on its shared inode. Install the anchor once before copying `scripts/heavy-command-gate.cjs` to the service worker bin:
+
+```sh
+sudo scripts/install-worker-verification-lock.sh
+sudo install -m 0644 scripts/heavy-command-gate.cjs /home/workspace/babysitter-data/bin/worker/heavy-command-gate.cjs
+```
+
+The installer links the existing fleet queue lock and grants only read access to `svc-babysitter`. It refuses an anchor that points at another inode. The gate fails closed when the anchor is missing and inherits its lease through nested commands. Do not replace the fleet queue lock file; both users must keep the same inode.
+
 For the installed systemd service, signal admission to stop before restarting:
 
 ```sh
