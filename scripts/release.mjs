@@ -121,7 +121,7 @@ mkdirSync(cache, { recursive: true })
 run('git', ['-C', repo, 'worktree', 'add', '--detach', '--force', source, sha])
 const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cache, 'tmp'), BABYSITTER_PUBLIC_URL: publicUrl } }
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
-run('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
+queued('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
 // The build generates the #vitehub/env types that typecheck needs.
 queued('corepack', ['pnpm', 'build'], inSource)
 queued('corepack', ['pnpm', 'typecheck'], inSource)

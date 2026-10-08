@@ -106,12 +106,14 @@ sudo systemctl restart babysitter-vitehub.service
 ## Framework preview
 
 The dependency and lockfile pin an immutable pkg.pr.new build from
-[ViteHub PR #1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable
-CI recovery, host repair commits and dependency installation, protected native
-tool authorization, and asynchronous merges.
+[ViteHub PR #1989](https://github.com/vite-hub/vitehub/pull/1989), stacked on
+[#1987](https://github.com/vite-hub/vitehub/pull/1987),
+[#1984](https://github.com/vite-hub/vitehub/pull/1984), and
+[#1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable CI recovery,
+host repair commits, serialized dependency installation with a two-minute admission
+timeout, protected native tool authorization, and asynchronous merges.
 
-`pnpm-workspace.yaml` applies a local `@vite-hub/agent` patch for durable status
-delivery and recovery of worker failures. Saving a pass result also queues its
+The upstream package owns durable status delivery and recovery of worker failures. Saving a pass result also queues its
 managed PR comment in the same SQLite transaction. GitHub delivery retries survive
 restarts, find an existing comment after an uncertain response, and coalesce newer
 results. Replaced heads discard obsolete deliveries. Posting does not require a
@@ -126,9 +128,9 @@ parked for that release. External dependencies retain their existing wake rules.
 The published provider adapter already preapproves the exact host-authorized tool
 names for unattended runs.
 
-The patch regression tests use the installed package, a durable SQLite inbox, and
-the existing GitHub activity publisher. Retire the patch when these changes are
-included in the pinned upstream package.
+Consumer tests verify the installed package through its public inbox and GitHub
+credential APIs. ViteHub owns the detailed delivery and recovery regression tests.
+The application no longer applies an Agent package patch.
 
 Update the preview after validating the ViteHub source, then run the release
 script against the exact application commit. The release script builds and tests
