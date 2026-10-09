@@ -214,6 +214,10 @@ script against the exact application commit. The release script builds and tests
 that commit, smoke-boots scratch data, verifies the systemd preflight, drains the
 worker, and watches the new release for health and resource failures.
 
+Optional per-worker containment uses the published Box API. See
+[ops/worker-memory](ops/worker-memory/README.md) for the delegated cgroup setting,
+staged systemd configuration and installed-package kernel proof. The owner
+ceiling stays 16; memory admission bounds contained workers to available resources.
 ## Service admission policy
 
 The app maps `BABYSITTER_HOURLY_INPUT_TOKENS`, `BABYSITTER_DAILY_INPUT_TOKENS`

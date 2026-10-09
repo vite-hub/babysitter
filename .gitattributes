@@ -1,0 +1,3 @@
+
+# Unified patches contain whitespace-sensitive context lines.
+patches/*.patch -whitespace

@@ -1,4 +1,5 @@
 import { applicationAdmission } from './admission.ts'
+import { initializeWorkerMemory } from './worker-memory.ts'
 import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 import { diagnostics } from 'vite-hub/agent/capabilities'
@@ -21,6 +22,9 @@ const telemetry = createAgentEvlog({
   } : {}),
 })
 
+const workerCgroupParent = process.env.BABYSITTER_WORKER_CGROUP_PARENT
+if (workerCgroupParent) await initializeWorkerMemory(workerCgroupParent)
+
 export default defineAgent({
   preset: 'babysitter',
   presets: { babysitter },
@@ -37,6 +41,10 @@ export default defineAgent({
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
+    ...(workerCgroupParent ? { capacity: {
+      fallbackConcurrency: 0,
+      memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 4 * 1024 ** 3, serviceReserveBytes: 1024 ** 3 },
+    } } : {}),
     admission: applicationAdmission(),
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
@@ -44,6 +52,12 @@ export default defineAgent({
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
     merge: { strategy: 'direct', method: 'squash' },
   },
+  box: workerCgroupParent ? { runtime: { kind: 'trusted-host', resources: {
+      cgroupParent: workerCgroupParent,
+      memoryHighBytes: 3 * 1024 ** 3,
+      memoryMaxBytes: 4 * 1024 ** 3,
+      memorySwapMaxBytes: 128 * 1024 ** 2,
+    } } } : undefined,
   workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
@@ -76,7 +90,8 @@ typecheck that imports unpublished workspace packages, run the repository's targ
 dependency build for the affected package. In ViteHub, use
 corepack pnpm exec vp run -t <package-name>#build. These finite builds share the
 worker verification lock. Then run the focused check once. Use CI logs for broad
-build failures and avoid full-repository builds or validation matrices.
+build failures and avoid full-repository builds or validation matrices. If a
+command hits a memory limit, reduce its workload before retrying.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in
