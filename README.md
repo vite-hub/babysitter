@@ -105,6 +105,11 @@ sudo systemctl restart babysitter-vitehub.service
 
 ## Framework preview
 
+External merge prerequisites survive repair pushes and hold the PR while checks
+run. Feedback is assessed only after an explicit review of the unchanged head;
+legacy records written by the push-based assessment path are ignored. This comes
+from [ViteHub #2009](https://github.com/vite-hub/vitehub/pull/2009).
+
 Verified worker resolutions update the durable review-thread snapshot even when
 GitHub's resolution webhook is missing. The installed-package regression in
 `tests/review-resolution.test.ts` verifies that the resolved state survives a
