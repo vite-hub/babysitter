@@ -123,9 +123,9 @@ head before base preparation, then generated provider instructions are injected
 after preparation, preserving tracked instruction changes. Terminal provider usage is
 retained after successful, failed, and aborted turns for admission accounting.
 
-The host preserves a validated Yarn linker while isolating project plugins and
-package-manager executables. Virtual peer locators retain validation of their
-nested source. Linker changes invalidate installed dependencies. Linked package
+The host preserves validated Yarn linker and layout settings while isolating
+project plugins and package-manager executables. Virtual peer locators retain
+validation of their nested source. Configuration changes invalidate installed dependencies. Linked package
 commands contribute their contents and executable mode to the installation
 fingerprint. Protected commit validation reads generated commands through the
 validated file descriptor and rejects concurrent path replacement.
@@ -140,6 +140,11 @@ updates. Failed CI for a verified pending repair head still revokes publication.
 Stack retargeting checks the live child and durable claim before changing its base.
 Host installation requires Git and Corepack in trusted PATH. Dynamic admission is
 checked again after setup before dispatching a provider.
+
+Repair staging includes restored tracked instructions marked skip-worktree. The
+host clears that flag only for explicitly named repair paths and retains the
+prepared merge ancestry and index guards. Box admission is checked immediately
+before each provider dispatch, including retries after metadata creation.
 
 The upstream package owns durable status delivery and recovery of worker failures. Saving a pass result also queues its
 managed PR comment in the same SQLite transaction. GitHub delivery retries survive
@@ -170,10 +175,15 @@ A reopen releases custody from the closed lifetime. A late saved status during a
 worker pass queues a running correction bound to that worker's durable claim,
 so it can publish before the pass ends.
 
-Known worker blockers, such as rejected MCP approvals or read-only Git metadata,
-are rechecked once per application release. An unchanged worker failure stays
+Known worker blockers, including rejected MCP approvals, read-only Git metadata,
+sparse instruction staging, and dependency guards rejected after successful
+refresh, are rechecked once per application release. That wake also clears the
+old Actions-permission fallback so the corrected host can run a fresh repair.
+An unchanged worker failure stays
 parked for that release. External dependencies retain their existing wake rules.
 Idle CI recovery preserves worker blockers so deployment can retry them.
+New evidence queues the current managed status even when work was already ready
+or an older owner finishes after its generation was superseded.
 The published provider adapter already preapproves the exact host-authorized tool
 names for unattended runs.
 
