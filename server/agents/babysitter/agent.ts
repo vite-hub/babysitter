@@ -1,3 +1,4 @@
+import { applicationAdmission } from './admission.ts'
 import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 import { diagnostics } from 'vite-hub/agent/capabilities'
@@ -42,6 +43,7 @@ export default defineAgent({
       fallbackConcurrency: 0,
       memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 4 * 1024 ** 3, serviceReserveBytes: 1024 ** 3 },
     } } : {}),
+    admission: applicationAdmission(),
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
