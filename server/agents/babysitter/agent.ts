@@ -58,7 +58,7 @@ export default defineAgent({
       memoryMaxBytes: 4 * 1024 ** 3,
       memorySwapMaxBytes: 128 * 1024 ** 2,
     } } } : undefined,
-  workspace: {},
+  workspace: workerCgroupParent ? undefined : {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
     model: process.env.BABYSITTER_MODEL || 'gpt-6-astra',
