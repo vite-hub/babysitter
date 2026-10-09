@@ -137,6 +137,12 @@ before an older push receipt. Lease renewal and durable finish retain the
 verified publication chain while synchronize webhooks are pending. Source-branch
 push evidence fences unrelated SHAs and original-head rollbacks before the PR head
 updates. Failed CI for a verified pending repair head still revokes publication.
+Before a push, the host durably associates the validated candidate SHA with the
+active claim so CI arriving before source-push and synchronize webhooks is retained.
+This association does not count as a pushed commit. Admission parking after several
+pushes retains the full verified publication chain. The pass can resolve multiple
+addressed review threads despite its own resolution webhooks; external reopens and
+new feedback still revoke custody.
 Stack retargeting checks the live child and durable claim before changing its base.
 Host installation requires Git and Corepack in trusted PATH. Dynamic admission is
 checked again after setup before dispatching a provider.
