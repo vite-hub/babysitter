@@ -1,61 +1,41 @@
 'use strict'
-// Preloaded into Babysitter worker commands through NODE_OPTIONS. Typecheck,
-// test, and build processes each use 1-2 GB, and several workers running them
-// at once thrash this host. Such a process waits here for one of a few
-// host-wide slots. Its child processes inherit the slot.
-const { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeSync } = require('node:fs')
+// Loaded by the worker Node wrapper. Finite checks share the host verification
+// slot while model workers keep running in parallel.
+const { closeSync, openSync, realpathSync } = require('node:fs')
+const { join } = require('node:path')
+const { spawnSync } = require('node:child_process')
 
-const script = (process.argv[1] || '').replace(/\\/g, '/')
+let script = process.argv[1] || ''
+try { script = realpathSync(script) } catch {}
+script = script.replace(/\\/g, '/')
 
-// Full Nuxt app builds take 6-7 GB each and stalled every worker under the
-// service memory limit. Workers must not run local builds; CI builds every push.
 if (/\/(?:nuxt\/bin\/nuxt|nuxi\/bin\/nuxi)\.mjs$/.test(script) && /^(?:build|generate)$/.test(process.argv[2] || '')) {
   process.stderr.write('[babysitter] Local Nuxt builds are disabled for workers. Rely on CI for build validation.\n')
   process.exit(1)
 }
 const heavy = /\/typescript\/bin\/tsc$|\/vitest\/vitest\.mjs$|\/vite-plus\/dist\/pack-bin\.js$|\/vite-plus\/bin\/vp$/.test(script)
 
-if (heavy && !process.env.BABYSITTER_HEAVY_SLOT) {
-  const directory = process.env.BABYSITTER_HEAVY_DIR || '/tmp/babysitter-heavy-slots'
-  const slots = Math.max(1, Number(process.env.BABYSITTER_HEAVY_SLOTS) || 2)
-  mkdirSync(directory, { recursive: true, mode: 0o1777 })
-  const alive = (pid) => {
-    try { process.kill(pid, 0); return true }
-    catch (error) { return error.code === 'EPERM' }
+if (heavy && !process.env.BABYSITTER_HEAVY_SLOT && !process.env.FLEET_QUEUE_ACTIVE) {
+  // Provider sandboxes have private /tmp and PID namespaces. Open a persistent
+  // host lock read-only; flock follows the shared inode across those namespaces.
+  const lock = process.env.BABYSITTER_HEAVY_LOCK || join(__dirname, 'heavy-command.lock')
+  let descriptor
+  try { descriptor = openSync(lock, 'r') }
+  catch {
+    process.stderr.write('[babysitter] Shared verification lock is unavailable. Install the host lock before running worker checks.\n')
+    process.exit(1)
   }
-  const stale = (file) => {
-    try {
-      const owner = Number(readFileSync(file, 'utf8'))
-      // A slot file is written right after creation; give a new one a moment.
-      if (!owner) return Date.now() - statSync(file).mtimeMs > 5_000
-      return !alive(owner)
-    } catch { return false }
-  }
-  const sleeper = new Int32Array(new SharedArrayBuffer(4))
-  let held
-  let announced = false
-  while (!held) {
-    for (let index = 0; index < slots && !held; index++) {
-      const file = `${directory}/slot-${index}`
-      try {
-        const descriptor = openSync(file, 'wx', 0o666)
-        writeSync(descriptor, String(process.pid))
-        closeSync(descriptor)
-        held = file
-      } catch (error) {
-        if (error.code !== 'EEXIST') throw error
-        if (stale(file)) { try { unlinkSync(file) } catch {} }
-      }
-    }
-    if (held) break
-    if (!announced) {
-      process.stderr.write(`[babysitter] Waiting for one of ${slots} shared typecheck/test slots; other workers are using them.\n`)
-      announced = true
-    }
-    Atomics.wait(sleeper, 0, 0, 1_000)
-  }
-  process.env.BABYSITTER_HEAVY_SLOT = held
-  process.on('exit', () => {
-    try { if (readFileSync(held, 'utf8') === String(process.pid)) unlinkSync(held) } catch {}
+  process.stderr.write('[babysitter] Waiting for the shared host verification slot.\n')
+  const result = spawnSync('flock', ['--exclusive', '3'], {
+    stdio: ['inherit', 'inherit', 'inherit', descriptor],
   })
+  if (result.error || result.status !== 0) {
+    closeSync(descriptor)
+    process.stderr.write('[babysitter] Shared verification lock could not be acquired.\n')
+    process.exit(1)
+  }
+  process.env.BABYSITTER_HEAVY_SLOT = lock
+  // The parent keeps this open-file description after flock exits. Children
+  // inherit the lease marker; process exit releases the kernel lock automatically.
+  process.on('exit', () => closeSync(descriptor))
 }

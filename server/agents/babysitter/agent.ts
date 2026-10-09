@@ -67,9 +67,14 @@ mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call th
 directly. Stage and commit explicit repair files through commitRepair, then push through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
-not run local builds or broad validation matrices; use CI logs to diagnose remote
-build failures.
+Make at most one repair commit per pass. Run focused tests, lint and typecheck for
+code you change. When no source repair remains, use completed current-head CI and
+report reviewedHead instead of rerunning local checks. Before a focused test or
+typecheck that imports unpublished workspace packages, run the repository's targeted
+dependency build for the affected package. In ViteHub, use
+corepack pnpm exec vp run -t <package-name>#build. These finite builds share the
+worker verification lock. Then run the focused check once. Use CI logs for broad
+build failures and avoid full-repository builds or validation matrices.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in
