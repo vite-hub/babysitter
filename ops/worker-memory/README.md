@@ -2,6 +2,8 @@
 
 The published ViteHub Box API can put each provider and its native commands in one delegated cgroup. Set `BABYSITTER_WORKER_CGROUP_PARENT` to enable application containment. Without this setting, the app keeps its existing Workspace provider. No local package patch is required.
 
+At startup, the app verifies the delegated memory controller and enables it for children before sampling admission. The parent must have no processes; the controller belongs in its separate subgroup. Invalid delegation stops startup rather than leaving the first worker queued forever.
+
 Each contained worker has a 4 GiB hard limit, a 3 GiB high threshold and 128 MiB swap. Admission reserves 4 GiB of growth per active worker, 4 GiB for other host work and 1 GiB for the service controller. Failed resource samples pause admission. The configured owner ceiling remains 16; resource admission can reduce the number of simultaneous contained workers to fit the available service and host memory. This option does not promise 16 workers under a 12 GiB service budget.
 
 Worker verification uses the existing shared fleet lock. Use focused validation and hosted CI for broad suites. After an OOM, reduce the command workload before retrying. The Box rejects pending waits with `BOX_R0158`, records its limit and peak usage when available, and prevents further commands in the failed session. Closing the session cleans its cgroup and descendants.
@@ -22,10 +24,11 @@ The installed-package script opens no GitHub connection and uses no provider cre
 systemd-run --user --wait --pipe --collect --quiet \
   --unit=babysitter-memory-check \
   -p Delegate=memory -p DelegateSubgroup=controller \
-  -p MemoryMax=1G -p MemorySwapMax=0 \
+  -p MemoryHigh=128M -p MemoryMax=1G -p MemorySwapMax=0 \
   -p WorkingDirectory="$PWD" \
   --setenv=VITEHUB_TEST_DELEGATED_MEMORY=1 \
+  --setenv=VITEHUB_TEST_PARENT_EVENTS=1 \
   node scripts/check-worker-memory.mjs
 ```
 
-The script verifies missing delegation fails closed, a real worker OOM is contained, the sibling and controller survive, and nested cgroups are removed. To isolate first-worker admission arithmetic, run it with `VITEHUB_TEST_ADMISSION=1`, `MemoryHigh=11G` and `MemoryMax=12G` instead of the OOM flag and 1 GiB cap. Only this arithmetic check relaxes its pressure thresholds.
+The script verifies missing delegation fails closed, a real worker OOM is contained, the sibling and controller survive, and nested cgroups are removed. It also reproduces a real service-parent high event and verifies controller admission pauses for that event. To isolate first-worker admission arithmetic, run it with `VITEHUB_TEST_ADMISSION=1`, `MemoryHigh=11G` and `MemoryMax=12G` instead of the OOM flag and 1 GiB cap. Only this arithmetic check relaxes its pressure thresholds.

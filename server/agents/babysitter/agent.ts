@@ -1,4 +1,5 @@
 import { applicationAdmission } from './admission.ts'
+import { initializeWorkerMemory } from './worker-memory.ts'
 import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 import { diagnostics } from 'vite-hub/agent/capabilities'
@@ -22,6 +23,7 @@ const telemetry = createAgentEvlog({
 })
 
 const workerCgroupParent = process.env.BABYSITTER_WORKER_CGROUP_PARENT
+if (workerCgroupParent) await initializeWorkerMemory(workerCgroupParent)
 
 export default defineAgent({
   preset: 'babysitter',
