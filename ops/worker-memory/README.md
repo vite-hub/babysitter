@@ -1,22 +1,22 @@
 # Worker memory limits
 
-The patched ViteHub Box puts each provider and its native commands in one delegated cgroup. The controller stays in the `controller` subgroup. Start with one repair worker. Its hard limit is 4 GiB, `memory.high` is 3 GiB, and swap is limited to 128 MiB. Each Node process uses a 2 GiB V8 heap limit; the cgroup also accounts for native memory and other processes. The service drop-in gives the whole controller and worker tree a 6 GiB high limit, an 8 GiB hard limit and 256 MiB swap.
+The published ViteHub Box API can put each provider and its native commands in one delegated cgroup. Set `BABYSITTER_WORKER_CGROUP_PARENT` to enable application containment. Without this setting, the app keeps its existing Workspace provider. No local package patch is required.
 
-Admission reserves 4 GiB for the host separately from a 1 GiB service reserve, plus another 4 GiB of growth for every active worker. A healthy controller below 1 GiB can admit its first worker under the 6 GiB service high limit. Keeping the host and service reserves separate avoids blocking every PR under the 8 GiB service hard limit. It checks host and cgroup pressure. A failed sample pauses admission. These settings are conservative; increase them only after recording complete worker peaks and checking host pressure while T3 is busy.
+Each contained worker has a 4 GiB hard limit, a 3 GiB high threshold and 128 MiB swap. Admission reserves 4 GiB of growth per active worker, 4 GiB for other host work and 1 GiB for the service controller. Failed resource samples pause admission. The configured owner ceiling remains 16; resource admission can reduce the number of simultaneous contained workers to fit the available service and host memory. This option does not promise 16 workers under a 12 GiB service budget.
 
-Full typechecks and builds belong in GitHub Actions. Use focused local tests and lint. An explicit local reproduction stays under the worker limit. A cgroup OOM rejects command waits with `BOX_R0158`, limit, peak bytes when available and kill count; the session cannot start another command. An ancestor or host OOM is reported separately from a session limit OOM. Reduce the workload before retrying.
+Worker verification uses the existing shared fleet lock. Use focused validation and hosted CI for broad suites. After an OOM, reduce the command workload before retrying. The Box rejects pending waits with `BOX_R0158`, records its limit and peak usage when available, and prevents further commands in the failed session. Closing the session cleans its cgroup and descendants.
 
 ## Deployment prerequisite
 
-`memory.conf` is staged configuration. It has not been installed. It requires Linux cgroup v2 and systemd 254 or later. The production Agent refuses to boot without `BABYSITTER_WORKER_CGROUP_PARENT`; it must point to the service parent, not its controller child.
+`memory.conf` is staged configuration and has not been installed. It preserves the current 11 GiB high, 12 GiB hard and 2 GiB swap service limits, adds memory delegation and moves the controller into its own subgroup. It does not override `BABYSITTER_MAX_OWNERS`.
 
-For a separately authorized deployment, install this file as `/etc/systemd/system/babysitter-vitehub.service.d/memory.conf`, reload systemd, and use the existing release procedure. Drain the current release with SIGUSR2 before its restart. Check that the main PID lives in `.../babysitter-vitehub.service/controller`, and that the service parent delegates memory. Verify the active release, health, durable queue and one real PR transition after deploying. The release smoke unit uses its own delegated parent and admits no real workers.
+Install the drop-in at `/etc/systemd/system/babysitter-vitehub.service.d/memory.conf` only as part of an authorized release. Reload systemd, drain the running service with SIGUSR2, wait for `/api/drain` to report `drained`, and restart. Confirm the controller is in its subgroup, health shows the intended release and owner ceiling, the durable queue has no stale owners, and a real PR advances. The release smoke uses its own delegated cgroup and no eligible authors.
 
-Checkout and dependency preparation run under the service budget before provider commands start. The per-worker limit covers Box `exec` and `spawn` and their descendants. It does not contain unrelated T3 processes. Trusted-host retains the service user's filesystem and network authority.
+Checkout and dependency preparation remain under the overall service budget. Per-worker containment covers Box `exec`, `spawn` and descendants. It does not contain unrelated T3 processes or reduce trusted-host filesystem and network authority.
 
-## Kernel proof without deployment
+## Kernel verification
 
-From this checkout, run the installed dependency check in a temporary user service:
+The installed-package script opens no GitHub connection and uses no provider credentials. Run it in a temporary delegated service with a 1 GiB outer cap:
 
 ```sh
 systemd-run --user --wait --pipe --collect --quiet \
@@ -28,10 +28,4 @@ systemd-run --user --wait --pipe --collect --quiet \
   node scripts/check-worker-memory.mjs
 ```
 
-To check first-worker admission under the staged service budget, run the same script with `VITEHUB_TEST_ADMISSION=1`, `MemoryHigh=6G` and `MemoryMax=8G` instead of the OOM-test flag and 1 GiB cap. The host must have at least 8 GiB available. This check raises only the test's pressure thresholds to isolate memory arithmetic; normal workers keep the configured pressure gates.
-
-The script checks unavailable delegation, a real worker OOM, sibling survival and nested cgroup cleanup. It opens no GitHub connection and uses no provider credentials. Keep the outer 1 GiB test limit.
-
-## Retire patches
-
-The Box patch adds memory containment. The Agent patch preserves the existing combined patch and adds host pressure, growth reservations, separate host/service reserves, preset capacity options, CI-first instructions and Box checkout integration. When the upstream PRs reach a package release, update the dependency and remove only these hunks. Keep unrelated Agent and Workspace patch fixes until their own releases are installed.
+The script verifies missing delegation fails closed, a real worker OOM is contained, the sibling and controller survive, and nested cgroups are removed. To isolate first-worker admission arithmetic, run it with `VITEHUB_TEST_ADMISSION=1`, `MemoryHigh=11G` and `MemoryMax=12G` instead of the OOM flag and 1 GiB cap. Only this arithmetic check relaxes its pressure thresholds.
