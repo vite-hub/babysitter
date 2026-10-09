@@ -36,7 +36,8 @@ test('published scheduler preserves active repairs across new webhook evidence',
   // The regression is the old generation-only abort, which also interrupted
   // the worker's own pushed repair before it could finish.
   assert.doesNotMatch(source, /current\.generation !== inboxClaim\.generation\) throw new DOMException\("Pull request evidence changed\./)
-  assert.match(source, /current\.generation !== inboxClaim\.generation && \(!pushedHead \|\| current\.pr\?\.head\?\.sha !== pushedHead\)/)
+  assert.match(source, /const selfHead = observedHead !== pullRequest\.headRefOid && verifiedPushHeads\.has\(observedHead \?\? ""\)/)
+  assert.match(source, /current\.generation !== inboxClaim\.generation && !\(\(selfHead \|\| repairOperation\.getStore\(\)\) && repairEvidenceKey\(current\) === repairEvidenceKey\(inboxClaim\.snapshot, current\)\)/)
   assert.match(source, /function claimStopReason\(/)
   assert.match(source, /stackBlocked/)
 })

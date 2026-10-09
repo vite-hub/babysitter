@@ -92,14 +92,20 @@ curl -fsS http://127.0.0.1:3028/api/drain
 sudo systemctl restart babysitter-vitehub.service
 ```
 
-## Package patch
+## ViteHub preview
 
-`pnpm-workspace.yaml` registers the framework patch in `patches/`; the lockfile pins
-its hash. A frozen installation applies it automatically. The patch contains the
-module-style preset API and shared worker changes, so no scheduler files are needed
-in this application. Owner regression tests live with the ViteHub source changes.
-The local checkout test exercises the installed patched package.
+`package.json` pins an immutable `pkg.pr.new` preview. The overrides in
+`pnpm-workspace.yaml` keep ViteHub dependencies on that same commit, including
+peer dependencies. Update both files together and regenerate the lockfile.
 
-To update the patch, use `pnpm patch @vite-hub/agent@0.0.4`, update the extracted
-package from a tested framework build, then run `pnpm patch-commit <directory>`.
-Retire the patch when these changes are included in the pinned ViteHub version.
+The current preview includes the installation wait fix in
+[ViteHub #2004](https://github.com/vite-hub/vitehub/pull/2004) and the activity session
+fix in [ViteHub #2005](https://github.com/vite-hub/vitehub/pull/2005). Installation
+input errors wait for changed head or comment evidence; host and package-manager
+failures retain automatic retries. Saved results share their invocation's session
+row, and historical rows show a recorded duration.
+`tests/github-activity.test.ts` exercises the installed package without a patch.
+
+For a new framework bug, use `pnpm patch @vite-hub/agent@0.0.4`, verify the consumer
+fix, and run `pnpm patch-commit <directory>`. Upstream the fix, then switch to its
+preview and remove the patch after the installed-package test passes.
