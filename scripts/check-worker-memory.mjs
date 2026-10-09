@@ -18,7 +18,7 @@ if (process.env.VITEHUB_TEST_ADMISSION === '1') {
     fallbackConcurrency: 0,
     // This proof isolates memory arithmetic from unrelated host CPU/PSI load.
     cpu: { pausePressure: 1, resumePressure: 1 },
-    memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 1024 ** 3, hostReserveBytes: 4 * 1024 ** 3, pausePressure: 1, resumePressure: 1 },
+    memory: { perInvocationBytes: 4 * 1024 ** 3, reserveBytes: 4 * 1024 ** 3, serviceReserveBytes: 1024 ** 3, pausePressure: 1, resumePressure: 1 },
   }).adaptive.sample
   const result = await sample({ active: 0, concurrency: 1, pending: 1, signal: new AbortController().signal })
   assert.equal(result.concurrency, 1, result.reason)
