@@ -30,7 +30,6 @@ const DISK_MIN_FREE = 20 * 2 ** 30
 // Other sessions share this disk, so only an absolute floor is a Babysitter signal.
 // The token guard is a per-window cap. Usage well past it means the cap is not enforced.
 const TOKEN_CAP_FACTOR = 1.5
-const FLEET_QUEUE = '/home/maxi/.local/bin/fleet-queue'
 
 const args = process.argv.slice(2)
 const smokeOnly = args.includes('--smoke-only')
@@ -46,9 +45,6 @@ function run(command, argv, options = {}) {
   const result = spawnSync(command, argv, { stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit', encoding: 'utf8', ...options })
   if (result.status !== 0 && !options.allowFailure) fail(`${command} ${argv.join(' ')} exited ${result.status}${options.capture ? `\n${result.stderr}` : ''}`)
   return result
-}
-function queued(command, argv, options = {}) {
-  return run(FLEET_QUEUE, [command, ...argv], options)
 }
 const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
@@ -121,10 +117,9 @@ mkdirSync(cache, { recursive: true })
 run('git', ['-C', repo, 'worktree', 'add', '--detach', '--force', source, sha])
 const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cache, 'tmp'), BABYSITTER_PUBLIC_URL: publicUrl } }
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
-// Keep the finite release checks in one queue job. Re-entering the FIFO after
-// each check can delay recovery behind unrelated builds at every stage.
+// Run finite release checks sequentially in the isolated checkout.
 // The build generates the #vitehub/env types that typecheck needs.
-queued('bash', ['-c', 'set -e\numask 022\ncorepack pnpm install --frozen-lockfile --prefer-offline\ncorepack pnpm build\ncorepack pnpm typecheck\ncorepack pnpm test'], inSource)
+run('bash', ['-c', 'set -e\numask 022\ncorepack pnpm install --frozen-lockfile --prefer-offline\ncorepack pnpm build\ncorepack pnpm typecheck\ncorepack pnpm test'], inSource)
 
 // 2. Stage the server output next to the earlier releases.
 let releaseName = `babysitter-release-${short}`

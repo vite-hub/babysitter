@@ -105,6 +105,10 @@ sudo systemctl restart babysitter-vitehub.service
 
 ## Framework preview
 
+The current preview includes [ViteHub #2004](https://github.com/vite-hub/vitehub/pull/2004) and [#2005](https://github.com/vite-hub/vitehub/pull/2005). Persistent installation input failures wait for changed PR evidence. Host, capacity, and package-manager failures retain timed retries. Saved results share the invocation session row, and historical rows show their recorded duration. The installed-package regression in `tests/github-activity.test.ts` verifies that behavior.
+
+`pnpm-workspace.yaml` pins all ViteHub packages to the same preview, including peer dependencies. Update it with `package.json` and regenerate the lockfile.
+
 The dependency and lockfile pin an immutable pkg.pr.new build from
 [ViteHub PR #1989](https://github.com/vite-hub/vitehub/pull/1989), with the merged fixes from
 [#1987](https://github.com/vite-hub/vitehub/pull/1987),
