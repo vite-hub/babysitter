@@ -213,3 +213,23 @@ Update the preview after validating the ViteHub source, then run the release
 script against the exact application commit. The release script builds and tests
 that commit, smoke-boots scratch data, verifies the systemd preflight, drains the
 worker, and watches the new release for health and resource failures.
+
+## Service admission policy
+
+The app maps `BABYSITTER_HOURLY_INPUT_TOKENS`, `BABYSITTER_DAILY_INPUT_TOKENS`
+and `BABYSITTER_MIN_FREE_TMP_MB` into the preset's explicit `admission` options.
+Defaults are 15M hourly tokens, 200M daily tokens and 4096 MiB free temporary space.
+The deployed service overrides the hourly limit to 1000M. Token thresholds use the
+retained invocation journal and are best-effort admission guards. A zero token
+limit stops new model passes while host merges and recorded waits continue.
+`BABYSITTER_PAUSED=1` stops every claim for maintenance. The release smoke keeps
+its zero hourly limit and author filter.
+
+The app's `admission.check` reads sanitized provider counters from
+`BABYSITTER_PROXY_STATUS_FILE`, defaulting to `/srv/cliproxy-status/accounts.json`.
+`BABYSITTER_PROXY_PROVIDER` defaults to `codex`,
+`BABYSITTER_PROXY_MAX_WEEKLY_PERCENT` to 80, and
+`BABYSITTER_PROXY_STATUS_MAX_AGE_S` to 900. Fresh exhausted accounts or a spent
+weekly threshold pause model passes. Missing, unreadable, stale or invalid status
+does not pause admission. These are application settings; the framework reads
+no provider-specific file or admission environment variables.

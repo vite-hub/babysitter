@@ -1,3 +1,4 @@
+import { applicationAdmission } from './admission.ts'
 import { defineAgent } from 'vite-hub/agent'
 import { babysitter } from 'vite-hub/agent/presets/babysitter'
 import { diagnostics } from 'vite-hub/agent/capabilities'
@@ -36,6 +37,7 @@ export default defineAgent({
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
+    admission: applicationAdmission(),
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
