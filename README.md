@@ -106,12 +106,15 @@ sudo systemctl restart babysitter-vitehub.service
 ## Framework preview
 
 The dependency and lockfile pin an immutable pkg.pr.new build from
-[ViteHub PR #1989](https://github.com/vite-hub/vitehub/pull/1989), stacked on
+[ViteHub PR #1989](https://github.com/vite-hub/vitehub/pull/1989), with the merged fixes from
 [#1987](https://github.com/vite-hub/vitehub/pull/1987),
 [#1984](https://github.com/vite-hub/vitehub/pull/1984), and
 [#1907](https://github.com/vite-hub/vitehub/pull/1907). It includes durable CI recovery,
 host repair commits, serialized dependency installation with a two-minute admission
 timeout, private validated dependency snapshots, protected native tool authorization, and asynchronous merges.
+
+Generated webhook routes check their selected handler before reading the request
+body. The application typecheck covers these routes with checked indexed access.
 
 Conflict preparation reads the live target branch ref. A stale PR base snapshot
 cannot turn a real conflict into an empty merge. Repair commit and push guards
@@ -127,8 +130,10 @@ The host preserves validated Yarn linker and layout settings while isolating
 project plugins and package-manager executables. Virtual peer locators retain
 validation of their nested source. Configuration changes invalidate installed dependencies. Linked package
 commands contribute their contents and executable mode to the installation
-fingerprint. Protected commit validation reads generated commands through the
-validated file descriptor and rejects concurrent path replacement.
+fingerprint. Reused validation snapshots refresh generated commands and remove
+deleted copies. Newly staged commands retain the protected index's bytes, and
+staged deletions stay deleted. Descriptor-bound reads reject concurrent source
+replacement.
 
 Prepared checkout ownership is explicit. Ordinary provider launchers still
 create their Workspace baseline; host-prepared repair launches retain their Git
@@ -139,7 +144,11 @@ push evidence fences unrelated SHAs and original-head rollbacks before the PR he
 updates. Failed CI for a verified pending repair head still revokes publication.
 Before a push, the host durably associates the validated candidate SHA with the
 active claim so CI arriving before source-push and synchronize webhooks is retained.
-This association does not count as a pushed commit. Admission parking after several
+This association does not count as a pushed commit. A synchronized candidate
+retires older abandoned candidates while retaining later pending publications.
+An explicit overflow flag fences a claim that cannot retain every source-push
+receipt; a fresh claim clears that flag and starts with complete evidence.
+Admission parking after several
 pushes retains the full verified publication chain. The pass can resolve multiple
 addressed review threads despite its own resolution webhooks; external reopens and
 new feedback still revoke custody.
@@ -188,6 +197,9 @@ old Actions-permission fallback so the corrected host can run a fresh repair.
 An unchanged worker failure stays
 parked for that release. External dependencies retain their existing wake rules.
 Idle CI recovery preserves worker blockers so deployment can retry them.
+Compiled packages carry a source and dependency fingerprint. Direct-source hosts
+derive the same revision when no application release is configured, so a corrected
+source deployment can wake a worker blocker while an unchanged restart stays parked.
 New evidence queues the current managed status even when work was already ready
 or an older owner finishes after its generation was superseded.
 The published provider adapter already preapproves the exact host-authorized tool
