@@ -2,6 +2,7 @@
 // live with @vite-hub/agent; these checks only verify the published package
 // exposes the operational contracts this service relies on.
 import { test } from 'node:test'
+import { PullRequestInbox } from 'vite-hub/agent/server/github-inbox'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -31,13 +32,21 @@ test('published CI recovery and admission guards are present', () => {
   assert.match(source, /admission-skipped/)
 })
 
-test('published scheduler preserves active repairs across new webhook evidence', () => {
-  // The published host still uses this error for a genuinely changed head.
-  // The regression is the old generation-only abort, which also interrupted
-  // the worker's own pushed repair before it could finish.
-  assert.doesNotMatch(source, /current\.generation !== inboxClaim\.generation\) throw new DOMException\("Pull request evidence changed\./)
-  assert.match(source, /const selfHead = observedHead !== pullRequest\.headRefOid && verifiedPushHeads\.has\(observedHead \?\? ""\)/)
-  assert.match(source, /current\.generation !== inboxClaim\.generation && !\(\(selfHead \|\| repairOperation\.getStore\(\)\) && repairEvidenceKey\(current\) === repairEvidenceKey\(inboxClaim\.snapshot, current\)\)/)
-  assert.match(source, /function claimStopReason\(/)
-  assert.match(source, /stackBlocked/)
+for (const ownPush of [true, false]) test(`published inbox ${ownPush ? 'retains its own repair' : 'rejects an unrelated source push'} before synchronization`, async t => {
+  const repository = 'acme/app'
+  const original = 'a'.repeat(40), repair = 'b'.repeat(40), external = 'c'.repeat(40)
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository] })
+  t.after(() => inbox.close())
+  await inbox.seed(repository, { number: 42, state: 'open', user: { login: 'developer' }, head: { sha: original, ref: 'fix', repo: { full_name: repository } }, base: { sha: external, ref: 'main' } })
+  const [claim] = await inbox.claim(1)
+  assert.ok(claim)
+  await inbox.ingest('source-push', 'push', { repository: { full_name: repository }, ref: 'refs/heads/fix', after: ownPush ? repair : external })
+  await inbox.ingest('new-feedback', 'issue_comment', { repository: { full_name: repository }, action: 'created', issue: { number: 42, pull_request: {} }, comment: { id: 1, body: 'Check the new requirement.', user: { login: 'reviewer' } } })
+  const finished = await inbox.finish(claim, { text: 'Repair pushed.', progress: { kind: 'verified', evidence: `push:${repair}` }, verifiedPushHeads: [repair], wait: { kind: 'checks', headSha: repair, reason: 'Waiting for new checks.', evidenceKey: 'repair-push' } })
+  assert.equal(finished, ownPush)
+  const current = (await inbox.get(repository, 42))!
+  assert.equal(current.lease, null)
+  assert.equal(current.status, ownPush ? 'waiting' : 'ready')
+  assert.equal(current.wait?.headSha, ownPush ? repair : undefined)
+  assert.ok(current.generation > current.handled, 'new feedback remains unhandled')
 })
