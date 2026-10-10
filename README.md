@@ -36,7 +36,7 @@ The preset keeps model passes for real repair work:
 - `install` (default `true`) installs dependencies on the host from the frozen lockfile before
   the model starts, and records the result in `.git/vitehub-install.json`.
 
-The included configuration enables direct squash merges for PRs authored by `onmax`.
+The included configuration enables direct squash merges for PRs authored by `onmax` and `app/renovate`.
 Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
 head, required checks, reviews, feedback and default branch. Open stack children wait
 for their parent. Source branches remain intact.
@@ -49,7 +49,7 @@ External presets use an explicit package import.
 
 Install Node.js 24.15 or newer, Git, GitHub CLI and an authenticated Codex CLI.
 Configure a GitHub App installed on each watched repository, with Contents, Issues
-and Pull requests write permissions, plus Actions, Checks and Metadata read permissions.
+and Pull requests write permissions, plus Actions write permission for reruns and Checks and Metadata read permissions.
 Set `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_WEBHOOK_SECRET`.
 The host discovers installations automatically. Optional `GITHUB_APP_INSTALLATIONS`
 maps owner names to installation IDs as JSON. A fixed `GITHUB_APP_INSTALLATION_ID`
@@ -68,6 +68,24 @@ The configuration accepts `BABYSITTER_REPOS`, `BABYSITTER_MAX_OWNERS`,
 `BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT` overrides. Authentication stays
 in the service environment. `OPENAI_BASE_URL` and `CLIPROXY_API_KEY` configure the
 existing provider proxy. PostHog export is optional through `POSTHOG_API_KEY`.
+
+Lifecycle labels are built into the preset. By default, `agent:paused` suppresses a
+PR and removing it restores eligibility. `BABYSITTER_REQUIRED_LABELS` accepts
+comma-separated or whitespace-separated labels; at least one must be present when
+configured. `BABYSITTER_DENIED_LABELS` replaces the default denied label list. Do
+not configure `filter.labels` alongside `lifecycle.labels`.
+
+Health reports the application release and pinned `vitehubRevision` separately.
+The Agent's `framework.buildRevision` is its build content fingerprint. Queue
+health distinguishes ready work, scheduled retries, external blockers, and
+suppressed PRs. `admission.accepting` is current; `admission.history.lastSkip` is
+historical. The host checks Git and automatic-install Corepack before model passes.
+
+The application maps `BABYSITTER_HOURLY_INPUT_TOKENS` and
+`BABYSITTER_DAILY_INPUT_TOKENS` into preset admission limits, defaulting to 15M and
+200M input tokens. `BABYSITTER_MIN_FREE_TMP_MB` defaults to 4096 and
+`BABYSITTER_PAUSED=1` pauses model admission. The optional sanitized proxy status
+file can pause admission when provider quotas are exhausted.
 
 ## Persistence and operations
 

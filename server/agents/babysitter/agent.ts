@@ -4,6 +4,7 @@ import { diagnostics } from 'vite-hub/agent/capabilities'
 import { createAgentEvlog } from 'vite-hub/agent/evlog'
 import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+import { applicationAdmission } from './admission'
 import { usePublicEnv } from '#vitehub/env/public'
 
 const telemetry = createAgentEvlog({
@@ -31,8 +32,15 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      author: { allow: ['onmax', 'app/renovate'] },
+      author: { allow: process.env.BABYSITTER_SMOKE_ONLY === '1' ? ['vitehub-release-smoke-no-author'] : ['onmax', 'app/renovate'] },
     },
+    lifecycle: {
+      labels: {
+        require: (process.env.BABYSITTER_REQUIRED_LABELS ?? '').split(/[,\s]+/).filter(Boolean),
+        deny: (process.env.BABYSITTER_DENIED_LABELS ?? 'agent:paused').split(/[,\s]+/).filter(Boolean),
+      },
+    },
+    admission: applicationAdmission(),
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
@@ -59,17 +67,15 @@ Before/after images and demonstration videos are optional. Require media only wh
 current maintainer explicitly requests it for this PR. Remove stale blockers based
 only on a generic media requirement.
 
-The checkout has full Git history and network access, but no GitHub credentials. The
-host installs dependencies with the frozen lockfile before you start. The PR tools are MCP tools named mcp__t3_code__pushRepair,
-mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
-mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
-mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them
-directly. Push only through pushRepair. The host merges a ready PR after you report
-reviewedHead; never merge it yourself.
+The host prepares the checkout and dependencies before you start. Use the injected
+PR-bound tools by their listed names and descriptions. The host merges a ready PR
+after you report reviewedHead.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
-not run local builds or broad validation matrices; use CI logs to diagnose remote
-build failures.
+Make at most one repair commit per pass. Run focused tests and typecheck for code
+you change, and lint when the repository provides a lint command. Before tests or
+typecheck that import unpublished workspace packages, run the repository's targeted
+dependency build. Use CI logs for broad validation and remote build failures.
+When no source repair remains, use completed current-head CI and report reviewedHead.
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in

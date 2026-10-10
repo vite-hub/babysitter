@@ -9,7 +9,7 @@
 // service, then watches /tmp, free disk and token rate. A spike, a failed health
 // check or a stopped service restores the previous release.conf.
 //
-// The smoke boot forces a zero token budget, so it reads GitHub but never claims a PR.
+// The smoke boot excludes real PR authors and checks the zero token budget.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statfsSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
@@ -61,7 +61,7 @@ async function json(url) {
 const babysitterHealth = async base => {
   const health = await json(`${base}/api/health`)
   const agents = health.agents ?? {}
-  return { status: health.status, agent: Array.isArray(agents) ? agents[0] : agents.babysitter ?? Object.values(agents)[0] }
+  return { status: health.status, vitehubRevision: health.vitehubRevision, agent: Array.isArray(agents) ? agents[0] : agents.babysitter ?? Object.values(agents)[0] }
 }
 async function waitFor(what, timeoutMs, check) {
   const deadline = Date.now() + timeoutMs
@@ -107,9 +107,11 @@ function workspaceFree() {
 }
 
 // 1. Build and test the exact commit in a clean worktree.
+const initialRelease = (await babysitterHealth(LIVE)).agent?.release
 const repo = out('git', ['rev-parse', '--show-toplevel'])
 const sha = out('git', ['rev-parse', '--verify', `${ref}^{commit}`])
 const short = sha.slice(0, 7)
+const expectedViteHubRevision = JSON.parse(out('git', ['-C', repo, 'show', `${sha}:package.json`])).dependencies['vite-hub'].split('@').at(-1)
 const cache = join(homedir(), '.cache/babysitter-release', short)
 const source = join(cache, 'src')
 const unitEnvironment = out('systemctl', ['show', UNIT, '-p', 'Environment', '--value'])
@@ -163,6 +165,7 @@ const smokeEnv = {
   TMPDIR: join(scratch, 'tmp'),
   VITEHUB_CONSOLE_DATABASE_URL: `file:${join(scratch, 'console.sqlite')}`,
   BABYSITTER_HOURLY_INPUT_TOKENS: '0',
+  BABYSITTER_SMOKE_ONLY: '1',
 }
 sudo(['systemd-run', `--unit=${smokeUnit}`, '--collect', '--quiet',
   '-p', 'User=svc-babysitter', '-p', 'Group=codex-workspace', '-p', 'UMask=0002',
@@ -176,18 +179,18 @@ const stopSmoke = () => {
   sudo(['rm', '-rf', scratch], { allowFailure: true })
 }
 try {
-  const { agent } = await waitFor('smoke health', 90_000, async () => {
+  const { agent, vitehubRevision } = await waitFor('smoke health', 90_000, async () => {
     const health = await babysitterHealth(`http://127.0.0.1:${port}`)
     return health.agent?.budget && health.agent.admission?.reason === 'token-budget-hourly' ? health : undefined
   })
+  if (vitehubRevision !== expectedViteHubRevision) throw new Error(`smoke ViteHub revision is ${vitehubRevision}, expected ${expectedViteHubRevision}`)
   if (agent.release !== sha) throw new Error(`smoke release is ${agent.release}, expected ${sha}`)
   const drain = await json(`http://127.0.0.1:${port}/api/drain`)
   if (drain.status !== 'accepting') throw new Error(`smoke drain status is ${drain.status}`)
   log(`smoke ok: release ${short}, admission paused (${agent.admission.detail}), drain ${drain.status}`)
-  // A ready PR in the bootstrapped inbox reaches the claim point and records the skip.
-  const skipped = await waitFor('smoke admission skip', 60_000, async () =>
-    (await babysitterHealth(`http://127.0.0.1:${port}`)).agent?.admission?.lastSkip)
-  log(`smoke skipped a pass: ${skipped.reason}, ${skipped.detail}`)
+  if (agent.workload?.active !== 0 || agent.queue?.working !== 0 || agent.queue?.ready !== 0)
+    throw new Error('smoke author exclusion admitted real PR work')
+  log('smoke has no active, working or ready PR work')
 }
 catch (error) {
   sudo(['journalctl', '-u', smokeUnit, '-n', '40', '--no-pager'], { allowFailure: true })
@@ -220,7 +223,7 @@ async function drainAndRestart(expectedRelease) {
     if (status === 'drained') break
     if (Date.now() - lastReport >= 60_000) {
       lastReport = Date.now()
-      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.running, () => '?')
+      const running = await babysitterHealth(LIVE).then(health => health.agent?.workload?.active, () => '?')
       log(`drain ${status}, ${running} passes running, ${Math.round((Date.now() - started) / 60_000)} min`)
     }
     await sleep(5_000)
@@ -233,11 +236,18 @@ async function drainAndRestart(expectedRelease) {
   })
 }
 const initialHealth = await babysitterHealth(LIVE)
+if (initialHealth.agent?.release !== initialRelease) fail('live release changed during validation; refresh the rollout base before deploying')
 const serviceTmp = initialHealth.agent?.budget?.tmp?.dir || '/tmp'
 const baseline = { tmp: tmpUsage(serviceTmp), free: workspaceFree() }
 log(`baseline: service tmp ${baseline.tmp.toFixed(0)}% (${serviceTmp}), ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
 const previousRelease = (await babysitterHealth(LIVE).catch(() => undefined))?.agent?.release
 installReleaseConf(nextConf)
+try {
+  execFileSync('sudo', ['-n', '/home/workspace/babysitter-data/bin/verify-merge-gate'], { stdio: 'inherit' })
+} catch {
+  installReleaseConf(previousConf)
+  fail('live pre-start gate rejected the staged release; restored the previous target')
+}
 await drainAndRestart(sha)
 log(`live on ${release}`)
 
