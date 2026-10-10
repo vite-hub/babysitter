@@ -47,6 +47,7 @@ function run(command, argv, options = {}) {
   return result
 }
 function queued(command, argv, options = {}) {
+  if (!existsSync(FLEET_QUEUE)) return run(command, argv, options)
   return run(FLEET_QUEUE, [command, ...argv], options)
 }
 const sudo = (argv, options) => run('sudo', argv, options)
