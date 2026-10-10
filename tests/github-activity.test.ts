@@ -46,9 +46,13 @@ test('saved installation blockers share the worker session row and leave histori
   assert.equal(rows().length, 1)
   assert.match(rows()[0]!, /\| Waiting \|/)
   assert.match(rows()[0]!, /Paused/)
+  assert.match(comments[0]!.body, /Next step\n\nInstallation failed\./)
+  assert.doesNotMatch(comments[0]!.body, /Latest result/)
+  assert.equal(comments.length, 1)
   await publish({ runId: 'next-invocation', status: 'running', startedAt, updatedAt: startedAt, tasks: [],
     links: [{ label: 'Current session', url: 'https://console.test/agents/babysitter-worker/invocations/next-invocation' }] })
   assert.equal(rows().length, 2)
   assert.match(rows()[0]!, /In progress/)
   assert.doesNotMatch(rows()[1]!, /In progress/)
+  assert.match(comments[0]!.body, /In progress\n\nThe agent is working\./)
 })

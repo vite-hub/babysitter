@@ -1,0 +1,50 @@
+diff --git a/dist/channels-BTM6zam3.js b/dist/channels-BTM6zam3.js
+index 1001f2441a1f38810c92d37ac57f7e711d80c936..c7faa2f36d71dd2577e025701d1086c0a2f47b74 100644
+--- a/dist/channels-BTM6zam3.js
++++ b/dist/channels-BTM6zam3.js
+@@ -3944,6 +3944,14 @@ function githubActivityAnswer(entry) {
+ 	if (!entry.summary?.trim()) return;
+ 	return githubActivityText(entry.summary, 2e3);
+ }
++function githubActivityStatus(activity) {
++	const summary = activity.summary?.trim();
++	const detail = summary ? githubActivityText(summary, 2e3) : void 0;
++	if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`;
++	if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`;
++	if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`;
++	return;
++}
+ /** Saved PR projections and invocation events can describe the same linked session. */
+ function githubActivitySessions(state) {
+ 	const sessions = [];
+@@ -3963,7 +3971,7 @@ function renderGithubActivity(activity, state) {
+ 	state = githubActivitySessions(state);
+ 	const sections = [encodeGithubActivityState(state)];
+ 	const current = state.current;
+-	const sessions = [current, ...state.history].filter((entry) => !!entry && (entry.links.length > 0 || entry.status !== "queued"));
++	const sessions = [current, ...state.history].filter((entry, index) => !!entry && (entry.links.length > 0 || index === 0 && entry.status !== "queued"));
+ 	const labels = {
+ 		queued: "Starting",
+ 		running: "Running",
+@@ -3986,13 +3994,14 @@ function renderGithubActivity(activity, state) {
+ 			}))) || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`;
+ 		})
+ 	].join("\n"));
+-	let latestAnswer;
+-	for (const entry of [current, ...state.history]) {
+-		if (!entry) continue;
+-		latestAnswer = githubActivityAnswer(entry);
+-		if (latestAnswer !== void 0) break;
+-	}
+-	if (latestAnswer) sections.push(`Latest answer\n\n${latestAnswer}`);
++	const status = githubActivityStatus(activity);
++	if (status) sections.push(status);
++	const latestAnswer = current && [
++		"completed",
++		"failed",
++		"cancelled"
++	].includes(current.status || "") ? githubActivityAnswer(current) : void 0;
++	if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`);
+ 	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
+ 	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
+ 	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {

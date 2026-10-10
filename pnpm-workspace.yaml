@@ -24,3 +24,5 @@ overrides:
   "@vite-hub/ui": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@a99e853fc27c15195c9bb2ed467302c899cd900b"
   "@vite-hub/workflow": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@a99e853fc27c15195c9bb2ed467302c899cd900b"
   "@vite-hub/workspace": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@a99e853fc27c15195c9bb2ed467302c899cd900b"
+patchedDependencies:
+  '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch

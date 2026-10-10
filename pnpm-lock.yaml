@@ -31,6 +31,11 @@ overrides:
   '@vite-hub/workflow': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@a99e853fc27c15195c9bb2ed467302c899cd900b
   '@vite-hub/workspace': https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@a99e853fc27c15195c9bb2ed467302c899cd900b
 
+patchedDependencies:
+  '@vite-hub/agent@0.0.4':
+    hash: f3f5c9ebcac7628373886e9ef3693ee352fd05aef32d7b3c8f9e00588ef91917
+    path: patches/@vite-hub__agent@0.0.4.patch
+
 importers:
 
   .:
