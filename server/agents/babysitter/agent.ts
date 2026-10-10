@@ -31,7 +31,7 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      author: { allow: ['onmax'] },
+      author: { allow: ['onmax', 'app/renovate'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
