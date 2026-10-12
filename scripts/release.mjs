@@ -75,7 +75,8 @@ async function waitFor(what, timeoutMs, check) {
     }
     await sleep(2_000)
   }
-  fail(`${what} did not happen within ${timeoutMs / 1000}s${last ? `: ${last.message}` : ''}`)
+  // Throw so the caller can stop the smoke unit; fail() would exit and leak it.
+  throw new Error(`${what} did not happen within ${timeoutMs / 1000}s${last ? `: ${last.message}` : ''}`)
 }
 const portFree = port => new Promise(resolve => {
   const socket = createConnection({ host: '127.0.0.1', port })
@@ -155,7 +156,9 @@ const smokeEnv = {
   CODEX_HOME: pick('CODEX_HOME') ?? '/home/agents/.codex',
   PATH: pick('PATH') ?? '/usr/local/bin:/usr/bin:/bin',
   BABYSITTER_REPOS: pick('BABYSITTER_REPOS') ?? '',
-  BABYSITTER_MAX_OWNERS: pick('BABYSITTER_MAX_OWNERS') ?? '1',
+  // One owner proves boot and admission. The live owner count saturates the 2G smoke
+  // unit, starves /api/health and touches real PRs from scratch state.
+  BABYSITTER_MAX_OWNERS: '1',
   BABYSITTER_PUBLIC_URL: publicUrl,
   HOST: '127.0.0.1',
   PORT: String(port),
