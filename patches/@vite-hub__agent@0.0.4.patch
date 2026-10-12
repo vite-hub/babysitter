@@ -1,5 +1,5 @@
 diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
-index 07c9f0d..b33bb4c 100644
+index 07c9f0de29b29c838a49115847df0b99046fb343..b33bb4c50fcbdeac2a073f3cb02f8519cd6015f6 100644
 --- a/dist/channels-C2c1R890.js
 +++ b/dist/channels-C2c1R890.js
 @@ -3944,6 +3944,14 @@ function githubActivityAnswer(entry) {
@@ -48,3 +48,80 @@ index 07c9f0d..b33bb4c 100644
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
+diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
+index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7bf400b1b 100644
+--- a/dist/process-5vDQoY8c.js
++++ b/dist/process-5vDQoY8c.js
+@@ -145,7 +145,7 @@ function createProcessAgentCapacity(options) {
+ 	let lastMemoryHighEvents;
+ 	const sample = options.sample ?? (async (context) => {
+ 		const resources = await readProcessResources(context.signal);
+-		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents;
++		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents && resources.memoryReclaimable < memory.perInvocationBytes;
+ 		lastMemoryHighEvents = resources.memoryHighEvents;
+ 		if (pressurePaused) pressurePaused = memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure;
+ 		else pressurePaused = resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased;
+@@ -154,7 +154,8 @@ function createProcessAgentCapacity(options) {
+ 			reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})`
+ 		};
+ 		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
+-		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
++		const workingSet = Math.max(0, resources.memoryCurrent - resources.memoryReclaimable);
++		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
+ 		const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory);
+ 		const admissionMemory = Math.min(resources.hostAvailableMemory - memory.reserveBytes, Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes);
+ 		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
+@@ -192,7 +193,7 @@ async function readProcessResources(signal) {
+ 		readOptionalCgroupFile("/proc/pressure/memory", signal)
+ 	]);
+ 	const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
+-	const nodeAvailable = process.availableMemory();
++	const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0);
+ 	return {
+ 		availableMemory: nodeAvailable,
+ 		hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
+@@ -201,7 +202,8 @@ async function readProcessResources(signal) {
+ 		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
+ 		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
+ 		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
+-		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? ""))
++		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
++		memoryReclaimable: cgroup?.memoryReclaimable ?? 0
+ 	};
+ }
+ async function readCgroupResources(signal) {
+@@ -220,11 +222,12 @@ async function readCgroupResources(signal) {
+ 		if (member === "/") break;
+ 	}
+ 	const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
+-		const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
++		const [current, high, max, events, stat, cpuPressure, memoryPressure] = await Promise.all([
+ 			readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
++			readOptionalCgroupFile(`${root}/memory.stat`, signal),
+ 			readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
+ 			readOptionalCgroupFile(`${root}/memory.pressure`, signal)
+ 		]);
+@@ -234,15 +237,18 @@ async function readCgroupResources(signal) {
+ 			memoryHigh: high === void 0 ? Infinity : parseLimit(high),
+ 			memoryHighEvents: parseEvent(events ?? "", "high"),
+ 			memoryMax: max === void 0 ? Infinity : parseLimit(max),
+-			memoryPressure: parsePressure(memoryPressure ?? "")
++			memoryPressure: parsePressure(memoryPressure ?? ""),
++			memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0
+ 		};
+ 	}));
+ 	let limiting = groups[0];
+ 	if (!limiting) return;
+-	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent;
++	const ownReclaimable = limiting.memoryReclaimable;
++	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - (group.memoryCurrent - group.memoryReclaimable);
+ 	for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group;
+ 	return {
+ 		...limiting,
++		ownReclaimable,
+ 		cpuPressure: Math.max(...groups.map((group) => group.cpuPressure)),
+ 		memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
+ 		memoryPressure: Math.max(...groups.map((group) => group.memoryPressure))

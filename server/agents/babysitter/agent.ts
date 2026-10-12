@@ -36,6 +36,10 @@ export default defineAgent({
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
+    // A worker's Codex tree peaks around 250-520 MB; reserving the 1 GiB default per worker
+    // capped the host at a handful of workers. Host installs and the two heavy
+    // typecheck/test slots share the larger service reserve instead.
+    capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
