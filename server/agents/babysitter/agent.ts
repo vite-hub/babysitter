@@ -44,6 +44,8 @@ export default defineAgent({
     // capped the host at a handful of workers. Host installs and the two heavy
     // typecheck/test slots share the larger service reserve instead.
     capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
+    // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
+    ciRecovery: false,
     reviewChecks: ['pullfrog'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.

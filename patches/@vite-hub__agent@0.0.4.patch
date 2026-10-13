@@ -236,3 +236,67 @@ index 8c6074679b637bd2332547e0f93007b633bc795a..26c72cb740781c16520080b2a0ffe633
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -1651,6 +1651,7 @@
+ 		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
+ 	});
+ 	const deferWhilePending = baseAgent.deferWhilePending ?? presetOptions.deferWhilePending ?? true;
++	const actionsRecoveryEnabled = baseAgent.ciRecovery ?? presetOptions.ciRecovery ?? true;
+ 	const waitPolicy = {
+ 		ignoreFeedbackAuthors: new Set((baseAgent.ignoreFeedbackAuthors ?? presetOptions.ignoreFeedbackAuthors ?? []).map((author) => author.trim().toLowerCase())),
+ 		workerAuthors: new Set(activityAuthors.flatMap((author) => [author.toLowerCase(), `${author.toLowerCase().replace(/\[bot\]$/, "")}[bot]`])),
+@@ -2558,10 +2559,10 @@
+ 					await pullRequestInbox.release(inboxClaim);
+ 					return;
+ 				}
+-				const ciRecovery = await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
++				const ciRecovery = actionsRecoveryEnabled ? await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
+ 					...request,
+ 					signal: passSignal
+-				}));
++				})) : void 0;
+ 				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
+ 					outcome = "waiting";
+ 					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
+diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
++++ b/dist/babysitter-Cxv_5t2g.js
+@@ -594,16 +594,18 @@
+ 		mentionAllowlist: [],
+ 		concurrency: 1,
+ 		admission: {},
++		ciRecovery: true,
+ 		lifecycle: {},
+ 		autoMerge: false
+ 	},
+-	configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
++	configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission, ciRecovery }) => {
+ 		if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
+ 		if (driver !== "codex" && driver !== "claude-code") throw new TypeError("[vitehub] Babysitter driver must be \"codex\" or \"claude-code\".");
+ 		if (noFindingsReviews.some((prefix) => prefix.length === 0)) throw new TypeError("[vitehub] Babysitter noFindingsReviews cannot contain an empty prefix.");
+ 		if (!Array.isArray(ignoreFeedbackAuthors) || ignoreFeedbackAuthors.some((author) => !hasRuntimeType(author, "string") || !author.trim())) throw new TypeError("[vitehub] Babysitter ignoreFeedbackAuthors must list GitHub logins.");
+ 		if (noProgressBudget !== false && (!Number.isSafeInteger(noProgressBudget) || noProgressBudget < 1)) throw new TypeError("[vitehub] Babysitter noProgressBudget must be a positive integer or false.");
+ 		if (!hasRuntimeType(deferWhilePending, "boolean")) throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
++		if (!hasRuntimeType(ciRecovery, "boolean")) throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
+ 		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
+ 		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
+ 		resolveBabysitterLifecycleFilter(filter, lifecycle);
+@@ -626,6 +628,7 @@
+ 			noProgressBudget,
+ 			deferWhilePending,
+ 			install,
++			ciRecovery,
+ 			lifecycle
+ 		}), babysitterHost);
+ 	}
+diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
++++ b/dist/presets/babysitter.d.ts
+@@ -38,6 +38,8 @@
+   labels?: BabysitterLifecycleLabels;
+ }
+ export interface BabysitterOptions {
++  /** Automatically rerun failed GitHub Actions runs. Defaults to true. */
++  ciRecovery: boolean;
+   /** Process admission policy. Concurrency remains the preset hard maximum. */
+   capacity?: Pick<ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
+   /** Select PRs with the same rules as the GitHub Channel. */

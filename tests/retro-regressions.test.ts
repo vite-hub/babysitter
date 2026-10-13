@@ -41,3 +41,10 @@ test('published scheduler preserves active repairs across new webhook evidence',
   assert.match(source, /function claimStopReason\(/)
   assert.match(source, /stackBlocked/)
 })
+
+test('Babysitter can leave Actions untouched while keeping check evidence and merge gates', () => {
+  assert.match(source, /ciRecovery: true/)
+  assert.match(source, /const actionsRecoveryEnabled = baseAgent\.ciRecovery \?\? presetOptions\.ciRecovery \?\? true/)
+  assert.match(source, /const ciRecovery = actionsRecoveryEnabled \? await rerunFailedActions\(/)
+  assert.match(readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8'), /ciRecovery: false/)
+})

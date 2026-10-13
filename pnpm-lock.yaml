@@ -33,7 +33,7 @@ overrides:
 
 patchedDependencies:
   '@vite-hub/agent@0.0.4':
-    hash: 07f8f1fad98b9bd20784dbe5e8fa2855203dcf376ac25593928808ea5770a51b
+    hash: e31b65fad16a55f4ed04c7ff22c9820621f9bad2746200b7dc584024be38f903
     path: patches/@vite-hub__agent@0.0.4.patch
 
 importers:

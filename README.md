@@ -35,6 +35,8 @@ The preset keeps model passes for real repair work:
   the head changes or a person comments.
 - `install` (default `true`) installs dependencies on the host from the frozen lockfile before
   the model starts, and records the result in `.git/vitehub-install.json`.
+- `ciRecovery` (default `true`) retries failed GitHub Actions runs once per head. Set it to
+  `false` to read CI evidence and keep normal merge gates without requesting reruns.
 
 The included configuration enables direct squash merges for PRs authored by `onmax`.
 Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
