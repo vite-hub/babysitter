@@ -160,6 +160,7 @@ index 66263ba51108f63d77de68a6c59aeb8a1d5542b0..2cb30ddbc73a5fee2e9646309d160854
 diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
 index 8c6074679b637bd2332547e0f93007b633bc795a..26c72cb740781c16520080b2a0ffe63347347e7a 100644
 diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
 --- a/dist/server-BLQ0_U8X.js
 +++ b/dist/server-BLQ0_U8X.js
 @@ -2436,6 +2436,7 @@ function createBabysitterRuntime(options) {
@@ -327,3 +328,66 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  		}
  		await pullRequestInbox.recoverLeases();
  		try {
+--- a/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -2059,6 +2059,15 @@
+ 			}
+ 		});
+ 	}
++	/** Records a provider-wide quota failure so reconcile stops selecting new work. */
++	async function noteProviderQuota(error, operation) {
++		const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
++		if (!isProviderRateLimit(error) && !/(?:403|rate[ -]?limit|quota|invalid character '<'|Command failed: gh api)/i.test(message)) return false;
++		const blockedUntil = Math.max(await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0, Date.now() + 36e5);
++		await pullRequestInbox.setMeta("provider-quota-blocked-until", blockedUntil);
++		schedulerEvent("babysitter.provider.quota.blocked", { operation, blocked_until: new Date(blockedUntil).toISOString(), reason: message.slice(0, 200) });
++		return true;
++	}
+ 	/** Retries a provider rate limit three times, then blocks admission for an hour. */
+ 	async function runWithProviderRetry(run, signal) {
+ 		for (let attempt = 0;; attempt++) try {
+@@ -2365,21 +2374,22 @@
+ 				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
+ 				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
+ 			} catch (error) {
++				await noteProviderQuota(error, "bootstrap");
+ 				schedulerError("babysitter.bootstrap.failed", error, { repository });
+ 			}
+ 		}
+ 		try {
+ 			await detectChangedPullRequests(pullRequestInbox, (repository) => readGraphql(repository, 4), repositories, Date.now(), !eventScopedBootstrap);
+ 		} catch (error) {
++			await noteProviderQuota(error, "snapshot-detect");
+ 			schedulerError("babysitter.snapshot.detect.failed", error);
+ 		}
+ 		try {
+ 			await probeChangedSnapshots(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
+ 			await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
+ 		} catch (error) {
++			await noteProviderQuota(error, "snapshot-reconcile");
+ 			schedulerError("babysitter.snapshot.reconcile.failed", error);
+-			const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
+-			if (/\b(?:403|rate[ -]?limit|quota)\b/i.test(message)) await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
+ 		}
+ 		await pullRequestInbox.recoverLeases();
+ 		try {
+@@ -2389,6 +2399,7 @@
+ 			}
+ 			await evaluateWaits();
+ 		} catch (error) {
++			await noteProviderQuota(error, "wait-evaluate");
+ 			schedulerError("babysitter.wait.evaluate.failed", error);
+ 		}
+ 		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
+@@ -2396,6 +2407,11 @@
+ 			await pullRequestInbox.pruneDeliveries();
+ 		}
+ 		if (!isAccepting()) return;
++		const providerBlockedAfterReconcile = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
++		if (providerBlockedAfterReconcile > Date.now()) {
++			schedulerEvent("babysitter.provider.quota.waiting", { reason, blocked_until: new Date(providerBlockedAfterReconcile).toISOString() });
++			return;
++		}
+ 		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
+ 		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
+ 			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
