@@ -3,7 +3,6 @@
 // credentials; a fleet host only runs the provider in a remote Box.
 import { readFileSync } from 'node:fs'
 import { mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createSshBoxRuntime, q, runScript, sshTransport, type FleetTransport } from './ssh-box.ts'
 
@@ -18,8 +17,10 @@ export interface FleetHostConfig {
 export interface FleetOptions {
   localSlots: number
   hosts: readonly FleetHostConfig[]
-  /** Directory for SSH known hosts and control sockets. */
+  /** Directory for SSH known hosts. */
   stateDirectory: string
+  /** Short directory for SSH control sockets. */
+  controlDirectory?: string
   /** Coordinator loopback ports forwarded to every remote provider process. */
   forwardPorts?: readonly number[]
   /** Hosts with less free disk are not used. */
@@ -59,7 +60,8 @@ export function createFleet(options: FleetOptions) {
     placed: 0,
     transport: options.transport?.(config) ?? sshTransport({
       target: config.target,
-      controlDir: ensureDirectory(join(tmpdir(), 'vitehub-fleet-ssh')),
+      // Unix sockets allow about 108 bytes and TMPDIR can be deep; ssh appends a random suffix.
+      controlDir: ensureDirectory(options.controlDirectory ?? `/tmp/vhf-${process.getuid?.() ?? 0}`),
       knownHosts: join(ensureDirectory(options.stateDirectory), 'known_hosts'),
     }),
     health: undefined as HostHealth | undefined,
