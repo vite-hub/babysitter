@@ -48,6 +48,19 @@ index 07c9f0de29b29c838a49115847df0b99046fb343..b33bb4c50fcbdeac2a073f3cb02f8519
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
+diff --git a/dist/github-inbox-BPnZlu_P.js b/dist/github-inbox-BPnZlu_P.js
+index e4e2b8678409352b02cf2dbf7c049e9c22e498cd..036d26633326a2e3b6c017e7808ceaa52ae797d4 100644
+--- a/dist/github-inbox-BPnZlu_P.js
++++ b/dist/github-inbox-BPnZlu_P.js
+@@ -1921,7 +1921,7 @@ var PullRequestInbox = class {
+ 		return (await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
+         AND parent.state='open' AND parent.head_ref=p.base_ref
+-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
++        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
+       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])).map((row) => {
+ 			const summary = parseSummary(JSON.parse(stringValue(row.summary)));
+ 			if (summary.status !== "ready" || !summary.dirty || row.stack_parent === null || row.stack_parent === void 0) return summary;
 diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
 index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7bf400b1b 100644
 --- a/dist/process-5vDQoY8c.js
