@@ -314,7 +314,10 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       })
       if (!created) return
       const incoming = `refs/fleet/incoming/${id}`
-      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; git -C "$1" fetch -q --no-tags --no-write-fetch-head "$2" "+refs/*:$3/*" "+HEAD:$3/HEAD"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
+      // Incremental bundles omit HEAD when its objects are already in the mirror.
+      const bundleHead = (await hostGit(checkout, ['bundle', 'list-heads', bundle, 'HEAD'])).toString('utf8').trim()
+      const headRefspec = bundleHead ? ' "+HEAD:$3/HEAD"' : ''
+      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; git -C "$1" fetch -q --no-tags --no-write-fetch-head "$2" "+refs/*:$3/*"${headRefspec}; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
     }
     finally {
       await rm(scratch, { recursive: true, force: true })

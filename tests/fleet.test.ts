@@ -151,6 +151,51 @@ test('a fleet Box mirrors the checkout without dependency trees and round-trips 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('an incremental fleet bundle can omit an already mirrored HEAD', async () => {
+  const { root, work } = checkout()
+  let session: FleetBoxSession | undefined
+  try {
+    const initial = await open(root, work)
+    await initial.session.close()
+    const head = git(work, 'rev-parse', 'HEAD')
+    const branch = git(work, 'branch', '--show-current')
+    git(work, 'checkout', '-qb', 'other')
+    writeFileSync(join(work, 'a.txt'), 'other branch\n')
+    git(work, 'commit', '-qam', 'other')
+    const other = git(work, 'rev-parse', 'HEAD')
+    git(work, 'checkout', '-q', branch)
+
+    session = (await open(root, work)).session
+    assert.equal((await session.exec('git', ['rev-parse', 'HEAD'])).stdout.trim(), head)
+    assert.equal((await session.exec('git', ['cat-file', '-t', other])).stdout.trim(), 'commit')
+  }
+  finally {
+    await session?.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('an incremental fleet bundle transfers a new detached HEAD', async () => {
+  const { root, work } = checkout()
+  let session: FleetBoxSession | undefined
+  try {
+    const initial = await open(root, work)
+    await initial.session.close()
+    git(work, 'checkout', '-q', '--detach')
+    writeFileSync(join(work, 'a.txt'), 'detached\n')
+    git(work, 'commit', '-qam', 'detached')
+    const head = git(work, 'rev-parse', 'HEAD')
+
+    session = (await open(root, work)).session
+    assert.equal((await session.exec('git', ['rev-parse', 'HEAD'])).stdout.trim(), head)
+    assert.equal((await session.exec('git', ['log', '--format=%s', '-2'])).stdout.trim(), 'detached\nbase')
+  }
+  finally {
+    await session?.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the patched framework accepts tunnelled Box runtimes and places passes before installing', () => {
   let modules = join(process.cwd(), 'node_modules', 'vite-hub')
   modules = execFileSync('node', ['-e', 'console.log(require("fs").realpathSync(process.argv[1]))', modules], { encoding: 'utf8' }).trim()
