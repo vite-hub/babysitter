@@ -58,6 +58,9 @@ export default defineAgent({
     // typecheck/test slots share the larger service reserve instead.
     capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
     admission: { inputTokens: admissionInputTokens },
+    // Keep repair passes moving while external CI and review checks are pending.
+    // Their evidence and required merge gates remain authoritative.
+    deferWhilePending: false,
     // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
     ciRecovery: false,
     reviewChecks: ['pullfrog'],

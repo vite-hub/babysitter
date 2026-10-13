@@ -50,4 +50,5 @@ test('Babysitter can leave Actions untouched while keeping check evidence and me
   assert.match(appSource, /ciRecovery: false/)
   assert.match(appSource, /BABYSITTER_HOURLY_INPUT_TOKENS/)
   assert.match(appSource, /admission: \{ inputTokens: admissionInputTokens \}/)
+  assert.match(appSource, /deferWhilePending: false/)
 })
