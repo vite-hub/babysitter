@@ -123,6 +123,26 @@ test('fills local slots first, then healthy hosts, without overflowing local cap
   rmSync(root, { recursive: true, force: true })
 })
 
+test('keeps slot ceilings under concurrent placement requests', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-concurrent-'))
+  const fleet = createFleet({
+    localSlots: 1,
+    hosts: [{ name: 'remote', target: 'unused', slots: 1 }],
+    stateDirectory: join(root, 'state'),
+    transport: () => staticTransport(['/home/fake', '10000000', String(8 * 1024 * 1024), '0', 'tools-ok']),
+    minFreeBytes: 1,
+    localResources: () => ({ availableMemoryBytes: 8 * 1024 ** 3, memoryPressure: 0 }),
+  })
+  const results = await Promise.allSettled(Array.from({ length: 8 }, (_, number) => fleet.place({ repository: 'o/r', number })))
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 2)
+  assert.equal(results.filter(result => result.status === 'rejected' && result.reason instanceof FleetCapacityError).length, 6)
+  assert.equal(fleet.status().local.active, 1)
+  assert.equal(fleet.status().hosts[0]!.active, 1)
+  assert.equal(fleet.status().local.overflow, 0)
+  for (const result of results) if (result.status === 'fulfilled') result.value.release()
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('moves work to a healthy remote host when local memory is constrained', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fleet-memory-'))
   const fleet = createFleet({

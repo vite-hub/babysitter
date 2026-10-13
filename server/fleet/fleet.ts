@@ -114,7 +114,6 @@ export function createFleet(options: FleetOptions) {
       const availableMemoryBytes = override?.availableMemoryBytes ?? sampledMemory.availableMemoryBytes
       const memoryPressure = override?.memoryPressure ?? sampledMemory.memoryPressure
       if (tools !== 'tools-ok') return { ok: false, checkedAt, home, freeBytes, reason: 'missing git, codex, pnpm, setsid, flock or tar' }
-      if (!Number.isFinite(freeBytes)) return { ok: false, checkedAt, home, reason: 'disk availability probe unavailable' }
       if (!host.swept) {
         // Boxes left by an earlier coordinator process have no owner. This process
         // is the only coordinator for this root, so stop and remove them.
@@ -123,6 +122,7 @@ export function createFleet(options: FleetOptions) {
         host.swept = true
         log('host.swept', { host: host.config.name })
       }
+      if (!Number.isFinite(freeBytes)) return { ok: false, checkedAt, home, reason: 'disk availability probe unavailable' }
       if (!Number.isFinite(availableMemoryBytes) || !Number.isFinite(memoryPressure)) return { ok: false, checkedAt, home, freeBytes, reason: 'memory availability or pressure probe unavailable' }
       if (freeBytes < minFreeBytes) return { ok: false, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure, reason: `only ${Math.round(freeBytes / 1024 ** 2)} MiB disk free` }
       if (memoryPressure > maxMemoryPressure) return { ok: false, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure, reason: `memory pressure ${memoryPressure.toFixed(1)}% exceeds ${maxMemoryPressure}%` }
@@ -377,6 +377,9 @@ export function registerFleetFromEnvironment(environment: NodeJS.ProcessEnv = pr
     localSlots: Number(environment.BABYSITTER_FLEET_LOCAL_SLOTS ?? 15),
     hosts,
     stateDirectory: environment.BABYSITTER_FLEET_STATE ?? join(process.cwd(), '.vitehub', 'fleet'),
+    minFreeMemoryBytes: positiveNumber(environment.BABYSITTER_FLEET_MIN_FREE_MEMORY_BYTES, 2 * 1024 ** 3),
+    maxMemoryPressure: positiveNumber(environment.BABYSITTER_FLEET_MAX_MEMORY_PRESSURE, 5),
+    memoryPerSlotBytes: positiveNumber(environment.BABYSITTER_FLEET_MEMORY_PER_SLOT_BYTES, 512 * 1024 ** 2),
     forwardPorts,
     codexConfig,
   })
@@ -387,4 +390,9 @@ export function registerFleetFromEnvironment(environment: NodeJS.ProcessEnv = pr
 
 export function registeredFleet(): Fleet | undefined {
   return (globalThis as Record<symbol, Fleet | undefined>)[registry]
+}
+
+function positiveNumber(value: string | undefined, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
