@@ -71,7 +71,7 @@ export function createFleet(options: FleetOptions) {
   async function probe(host: Host): Promise<HostHealth> {
     const checkedAt = now()
     try {
-      const result = await runScript(host.transport, `printf '%s\\n' "$HOME"; df -Pk "$HOME" | awk 'NR==2 {print $4}'; PATH="$HOME/.local/bin:$PATH" command -v git codex pnpm setsid flock tar >/dev/null && echo tools-ok`, { timeout: 20_000 })
+      const result = await runScript(host.transport, `printf '%s\\n' "$HOME"; df -Pk "$HOME" | awk 'NR==2 {print $4}'; for tool in git codex pnpm setsid flock tar; do PATH="$HOME/.local/bin:$PATH" command -v "$tool" >/dev/null || { echo "missing $tool" >&2; exit 1; }; done; echo tools-ok`, { timeout: 20_000 })
       const [home, freeKb, tools] = result.stdout.toString('utf8').trim().split('\n')
       if (result.code !== 0 || !home?.startsWith('/')) return { ok: false, checkedAt, reason: result.stderr.trim().slice(-300) || `exit ${result.code}` }
       const freeBytes = Number(freeKb) * 1024
