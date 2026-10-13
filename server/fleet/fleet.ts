@@ -170,6 +170,10 @@ export function createFleet(options: FleetOptions) {
         })),
       }
     },
+    /** Remote passes hold no local memory; the capacity sampler leaves them out. */
+    remoteActive() {
+      return hosts.reduce((total, host) => total + host.active, 0)
+    },
     /** Probe every host now, for startup logs and status. */
     async refresh() {
       await Promise.all(hosts.map(host => health(host)))

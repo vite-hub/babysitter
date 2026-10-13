@@ -62,7 +62,7 @@ index e4e2b8678409352b02cf2dbf7c049e9c22e498cd..036d26633326a2e3b6c017e7808ceaa5
  			const summary = parseSummary(JSON.parse(stringValue(row.summary)));
  			if (summary.status !== "ready" || !summary.dirty || row.stack_parent === null || row.stack_parent === void 0) return summary;
 diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
-index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7bf400b1b 100644
+index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..c0c5d294d838d8273def547d98ca9ae861be869b 100644
 --- a/dist/process-5vDQoY8c.js
 +++ b/dist/process-5vDQoY8c.js
 @@ -145,7 +145,7 @@ function createProcessAgentCapacity(options) {
@@ -74,7 +74,7 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
  		lastMemoryHighEvents = resources.memoryHighEvents;
  		if (pressurePaused) pressurePaused = memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure;
  		else pressurePaused = resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased;
-@@ -154,7 +154,8 @@ function createProcessAgentCapacity(options) {
+@@ -154,10 +154,13 @@ function createProcessAgentCapacity(options) {
  			reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})`
  		};
  		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
@@ -83,8 +83,14 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
 +		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
  		const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory);
  		const admissionMemory = Math.min(resources.hostAvailableMemory - memory.reserveBytes, Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes);
- 		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
-@@ -192,7 +193,7 @@ async function readProcessResources(signal) {
+-		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
++		// Fleet passes run on another host and hold no local provider memory.
++		const localActive = Math.max(0, context.active - (globalThis[Symbol.for("vitehub.babysitter.fleet")]?.remoteActive?.() ?? 0));
++		const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes));
+ 		const memoryConcurrency = context.active + additional;
+ 		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
+ 		return concurrency > context.active ? {
+@@ -192,7 +195,7 @@ async function readProcessResources(signal) {
  		readOptionalCgroupFile("/proc/pressure/memory", signal)
  	]);
  	const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
@@ -93,7 +99,7 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
  	return {
  		availableMemory: nodeAvailable,
  		hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
-@@ -201,7 +202,8 @@ async function readProcessResources(signal) {
+@@ -201,7 +204,8 @@ async function readProcessResources(signal) {
  		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
  		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
  		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
@@ -103,7 +109,7 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
  	};
  }
  async function readCgroupResources(signal) {
-@@ -220,11 +222,12 @@ async function readCgroupResources(signal) {
+@@ -220,11 +224,12 @@ async function readCgroupResources(signal) {
  		if (member === "/") break;
  	}
  	const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
@@ -117,7 +123,7 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
  			readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
  			readOptionalCgroupFile(`${root}/memory.pressure`, signal)
  		]);
-@@ -234,15 +237,18 @@ async function readCgroupResources(signal) {
+@@ -234,15 +239,18 @@ async function readCgroupResources(signal) {
  			memoryHigh: high === void 0 ? Infinity : parseLimit(high),
  			memoryHighEvents: parseEvent(events ?? "", "high"),
  			memoryMax: max === void 0 ? Infinity : parseLimit(max),
