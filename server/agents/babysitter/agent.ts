@@ -5,6 +5,7 @@ import { createAgentEvlog } from 'vite-hub/agent/evlog'
 import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
+import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
 
 const telemetry = createAgentEvlog({
   service: 'babysitter',
@@ -19,6 +20,9 @@ const telemetry = createAgentEvlog({
     }),
   } : {}),
 })
+
+// Passes beyond BABYSITTER_FLEET_LOCAL_SLOTS run in remote Boxes on BABYSITTER_FLEET_HOSTS.
+registerFleetFromEnvironment()
 
 export default defineAgent({
   preset: 'babysitter',
