@@ -24,6 +24,19 @@ const telemetry = createAgentEvlog({
 // Passes beyond BABYSITTER_FLEET_LOCAL_SLOTS run in remote Boxes on BABYSITTER_FLEET_HOSTS.
 registerFleetFromEnvironment()
 
+function inputTokenLimit(name: string) {
+  const raw = process.env[name]
+  if (raw === undefined || raw.trim() === '') return undefined
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`)
+  return value
+}
+
+const admissionInputTokens = {
+  hourly: inputTokenLimit('BABYSITTER_HOURLY_INPUT_TOKENS'),
+  daily: inputTokenLimit('BABYSITTER_DAILY_INPUT_TOKENS'),
+}
+
 export default defineAgent({
   preset: 'babysitter',
   presets: { babysitter },
@@ -44,6 +57,7 @@ export default defineAgent({
     // capped the host at a handful of workers. Host installs and the two heavy
     // typecheck/test slots share the larger service reserve instead.
     capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
+    admission: { inputTokens: admissionInputTokens },
     // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
     ciRecovery: false,
     reviewChecks: ['pullfrog'],
