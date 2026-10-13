@@ -138,3 +138,95 @@ index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..78d44357b23b2f2cec9cc98bdab747b7
  		cpuPressure: Math.max(...groups.map((group) => group.cpuPressure)),
  		memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
  		memoryPressure: Math.max(...groups.map((group) => group.memoryPressure))
+diff --git a/dist/provider-box-Cdd0DCB1.js b/dist/provider-box-Cdd0DCB1.js
+index 66263ba51108f63d77de68a6c59aeb8a1d5542b0..2cb30ddbc73a5fee2e9646309d16085493c66085 100644
+--- a/dist/provider-box-Cdd0DCB1.js
++++ b/dist/provider-box-Cdd0DCB1.js
+@@ -35,6 +35,8 @@ const relayCleanupTimeoutMs = 1e3;
+ /** True when the Box runtime can reach loopback services of the ViteHub process. */
+ function boxSharesHostNetwork(runtime) {
+ 	if (runtime === "trusted-host") return true;
++	// Custom runtimes that tunnel loopback services declare network: "direct".
++	if (isRuntimeRecord(runtime) && runtime.network === "direct" && typeof runtime.open === "function" && typeof runtime.prepare === "function") return true;
+ 	if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false;
+ 	if (runtime.kind === "trusted-host") return true;
+ 	return runtime.kind === "crabbox" && runtime.network === "direct";
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
+index 8c6074679b637bd2332547e0f93007b633bc795a..26c72cb740781c16520080b2a0ffe63347347e7a 100644
+--- a/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -2436,6 +2436,7 @@ function createBabysitterRuntime(options) {
+ 			const passController = new AbortController();
+ 			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
+ 			let providerDirectory;
++			let fleetPlacement;
+ 			let modelWorkParked = false;
+ 			const parkBlockedModelWork = async () => {
+ 				const currentAdmission = await options.admission?.();
+@@ -2755,7 +2756,7 @@ function createBabysitterRuntime(options) {
+ 								});
+ 								preparedMergeBase = base;
+ 							}
+-							if (presetOptions.install !== false) try {
++							if (presetOptions.install !== false && !fleetPlacement?.box) try {
+ 								await installDependencies(directory, abortSignal, owner, nodeOptions);
+ 							} catch (error) {
+ 								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
+@@ -2790,15 +2791,16 @@ function createBabysitterRuntime(options) {
+ 							await assertLease();
+ 							await assertRepairBase();
+ 							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+-							if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
++							if (presetOptions.install !== false && !fleetPlacement?.box && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
+ 							await assertLease();
+ 						},
+ 						commitRepair: async (input) => {
+ 							if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+ 							await assertLease();
+ 							await assertRepairBase();
+-							if (presetOptions.install !== false) await assertGitHubDependenciesCurrent(providerDirectory);
+-							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false });
++							// A fleet Box installs dependencies on its own host; the host checkout has none.
++							if (presetOptions.install !== false && !fleetPlacement?.box) await assertGitHubDependenciesCurrent(providerDirectory);
++							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false && !fleetPlacement?.box });
+ 							await assertLease();
+ 							return head;
+ 						},
+@@ -2882,6 +2884,12 @@ function createBabysitterRuntime(options) {
+ 					const baseSettings = getAgentLayerOptions(baseAgent);
+ 					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
+ 					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
++					const fleet = globalThis[Symbol.for("vitehub.babysitter.fleet")];
++					// A fleet places the pass locally or on a remote host before any host install.
++					if (fleet && !workerSettings.box) {
++						fleetPlacement ??= await fleet.place({ repository, number });
++						if (fleetPlacement.box) workerSettings.box = fleetPlacement.box;
++					}
+ 					if (workerSettings.box) providerDirectory = checkout;
+ 					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
+ 					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
+@@ -2908,6 +2916,7 @@ function createBabysitterRuntime(options) {
+ 							if (!box.localWorkspace) {
+ 								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
+ 								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
++								else if (typeof box.session.importWorkspace === "function") await box.session.importWorkspace(checkout, abortSignal);
+ 								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
+ 							}
+ 							await assertLease();
+@@ -2917,7 +2926,7 @@ function createBabysitterRuntime(options) {
+ 							await assertLease();
+ 							const box = activeProviderBox(context);
+ 							if (!box) throw new Error("The repair Box is not prepared.");
+-							if (!box.localWorkspace) await publishBoxDependencies(box.session, checkout, abortSignal);
++							if (!box.localWorkspace) await (typeof box.session.refreshDependencies === "function" ? box.session.refreshDependencies(checkout, abortSignal) : publishBoxDependencies(box.session, checkout, abortSignal));
+ 							await assertLease();
+ 						}
+ 					});
+@@ -3144,6 +3153,7 @@ function createBabysitterRuntime(options) {
+ 			} finally {
+ 				clearTimeout(pushedAt);
+ 				stopPullRequestWatch();
++				fleetPlacement?.release();
+ 				try {
+ 					await pullRequestInbox.release(inboxClaim);
+ 				} finally {
