@@ -15,9 +15,20 @@ import type { BoxExecOptions, BoxExecResult, BoxFileEntry, BoxProcess, BoxRuntim
 
 const execFileAsync = promisify(execFile)
 
+/** Coordinator loopback ports reachable on the host, keyed by coordinator port. */
+export interface FleetTunnel {
+  readonly ports: ReadonlyMap<number, number>
+  close(): void
+}
+
 /** Starts a POSIX shell script on one host. */
 export interface FleetTransport {
-  start(script: string, options?: { forwards?: readonly number[] }): ChildProcessWithoutNullStreams
+  start(script: string): ChildProcessWithoutNullStreams
+  /**
+   * Forward coordinator loopback ports to free host ports. Fixed host ports can be
+   * taken by other tunnels or by another pass, so the host picks each port.
+   */
+  tunnel?(ports: readonly number[]): Promise<FleetTunnel>
 }
 
 export function sshTransport(options: { target: string, controlDir: string, knownHosts: string, connectTimeoutSeconds?: number }): FleetTransport {
@@ -28,16 +39,33 @@ export function sshTransport(options: { target: string, controlDir: string, know
     '-o', `ConnectTimeout=${options.connectTimeoutSeconds ?? 10}`,
     '-o', 'ServerAliveInterval=15',
     '-o', 'ServerAliveCountMax=4',
-    '-o', 'LogLevel=ERROR',
   ]
   return {
-    start(script, { forwards = [] } = {}) {
-      // Forwards belong to one provider process, so they get their own connection
-      // and close with it. Short commands share one multiplexed connection.
-      const connection = forwards.length
-        ? ['-S', 'none', '-o', 'ExitOnForwardFailure=yes', ...forwards.flatMap(port => ['-R', `127.0.0.1:${port}:127.0.0.1:${port}`])]
-        : ['-o', 'ControlMaster=auto', '-o', `ControlPath=${options.controlDir}/%C`, '-o', 'ControlPersist=300']
-      return spawn('ssh', [...base, ...connection, options.target, '--', script], { stdio: 'pipe' })
+    start(script) {
+      // Short commands and provider processes share one multiplexed connection.
+      return spawn('ssh', [...base, '-o', 'LogLevel=ERROR', '-o', 'ControlMaster=auto', '-o', `ControlPath=${options.controlDir}/%C`, '-o', 'ControlPersist=300', options.target, '--', script], { stdio: 'pipe' })
+    },
+    tunnel(ports) {
+      if (!ports.length) return Promise.resolve({ ports: new Map(), close() {} })
+      // A tunnel belongs to one provider process and closes with it. ssh reports each
+      // host port it was given at INFO level.
+      const child = spawn('ssh', [...base, '-o', 'LogLevel=INFO', '-S', 'none', '-N', '-o', 'ExitOnForwardFailure=yes', ...ports.flatMap(port => ['-R', `0:127.0.0.1:${port}`]), options.target], { stdio: ['ignore', 'ignore', 'pipe'] })
+      return new Promise((resolve, reject) => {
+        const mapped = new Map<number, number>()
+        let stderr = ''
+        const fail = (message: string) => { clearTimeout(timer); child.kill('SIGTERM'); reject(new Error(`[fleet] Tunnel to ${options.target} failed: ${message}`)) }
+        const timer = setTimeout(() => fail(`no port allocation after 30 s. ${stderr.trim()}`), 30_000)
+        child.once('error', error => fail(error.message))
+        child.once('exit', code => { if (mapped.size < ports.length) fail(`ssh exited ${code}. ${stderr.trim()}`) })
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString('utf8')).slice(-4000)
+          for (const match of stderr.matchAll(/Allocated port (\d+) for remote forward to 127\.0\.0\.1:(\d+)/g)) mapped.set(Number(match[2]), Number(match[1]))
+          if (mapped.size === ports.length) {
+            clearTimeout(timer)
+            resolve({ ports: mapped, close: () => { child.kill('SIGTERM') } })
+          }
+        })
+      })
     },
   }
 }
@@ -94,6 +122,15 @@ const runtimeEnvironment = new Set(['CODEX_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 
 const exportsOf = (environment: Readonly<Record<string, string>>) =>
   Object.entries(environment).filter(([name]) => environmentName.test(name)).map(([name, value]) => `export ${name}=${q(value)}\n`).join('')
 
+/** Point loopback URLs at the host ports their tunnel was given. */
+export function remapLoopback(value: string, ports: ReadonlyMap<number, number>) {
+  if (!ports.size) return value
+  return value.replace(/(?:127\.0\.0\.1|localhost):(\d{2,5})(?!\d)/g, (match, port: string) => {
+    const mapped = ports.get(Number(port))
+    return mapped === undefined ? match : `127.0.0.1:${mapped}`
+  })
+}
+
 /** Loopback ports named in a provider command line or environment. */
 export function loopbackPorts(values: readonly string[], always: readonly number[] = []) {
   const ports = new Set(always)
@@ -147,8 +184,8 @@ export interface SshBoxRuntimeOptions {
   /** Codex config written to the Box Home when the plan does not declare one. */
   codexConfig?: (workDirectory: string) => string
   onClose?: () => void
-  /** A Box that fails to open, other than by cancellation. */
-  onOpenError?: (error: unknown) => void
+  /** The host failed: a Box did not open, or a provider connection dropped at once. */
+  onHostFailure?: (error: unknown) => void
 }
 
 /** A Box session with fast paths for the Babysitter's whole-workspace transfers. */
@@ -186,7 +223,7 @@ export function createSshBoxRuntime(options: SshBoxRuntimeOptions): BoxRuntime &
       }
       catch (error) {
         await session.close().catch(() => undefined)
-        if (!openOptions.signal?.aborted) options.onOpenError?.(error)
+        if (!openOptions.signal?.aborted) options.onHostFailure?.(error)
         throw error
       }
     },
@@ -223,6 +260,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   let closing: Promise<void> | undefined
   const assertOpen = () => { if (closing) throw new Error('[fleet] Box session is closed.') }
   let mirror: string | undefined
+  let generatedCodexConfig = false
 
   const exec = async (command: string, args: readonly string[] = [], execOptions: BoxExecOptions = {}): Promise<BoxExecResult> => {
     assertOpen()
@@ -236,16 +274,34 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   const spawnProcess = async (command: string, args: readonly string[] = [], spawnOptions: BoxExecOptions = {}): Promise<BoxProcess> => {
     assertOpen()
     const name = `${run}/${randomUUID()}`
-    const values = environment(spawnOptions.env)
-    // Secrets travel in a private file, never on a command line.
-    await shell(`umask 077 && cat > ${q(`${name}.env`)}`, 'provider environment upload', { input: Buffer.from(exportsOf(values)), signal: spawnOptions.signal })
-    const forwards = loopbackPorts([...args, ...Object.values(spawnOptions.env ?? {})], options.forwardPorts)
-    const script = `cd ${q(spawnOptions.cwd ?? work)} && exec setsid -w sh -c 'echo $$ > "$1"; . "$2"; rm -f "$2"; shift 2; exec "$@"' sh ${q(`${name}.pid`)} ${q(`${name}.env`)} ${[command, ...args].map(q).join(' ')}`
-    const child = transport.start(script, { forwards })
+    const ports = loopbackPorts([...args, ...Object.values(spawnOptions.env ?? {})], options.forwardPorts)
+    const tunnel = transport.tunnel ? await transport.tunnel(ports) : { ports: new Map<number, number>(), close() {} }
+    let child: ChildProcessWithoutNullStreams
+    try {
+      const values = Object.fromEntries(Object.entries(environment(spawnOptions.env)).map(([key, value]) => [key, remapLoopback(value, tunnel.ports)]))
+      // Codex reads its provider URL from config, so render it for this tunnel.
+      if (generatedCodexConfig && options.codexConfig) await files.write(`${home}/.codex/config.toml`, Buffer.from(remapLoopback(options.codexConfig(work), tunnel.ports)), { signal: spawnOptions.signal })
+      // Secrets travel in a private file, never on a command line.
+      await shell(`umask 077 && cat > ${q(`${name}.env`)}`, 'provider environment upload', { input: Buffer.from(exportsOf(values)), signal: spawnOptions.signal })
+      const script = `cd ${q(spawnOptions.cwd ?? work)} && exec setsid -w sh -c 'echo $$ > "$1"; . "$2"; rm -f "$2"; shift 2; exec "$@"' sh ${q(`${name}.pid`)} ${q(`${name}.env`)} ${[command, ...args.map(arg => remapLoopback(arg, tunnel.ports))].map(q).join(' ')}`
+      child = transport.start(script)
+    }
+    catch (error) {
+      tunnel.close()
+      throw error
+    }
     live.add(child)
     child.stdin.on('error', () => {})
+    const startedAt = Date.now()
+    let stderrTail = ''
+    child.stderr.on('data', (chunk: Buffer) => { stderrTail = (stderrTail + chunk.toString('utf8')).slice(-2000) })
     const exited = exitCode(child).then(code => ({ code }), () => ({ code: 255 }))
-    void exited.finally(() => live.delete(child))
+    void exited.then(({ code }) => {
+      live.delete(child)
+      tunnel.close()
+      // ssh exits 255 when the connection fails; a provider that ran for a while is not a host failure.
+      if (code === 255 && Date.now() - startedAt < 60_000 && !closing) options.onHostFailure?.(new Error(`[fleet] Provider connection to ${options.host} failed: ${stderrTail.trim().slice(-500)}`))
+    })
     return {
       stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
       stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
@@ -367,6 +423,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       for (const [path, file] of Object.entries(boxInput.plan.files)) await files.write(`${home}/${path}`, await file.resolve(), { signal: abortSignal })
       if (options.codexConfig && !Object.hasOwn(boxInput.plan.files, '.codex/config.toml')) {
         await files.write(`${home}/.codex/config.toml`, Buffer.from(options.codexConfig(work)), { signal: abortSignal })
+        generatedCodexConfig = true
       }
       const checks = boxInput.requirements.map(requirement => `command -v ${q(requirement.command)} >/dev/null || { echo ${q(requirement.name)}; exit 1; }`).join('; ')
       if (checks) {

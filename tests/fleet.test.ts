@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFleet, parseFleetHosts, remoteCodexConfig } from '../server/fleet/fleet.ts'
-import { createSshBoxRuntime, localTransport, loopbackPorts, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
+import { createSshBoxRuntime, localTransport, loopbackPorts, remapLoopback, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim()
 
@@ -67,6 +67,28 @@ test('remote Codex config keeps providers and reads the bearer from the environm
 
 test('forwards loopback ports named by the provider launch', () => {
   assert.deepEqual(loopbackPorts(['-c', 'mcp_servers.t3-code.url="http://127.0.0.1:41234/mcp"', 'http://localhost:9'], [8317]), [8317, 41234])
+})
+
+test('provider processes use the host ports their tunnel was given', async () => {
+  const { root, work } = checkout()
+  let closedTunnels = 0
+  const transport = { ...localTransport(), tunnel: async (ports: readonly number[]) => ({ ports: new Map(ports.map(port => [port, port + 10000])), close: () => { closedTunnels++ } }) }
+  const runtime = createSshBoxRuntime({ host: 'test', transport, root: join(root, 'remote'), path: process.env.PATH!, forwardPorts: [8317], codexConfig: () => 'base_url = "http://127.0.0.1:8317/v1"\n' })
+  const input = { cwd: work, identity: 'i', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+  const plan = await runtime.prepare(input)
+  const session = await runtime.open(input, { executionAuthority: plan.executionAuthority }) as FleetBoxSession
+  try {
+    const child = await session.spawn!('sh', ['-c', 'printf "%s|%s|" "$1" "$OPENAI_BASE_URL"; cat "$HOME/.codex/config.toml"', 'sh', 'url="http://127.0.0.1:41234/mcp"'], { env: { OPENAI_BASE_URL: 'http://127.0.0.1:8317/v1' } })
+    assert.equal(await new Response(child.stdout).text(), 'url="http://127.0.0.1:51234/mcp"|http://127.0.0.1:18317/v1|base_url = "http://127.0.0.1:18317/v1"\n')
+    await child.wait()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.equal(closedTunnels, 1)
+  }
+  finally {
+    await session.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+  assert.equal(remapLoopback('localhost:9 127.0.0.1:8317', new Map([[8317, 1]])), 'localhost:9 127.0.0.1:1')
 })
 
 test('fills local slots first, then healthy hosts, then overflows locally', async () => {
