@@ -2,14 +2,19 @@
 // these tests cover everything except the SSH hop itself.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createFleet, parseFleetHosts, remoteCodexConfig } from '../server/fleet/fleet.ts'
+import { createFleet, FleetCapacityError, parseFleetHosts, remoteCodexConfig } from '../server/fleet/fleet.ts'
 import { createSshBoxRuntime, localTransport, loopbackPorts, remapLoopback, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim()
+
+function staticTransport(lines: string[]) {
+  const output = JSON.stringify(`${lines.join('\n')}\n`)
+  return { start: () => spawn(process.execPath, ['-e', `process.stdout.write(${output})`], { stdio: 'pipe' }) }
+}
 
 function checkout() {
   const root = mkdtempSync(join(tmpdir(), 'fleet-test-'))
@@ -91,7 +96,7 @@ test('provider processes use the host ports their tunnel was given', async () =>
   assert.equal(remapLoopback('localhost:9 127.0.0.1:8317', new Map([[8317, 1]])), 'localhost:9 127.0.0.1:1')
 })
 
-test('fills local slots first, then healthy hosts, then overflows locally', async () => {
+test('fills local slots first, then healthy hosts, without overflowing local capacity', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fleet-place-'))
   const events: string[] = []
   const fleet = createFleet({
@@ -104,17 +109,74 @@ test('fills local slots first, then healthy hosts, then overflows locally', asyn
   })
   const first = await fleet.place({ repository: 'o/r', number: 1 })
   const second = await fleet.place({ repository: 'o/r', number: 2 })
-  const third = await fleet.place({ repository: 'o/r', number: 3 })
+  await assert.rejects(() => fleet.place({ repository: 'o/r', number: 3 }), (error: unknown) => error instanceof FleetCapacityError)
   assert.equal(first.host, 'local')
   assert.equal(second.host, 'remote')
   assert.equal(second.box?.runtime.name, 'fleet')
-  assert.equal(third.host, 'local')
-  assert.deepEqual(fleet.status().local, { active: 2, slots: 1, overflow: 1 })
+  assert.equal(fleet.status().local.active, 1)
+  assert.equal(fleet.status().local.overflow, 0)
   assert.equal(fleet.remoteActive(), 1)
   second.release()
   second.release()
   assert.equal(fleet.status().hosts[0]!.active, 0)
   assert.ok(events.includes('host.swept'))
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('moves work to a healthy remote host when local memory is constrained', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-memory-'))
+  const fleet = createFleet({
+    localSlots: 2,
+    hosts: [{ name: 'remote', target: 'unused', slots: 2 }],
+    stateDirectory: join(root, 'state'),
+    transport: () => localTransport(),
+    minFreeBytes: 1,
+    minFreeMemoryBytes: 2 * 1024 ** 3,
+    localResources: () => ({ availableMemoryBytes: 1 * 1024 ** 3, memoryPressure: 0 }),
+  })
+  const placement = await fleet.place({ repository: 'o/r', number: 1 })
+  assert.equal(placement.host, 'remote')
+  assert.equal(fleet.status().local.active, 0)
+  placement.release()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('limits remote admissions by memory and pressure without local overflow', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-remote-memory-'))
+  const fleet = createFleet({
+    localSlots: 1,
+    hosts: [{ name: 'remote', target: 'unused', slots: 3 }],
+    stateDirectory: join(root, 'state'),
+    transport: () => staticTransport(['/home/fake', '10000000', String(3 * 1024 * 1024), '0', 'tools-ok']),
+    minFreeBytes: 1,
+    minFreeMemoryBytes: 2 * 1024 ** 3,
+    memoryPerSlotBytes: 512 * 1024 ** 2,
+    localResources: () => ({ availableMemoryBytes: 1 * 1024 ** 3, memoryPressure: 0 }),
+  })
+  const first = await fleet.place({ repository: 'o/r', number: 1 })
+  const second = await fleet.place({ repository: 'o/r', number: 2 })
+  assert.equal(first.host, 'remote')
+  assert.equal(second.host, 'remote')
+  await assert.rejects(() => fleet.place({ repository: 'o/r', number: 3 }), (error: unknown) => error instanceof FleetCapacityError)
+  assert.equal(fleet.status().hosts[0]!.active, 2)
+  first.release()
+  second.release()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('rejects a remote host under memory pressure', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-pressure-'))
+  const fleet = createFleet({
+    localSlots: 1,
+    hosts: [{ name: 'remote', target: 'unused', slots: 1 }],
+    stateDirectory: join(root, 'state'),
+    transport: () => localTransport(),
+    minFreeBytes: 1,
+    localResources: () => ({ availableMemoryBytes: 1 * 1024 ** 3, memoryPressure: 0 }),
+    hostResources: () => ({ availableMemoryBytes: 8 * 1024 ** 3, memoryPressure: 6 }),
+  })
+  await assert.rejects(() => fleet.place({ repository: 'o/r', number: 1 }), (error: unknown) => error instanceof FleetCapacityError)
+  assert.equal(fleet.status().local.overflow, 0)
   rmSync(root, { recursive: true, force: true })
 })
 

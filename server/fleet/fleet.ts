@@ -25,6 +25,16 @@ export interface FleetOptions {
   forwardPorts?: readonly number[]
   /** Hosts with less free disk are not used. */
   minFreeBytes?: number
+  /** Keep this much memory free on every host before admitting another Box. */
+  minFreeMemoryBytes?: number
+  /** Do not admit work while memory pressure exceeds this percentage. */
+  maxMemoryPressure?: number
+  /** Memory budget reserved for one additional provider pass. */
+  memoryPerSlotBytes?: number
+  /** Override local resource sampling in tests or host-specific deployments. */
+  localResources?: () => FleetResourceHealth | Promise<FleetResourceHealth>
+  /** Override remote memory sampling while retaining the SSH disk/tool probe. */
+  hostResources?: (host: FleetHostConfig) => FleetResourceHealth | Promise<FleetResourceHealth>
   codexConfig?: (workDirectory: string) => string
   transport?: (host: FleetHostConfig) => FleetTransport
   log?: (event: string, fields: Record<string, unknown>) => void
@@ -44,6 +54,24 @@ interface HostHealth {
   reason?: string
   home?: string
   freeBytes?: number
+  availableMemoryBytes?: number
+  memoryPressure?: number
+}
+
+export interface FleetResourceHealth {
+  availableMemoryBytes: number
+  memoryPressure: number
+}
+
+/** A claim must be retried later when all fleet slots are unavailable. */
+export class FleetCapacityError extends Error {
+  readonly code = 'fleet_capacity'
+  readonly retryable = true
+
+  constructor(reason: string) {
+    super(`[fleet] No admitted fleet slot is available: ${reason}`)
+    this.name = 'FleetCapacityError'
+  }
 }
 
 const healthTtlMs = 30_000
@@ -52,8 +80,12 @@ export function createFleet(options: FleetOptions) {
   const now = options.now ?? Date.now
   const log = options.log ?? ((event, fields) => console.log(`[fleet] ${event} ${JSON.stringify(fields)}`))
   const minFreeBytes = options.minFreeBytes ?? 4 * 1024 ** 3
+  const minFreeMemoryBytes = options.minFreeMemoryBytes ?? 2 * 1024 ** 3
+  const maxMemoryPressure = options.maxMemoryPressure ?? 5
+  const memoryPerSlotBytes = options.memoryPerSlotBytes ?? 512 * 1024 ** 2
   let localActive = 0
   let overflow = 0
+  let localHealth: (FleetResourceHealth & { ok: boolean, reason?: string }) | undefined
   const hosts = options.hosts.map(config => ({
     config,
     active: 0,
@@ -73,10 +105,14 @@ export function createFleet(options: FleetOptions) {
   async function probe(host: Host): Promise<HostHealth> {
     const checkedAt = now()
     try {
-      const result = await runScript(host.transport, `printf '%s\\n' "$HOME"; df -Pk "$HOME" | awk 'NR==2 {print $4}'; PATH="$HOME/.local/bin:$PATH" command -v git codex pnpm setsid flock tar >/dev/null && echo tools-ok`, { timeout: 20_000 })
-      const [home, freeKb, tools] = result.stdout.toString('utf8').trim().split('\n')
+      const result = await runScript(host.transport, `printf '%s\\n' "$HOME"; df -Pk "$HOME" | awk 'NR==2 {print $4}'; awk '/^MemAvailable:/ {print $2}' /proc/meminfo; awk '$1 == "full" { for (i = 2; i <= NF; i++) if ($i ~ /^avg10=/) { sub(/^avg10=/, "", $i); print $i; exit } }' /proc/pressure/memory; PATH="$HOME/.local/bin:$PATH" command -v git codex pnpm setsid flock tar >/dev/null && echo tools-ok`, { timeout: 20_000 })
+      const [home, freeKb, memoryKb, pressureText, tools] = result.stdout.toString('utf8').trim().split('\n')
       if (result.code !== 0 || !home?.startsWith('/')) return { ok: false, checkedAt, reason: result.stderr.trim().slice(-300) || `exit ${result.code}` }
       const freeBytes = Number(freeKb) * 1024
+      const sampledMemory = { availableMemoryBytes: Number(memoryKb) * 1024, memoryPressure: Number(pressureText) }
+      const override = await options.hostResources?.(host.config)
+      const availableMemoryBytes = override?.availableMemoryBytes ?? sampledMemory.availableMemoryBytes
+      const memoryPressure = override?.memoryPressure ?? sampledMemory.memoryPressure
       if (tools !== 'tools-ok') return { ok: false, checkedAt, home, freeBytes, reason: 'missing git, codex, pnpm, setsid, flock or tar' }
       if (!host.swept) {
         // Boxes left by an earlier coordinator process have no owner. This process
@@ -86,12 +122,39 @@ export function createFleet(options: FleetOptions) {
         host.swept = true
         log('host.swept', { host: host.config.name })
       }
-      if (freeBytes < minFreeBytes) return { ok: false, checkedAt, home, freeBytes, reason: `only ${Math.round(freeBytes / 1024 ** 2)} MiB free` }
-      return { ok: true, checkedAt, home, freeBytes }
+      if (!Number.isFinite(availableMemoryBytes) || !Number.isFinite(memoryPressure)) return { ok: false, checkedAt, home, freeBytes, reason: 'memory availability or pressure probe unavailable' }
+      if (freeBytes < minFreeBytes) return { ok: false, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure, reason: `only ${Math.round(freeBytes / 1024 ** 2)} MiB disk free` }
+      if (memoryPressure > maxMemoryPressure) return { ok: false, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure, reason: `memory pressure ${memoryPressure.toFixed(1)}% exceeds ${maxMemoryPressure}%` }
+      if (availableMemoryBytes < minFreeMemoryBytes) return { ok: false, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure, reason: `only ${Math.round(availableMemoryBytes / 1024 ** 2)} MiB memory available` }
+      return { ok: true, checkedAt, home, freeBytes, availableMemoryBytes, memoryPressure }
     }
     catch (error) {
       return { ok: false, checkedAt, reason: error instanceof Error ? error.message : String(error) }
     }
+  }
+
+  async function localResources() {
+    try {
+      const resources = await (options.localResources?.() ?? readLocalResources())
+      localHealth = { ...resources, ok: true }
+      if (!Number.isFinite(resources.availableMemoryBytes) || !Number.isFinite(resources.memoryPressure)) throw new Error('memory availability or pressure probe unavailable')
+      if (resources.memoryPressure > maxMemoryPressure) {
+        localHealth = { ...resources, ok: false, reason: `memory pressure ${resources.memoryPressure.toFixed(1)}% exceeds ${maxMemoryPressure}%` }
+      }
+      else if (resources.availableMemoryBytes < minFreeMemoryBytes) {
+        localHealth = { ...resources, ok: false, reason: `only ${Math.round(resources.availableMemoryBytes / 1024 ** 2)} MiB memory available` }
+      }
+      return localHealth
+    }
+    catch (error) {
+      localHealth = { ok: false, availableMemoryBytes: 0, memoryPressure: 100, reason: error instanceof Error ? error.message : String(error) }
+      return localHealth
+    }
+  }
+
+  function admittedSlots(slots: number, active: number, resources: FleetResourceHealth) {
+    const byMemory = Math.floor(Math.max(0, resources.availableMemoryBytes - minFreeMemoryBytes) / memoryPerSlotBytes)
+    return Math.min(slots, Math.max(active, byMemory))
   }
 
   async function health(host: Host) {
@@ -123,14 +186,21 @@ export function createFleet(options: FleetOptions) {
 
   return {
     async place(pass: { repository: string, number: number }): Promise<FleetPlacement> {
-      if (localActive < options.localSlots) return local(pass)
+      const localState = await localResources()
+      const localSlots = localState.ok ? admittedSlots(options.localSlots, localActive, localState) : 0
+      if (localActive < localSlots) return local(pass)
       const candidates = hosts
         .filter(host => host.active < host.config.slots)
         .toSorted((left, right) => left.active / left.config.slots - right.active / right.config.slots)
       for (const host of candidates) {
         const state = await health(host)
         // Another pass may have taken the last slot while this one probed.
-        if (!state.ok || !state.home || host.active >= host.config.slots) continue
+        if (!state.ok || !state.home || state.availableMemoryBytes === undefined || state.memoryPressure === undefined || host.active >= host.config.slots) continue
+        const hostSlots = admittedSlots(host.config.slots, host.active, {
+          availableMemoryBytes: state.availableMemoryBytes,
+          memoryPressure: state.memoryPressure,
+        })
+        if (host.active >= hostSlots) continue
         host.active++
         host.placed++
         let closed = false
@@ -159,20 +229,38 @@ export function createFleet(options: FleetOptions) {
           },
         }
       }
-      // Every slot is busy or no host is healthy. The global owner limit still bounds the pass.
-      return local(pass, true)
+      // Never turn a failed remote probe into an unbounded local workload. The
+      // durable PR claim is released by the worker and retried after the next wake.
+      throw new FleetCapacityError(localState.reason ?? 'all configured hosts are full or unhealthy')
     },
     status() {
       return {
-        local: { active: localActive, slots: options.localSlots, overflow },
+        local: {
+          active: localActive,
+          slots: options.localSlots,
+          admitted: localHealth?.ok ? admittedSlots(options.localSlots, localActive, localHealth) : 0,
+          overflow,
+          healthy: localHealth?.ok ?? null,
+          availableMemoryBytes: localHealth?.availableMemoryBytes,
+          memoryPressure: localHealth?.memoryPressure,
+          reason: localHealth?.reason,
+        },
         hosts: hosts.map(host => ({
           name: host.config.name,
           active: host.active,
           slots: host.config.slots,
+          admitted: host.health?.ok && host.health.availableMemoryBytes !== undefined && host.health.memoryPressure !== undefined
+            ? admittedSlots(host.config.slots, host.active, {
+              availableMemoryBytes: host.health.availableMemoryBytes,
+              memoryPressure: host.health.memoryPressure,
+            })
+            : 0,
           placed: host.placed,
           healthy: host.health?.ok ?? null,
           reason: host.health?.reason,
           freeBytes: host.health?.freeBytes,
+          availableMemoryBytes: host.health?.availableMemoryBytes,
+          memoryPressure: host.health?.memoryPressure,
           checkedAt: host.health ? new Date(host.health.checkedAt).toISOString() : null,
         })),
       }
@@ -193,6 +281,44 @@ export type Fleet = ReturnType<typeof createFleet>
 function ensureDirectory(path: string) {
   mkdirSync(path, { recursive: true, mode: 0o700 })
   return path
+}
+
+function readLocalResources(): FleetResourceHealth {
+  const meminfo = readFileSync('/proc/meminfo', 'utf8')
+  const availableKb = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo)?.[1]
+  if (!availableKb) throw new Error('MemAvailable probe unavailable')
+  const hostAvailableBytes = Number(availableKb) * 1024
+  const pressure = parsePressure(readFileSync('/proc/pressure/memory', 'utf8'))
+  const cgroup = readLocalCgroupResources()
+  return {
+    availableMemoryBytes: Math.min(hostAvailableBytes, cgroup.availableBytes),
+    memoryPressure: Math.max(pressure, cgroup.pressure),
+  }
+}
+
+function parsePressure(value: string) {
+  const line = value.split('\n').find(candidate => candidate.startsWith('full '))
+  const match = line && /(?:^|\s)avg10=([\d.]+)/.exec(line)
+  return match ? Number(match[1]) : 0
+}
+
+function readLocalCgroupResources(): { availableBytes: number, pressure: number } {
+  try {
+    const cgroupPath = /^0::(.*)$/m.exec(readFileSync('/proc/self/cgroup', 'utf8'))?.[1]
+    if (cgroupPath === undefined) return { availableBytes: Number.POSITIVE_INFINITY, pressure: 0 }
+    const root = join('/sys/fs/cgroup', cgroupPath)
+    const current = Number(readFileSync(join(root, 'memory.current'), 'utf8').trim())
+    const maxText = readFileSync(join(root, 'memory.max'), 'utf8').trim()
+    const max = maxText === 'max' ? Number.POSITIVE_INFINITY : Number(maxText)
+    const pressure = parsePressure(readFileSync(join(root, 'memory.pressure'), 'utf8'))
+    return {
+      availableBytes: Number.isFinite(max) ? Math.max(0, max - current) : Number.POSITIVE_INFINITY,
+      pressure,
+    }
+  }
+  catch {
+    return { availableBytes: Number.POSITIVE_INFINITY, pressure: 0 }
+  }
 }
 
 /** `name=user@host:slots`, comma or space separated. */
