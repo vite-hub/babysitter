@@ -114,6 +114,7 @@ export function createFleet(options: FleetOptions) {
       const availableMemoryBytes = override?.availableMemoryBytes ?? sampledMemory.availableMemoryBytes
       const memoryPressure = override?.memoryPressure ?? sampledMemory.memoryPressure
       if (tools !== 'tools-ok') return { ok: false, checkedAt, home, freeBytes, reason: 'missing git, codex, pnpm, setsid, flock or tar' }
+      if (!Number.isFinite(freeBytes)) return { ok: false, checkedAt, home, reason: 'disk availability probe unavailable' }
       if (!host.swept) {
         // Boxes left by an earlier coordinator process have no owner. This process
         // is the only coordinator for this root, so stop and remove them.
