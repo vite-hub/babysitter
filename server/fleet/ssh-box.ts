@@ -147,6 +147,8 @@ export interface SshBoxRuntimeOptions {
   /** Codex config written to the Box Home when the plan does not declare one. */
   codexConfig?: (workDirectory: string) => string
   onClose?: () => void
+  /** A Box that fails to open, other than by cancellation. */
+  onOpenError?: (error: unknown) => void
 }
 
 /** A Box session with fast paths for the Babysitter's whole-workspace transfers. */
@@ -184,6 +186,7 @@ export function createSshBoxRuntime(options: SshBoxRuntimeOptions): BoxRuntime &
       }
       catch (error) {
         await session.close().catch(() => undefined)
+        if (!openOptions.signal?.aborted) options.onOpenError?.(error)
         throw error
       }
     },
@@ -314,7 +317,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       })
       if (!created) return
       const incoming = `refs/fleet/incoming/${id}`
-      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; git -C "$1" fetch -q --no-tags --no-write-fetch-head "$2" "+refs/*:$3/*" "+HEAD:$3/HEAD"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
+      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; set -- "$1" "$2" "$3" "+refs/*:$3/*"; if git bundle list-heads "$2" | grep -q " HEAD$"; then set -- "$@" "+HEAD:$3/HEAD"; fi; m="$1"; f="$2"; i="$3"; shift 3; git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" "$@"; set -- "$m" "$f" "$i"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
     }
     finally {
       await rm(scratch, { recursive: true, force: true })

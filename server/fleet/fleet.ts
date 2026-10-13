@@ -143,6 +143,11 @@ export function createFleet(options: FleetOptions) {
           forwardPorts: options.forwardPorts,
           codexConfig: options.codexConfig,
           onClose: () => { closed = true },
+          // Keep new passes off a host whose Boxes fail until the next probe.
+          onOpenError: (error) => {
+            host.health = { ok: false, checkedAt: now(), home: state.home, reason: `Box open failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500) }
+            log('host.down', { host: host.config.name, reason: host.health.reason })
+          },
         })
         log('placed', { ...pass, host: host.config.name, active: host.active, slots: host.config.slots })
         return {

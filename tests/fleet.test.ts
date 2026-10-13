@@ -142,6 +142,20 @@ test('a fleet Box mirrors the checkout without dependency trees and round-trips 
   assert.equal(closed(), 1)
   assert.equal(existsSync(session.cwd), false)
 
+  // A Box for a HEAD the mirror already has gets a bundle without HEAD, or no bundle.
+  for (const step of ['branch', 'same']) {
+    if (step === 'branch') {
+      // New objects on another ref, HEAD unchanged: the bundle carries the ref but not HEAD.
+      const head = git(work, 'rev-parse', 'HEAD')
+      git(work, 'checkout', '-q', '-b', 'side')
+      git(work, 'commit', '-q', '--allow-empty', '-m', 'side')
+      git(work, 'checkout', '-q', head)
+    }
+    const reopened = await open(root, work)
+    assert.equal((await reopened.session.exec('git', ['rev-parse', 'HEAD'])).stdout.trim(), git(work, 'rev-parse', 'HEAD'))
+    await reopened.session.close()
+  }
+
   // A second Box sends only new objects and still resolves history.
   git(work, 'add', '-A')
   git(work, 'commit', '-qm', 'next')
