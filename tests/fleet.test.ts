@@ -2,8 +2,8 @@
 // these tests cover everything except the SSH hop itself.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFleet, parseFleetHosts, remoteCodexConfig } from '../server/fleet/fleet.ts'
@@ -94,6 +94,32 @@ test('fills local slots first, then healthy hosts, then overflows locally', asyn
   assert.equal(fleet.status().hosts[0]!.active, 0)
   assert.ok(events.includes('host.swept'))
   rmSync(root, { recursive: true, force: true })
+})
+
+test('a host missing pnpm is not eligible for fleet placement', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-tools-test-'))
+  const tools = join(root, 'tools')
+  mkdirSync(tools)
+  for (const name of ['git', 'codex', 'setsid', 'flock', 'tar']) symlinkSync('/usr/bin/true', join(tools, name))
+  symlinkSync('/usr/bin/df', join(tools, 'df'))
+  symlinkSync('/usr/bin/awk', join(tools, 'awk'))
+  try {
+    const fleet = createFleet({
+      localSlots: 0,
+      hosts: [{ name: 'missing-pnpm', target: 'unused', slots: 1 }],
+      stateDirectory: join(root, 'state'),
+      minFreeBytes: 1,
+      transport: () => ({ start: script => spawn('/bin/sh', ['-c', script], { env: { ...process.env, HOME: root, PATH: tools }, stdio: 'pipe' }) }),
+      log: () => {},
+    })
+    const placement = await fleet.place({ repository: 'o/r', number: 1 })
+    assert.equal(placement.host, 'local')
+    assert.equal(fleet.remoteActive(), 0)
+    placement.release()
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('a fleet Box mirrors the checkout without dependency trees and round-trips edits', async () => {
