@@ -159,6 +159,7 @@ index 66263ba51108f63d77de68a6c59aeb8a1d5542b0..2cb30ddbc73a5fee2e9646309d160854
  	return runtime.kind === "crabbox" && runtime.network === "direct";
 diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
 index 8c6074679b637bd2332547e0f93007b633bc795a..26c72cb740781c16520080b2a0ffe63347347e7a 100644
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
 --- a/dist/server-BLQ0_U8X.js
 +++ b/dist/server-BLQ0_U8X.js
 @@ -2436,6 +2436,7 @@ function createBabysitterRuntime(options) {
@@ -300,3 +301,29 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
    /** Process admission policy. Concurrency remains the preset hard maximum. */
    capacity?: Pick<ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
    /** Select PRs with the same rules as the GitHub Channel. */
+--- a/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -2306,6 +2306,14 @@
+ 		};
+ 		const { publicUrl, repositories } = options;
+ 		if (!isAccepting()) return;
++		// A provider-wide quota breaker must gate claims before any owner can
++		// fan out another burst of forge requests. The breaker is durable in the
++		// inbox metadata and is renewed by the provider error paths below.
++		const providerBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
++		if (providerBlockedUntil > Date.now()) {
++			schedulerEvent("babysitter.provider.quota.blocked", { retryAt: providerBlockedUntil });
++			return;
++		}
+ 		await statusRecovery.recover();
+ 		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
+ 		let modelAdmission = true;
+@@ -2370,6 +2378,8 @@
+ 			await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
+ 		} catch (error) {
+ 			schedulerError("babysitter.snapshot.reconcile.failed", error);
++			const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
++			if (/\b(?:403|rate[ -]?limit|quota)\b/i.test(message)) await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
+ 		}
+ 		await pullRequestInbox.recoverLeases();
+ 		try {
