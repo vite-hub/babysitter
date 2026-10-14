@@ -1,267 +1,5 @@
-diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
-index 07c9f0de29b29c838a49115847df0b99046fb343..b33bb4c50fcbdeac2a073f3cb02f8519cd6015f6 100644
---- a/dist/channels-C2c1R890.js
-+++ b/dist/channels-C2c1R890.js
-@@ -3944,6 +3944,14 @@ function githubActivityAnswer(entry) {
- 	if (!entry.summary?.trim()) return;
- 	return githubActivityText(entry.summary, 2e3);
- }
-+function githubActivityStatus(activity) {
-+	const summary = activity.summary?.trim();
-+	const detail = summary ? githubActivityText(summary, 2e3) : void 0;
-+	if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`;
-+	if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`;
-+	if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`;
-+	return;
-+}
- /** Saved PR projections and invocation events can describe the same linked session. */
- function githubActivitySessions(state) {
- 	const sessions = [];
-@@ -3963,7 +3971,7 @@ function renderGithubActivity(activity, state) {
- 	state = githubActivitySessions(state);
- 	const sections = [encodeGithubActivityState(state)];
- 	const current = state.current;
--	const sessions = [current, ...state.history].filter((entry) => !!entry && (entry.links.length > 0 || entry.status !== "queued"));
-+	const sessions = [current, ...state.history].filter((entry, index) => !!entry && (entry.links.length > 0 || index === 0 && entry.status !== "queued"));
- 	const labels = {
- 		queued: "Starting",
- 		running: "Running",
-@@ -3986,13 +3994,14 @@ function renderGithubActivity(activity, state) {
- 			}))) || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`;
- 		})
- 	].join("\n"));
--	let latestAnswer;
--	for (const entry of [current, ...state.history]) {
--		if (!entry) continue;
--		latestAnswer = githubActivityAnswer(entry);
--		if (latestAnswer !== void 0) break;
--	}
--	if (latestAnswer) sections.push(`Latest answer\n\n${latestAnswer}`);
-+	const status = githubActivityStatus(activity);
-+	if (status) sections.push(status);
-+	const latestAnswer = current && [
-+		"completed",
-+		"failed",
-+		"cancelled"
-+	].includes(current.status || "") ? githubActivityAnswer(current) : void 0;
-+	if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`);
- 	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
- 	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
- 	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
-diff --git a/dist/github-inbox-BPnZlu_P.js b/dist/github-inbox-BPnZlu_P.js
-index e4e2b8678409352b02cf2dbf7c049e9c22e498cd..036d26633326a2e3b6c017e7808ceaa52ae797d4 100644
---- a/dist/github-inbox-BPnZlu_P.js
-+++ b/dist/github-inbox-BPnZlu_P.js
-@@ -1921,7 +1921,7 @@ var PullRequestInbox = class {
- 		return (await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
-       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
-         AND parent.state='open' AND parent.head_ref=p.base_ref
--        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
-+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
-       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])).map((row) => {
- 			const summary = parseSummary(JSON.parse(stringValue(row.summary)));
- 			if (summary.status !== "ready" || !summary.dirty || row.stack_parent === null || row.stack_parent === void 0) return summary;
-diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
-index 1f06129bd9730b4e0ff648566dd8fffd5fd14221..c0c5d294d838d8273def547d98ca9ae861be869b 100644
---- a/dist/process-5vDQoY8c.js
-+++ b/dist/process-5vDQoY8c.js
-@@ -145,7 +145,7 @@ function createProcessAgentCapacity(options) {
- 	let lastMemoryHighEvents;
- 	const sample = options.sample ?? (async (context) => {
- 		const resources = await readProcessResources(context.signal);
--		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents;
-+		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents && resources.memoryReclaimable < memory.perInvocationBytes;
- 		lastMemoryHighEvents = resources.memoryHighEvents;
- 		if (pressurePaused) pressurePaused = memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure;
- 		else pressurePaused = resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased;
-@@ -154,10 +154,13 @@ function createProcessAgentCapacity(options) {
- 			reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})`
- 		};
- 		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
--		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
-+		const workingSet = Math.max(0, resources.memoryCurrent - resources.memoryReclaimable);
-+		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
- 		const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory);
- 		const admissionMemory = Math.min(resources.hostAvailableMemory - memory.reserveBytes, Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes);
--		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
-+		// Fleet passes run on another host and hold no local provider memory.
-+		const localActive = Math.max(0, context.active - (globalThis[Symbol.for("vitehub.babysitter.fleet")]?.remoteActive?.() ?? 0));
-+		const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes));
- 		const memoryConcurrency = context.active + additional;
- 		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
- 		return concurrency > context.active ? {
-@@ -192,7 +195,7 @@ async function readProcessResources(signal) {
- 		readOptionalCgroupFile("/proc/pressure/memory", signal)
- 	]);
- 	const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
--	const nodeAvailable = process.availableMemory();
-+	const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0);
- 	return {
- 		availableMemory: nodeAvailable,
- 		hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
-@@ -201,7 +204,8 @@ async function readProcessResources(signal) {
- 		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
- 		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
- 		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
--		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? ""))
-+		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
-+		memoryReclaimable: cgroup?.memoryReclaimable ?? 0
- 	};
- }
- async function readCgroupResources(signal) {
-@@ -220,11 +224,12 @@ async function readCgroupResources(signal) {
- 		if (member === "/") break;
- 	}
- 	const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
--		const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
-+		const [current, high, max, events, stat, cpuPressure, memoryPressure] = await Promise.all([
- 			readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
-+			readOptionalCgroupFile(`${root}/memory.stat`, signal),
- 			readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
- 			readOptionalCgroupFile(`${root}/memory.pressure`, signal)
- 		]);
-@@ -234,15 +239,18 @@ async function readCgroupResources(signal) {
- 			memoryHigh: high === void 0 ? Infinity : parseLimit(high),
- 			memoryHighEvents: parseEvent(events ?? "", "high"),
- 			memoryMax: max === void 0 ? Infinity : parseLimit(max),
--			memoryPressure: parsePressure(memoryPressure ?? "")
-+			memoryPressure: parsePressure(memoryPressure ?? ""),
-+			memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0
- 		};
- 	}));
- 	let limiting = groups[0];
- 	if (!limiting) return;
--	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent;
-+	const ownReclaimable = limiting.memoryReclaimable;
-+	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - (group.memoryCurrent - group.memoryReclaimable);
- 	for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group;
- 	return {
- 		...limiting,
-+		ownReclaimable,
- 		cpuPressure: Math.max(...groups.map((group) => group.cpuPressure)),
- 		memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
- 		memoryPressure: Math.max(...groups.map((group) => group.memoryPressure))
-diff --git a/dist/provider-box-Cdd0DCB1.js b/dist/provider-box-Cdd0DCB1.js
-index 66263ba51108f63d77de68a6c59aeb8a1d5542b0..2cb30ddbc73a5fee2e9646309d16085493c66085 100644
---- a/dist/provider-box-Cdd0DCB1.js
-+++ b/dist/provider-box-Cdd0DCB1.js
-@@ -35,6 +35,8 @@ const relayCleanupTimeoutMs = 1e3;
- /** True when the Box runtime can reach loopback services of the ViteHub process. */
- function boxSharesHostNetwork(runtime) {
- 	if (runtime === "trusted-host") return true;
-+	// Custom runtimes that tunnel loopback services declare network: "direct".
-+	if (isRuntimeRecord(runtime) && runtime.network === "direct" && typeof runtime.open === "function" && typeof runtime.prepare === "function") return true;
- 	if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false;
- 	if (runtime.kind === "trusted-host") return true;
- 	return runtime.kind === "crabbox" && runtime.network === "direct";
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
-index 8c6074679b637bd2332547e0f93007b633bc795a..26c72cb740781c16520080b2a0ffe63347347e7a 100644
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
---- a/dist/server-BLQ0_U8X.js
-+++ b/dist/server-BLQ0_U8X.js
-@@ -2436,6 +2436,7 @@ function createBabysitterRuntime(options) {
- 			const passController = new AbortController();
- 			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
- 			let providerDirectory;
-+			let fleetPlacement;
- 			let modelWorkParked = false;
- 			const parkBlockedModelWork = async () => {
- 				const currentAdmission = await options.admission?.();
-@@ -2755,7 +2756,7 @@ function createBabysitterRuntime(options) {
- 								});
- 								preparedMergeBase = base;
- 							}
--							if (presetOptions.install !== false) try {
-+							if (presetOptions.install !== false && !fleetPlacement?.box) try {
- 								await installDependencies(directory, abortSignal, owner, nodeOptions);
- 							} catch (error) {
- 								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
-@@ -2790,15 +2791,16 @@ function createBabysitterRuntime(options) {
- 							await assertLease();
- 							await assertRepairBase();
- 							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
--							if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
-+							if (presetOptions.install !== false && !fleetPlacement?.box && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
- 							await assertLease();
- 						},
- 						commitRepair: async (input) => {
- 							if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
- 							await assertLease();
- 							await assertRepairBase();
--							if (presetOptions.install !== false) await assertGitHubDependenciesCurrent(providerDirectory);
--							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false });
-+							// A fleet Box installs dependencies on its own host; the host checkout has none.
-+							if (presetOptions.install !== false && !fleetPlacement?.box) await assertGitHubDependenciesCurrent(providerDirectory);
-+							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false && !fleetPlacement?.box });
- 							await assertLease();
- 							return head;
- 						},
-@@ -2882,6 +2884,12 @@ function createBabysitterRuntime(options) {
- 					const baseSettings = getAgentLayerOptions(baseAgent);
- 					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
- 					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
-+					const fleet = globalThis[Symbol.for("vitehub.babysitter.fleet")];
-+					// A fleet places the pass locally or on a remote host before any host install.
-+					if (fleet && !workerSettings.box) {
-+						fleetPlacement ??= await fleet.place({ repository, number });
-+						if (fleetPlacement.box) workerSettings.box = fleetPlacement.box;
-+					}
- 					if (workerSettings.box) providerDirectory = checkout;
- 					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
- 					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-@@ -2908,6 +2916,7 @@ function createBabysitterRuntime(options) {
- 							if (!box.localWorkspace) {
- 								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
- 								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
-+								else if (typeof box.session.importWorkspace === "function") await box.session.importWorkspace(checkout, abortSignal);
- 								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
- 							}
- 							await assertLease();
-@@ -2917,7 +2926,7 @@ function createBabysitterRuntime(options) {
- 							await assertLease();
- 							const box = activeProviderBox(context);
- 							if (!box) throw new Error("The repair Box is not prepared.");
--							if (!box.localWorkspace) await publishBoxDependencies(box.session, checkout, abortSignal);
-+							if (!box.localWorkspace) await (typeof box.session.refreshDependencies === "function" ? box.session.refreshDependencies(checkout, abortSignal) : publishBoxDependencies(box.session, checkout, abortSignal));
- 							await assertLease();
- 						}
- 					});
-@@ -3144,6 +3153,7 @@ function createBabysitterRuntime(options) {
- 			} finally {
- 				clearTimeout(pushedAt);
- 				stopPullRequestWatch();
-+				fleetPlacement?.release();
- 				try {
- 					await pullRequestInbox.release(inboxClaim);
- 				} finally {
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
-+++ b/dist/server-BLQ0_U8X.js
-@@ -1651,6 +1651,7 @@
- 		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
- 	});
- 	const deferWhilePending = baseAgent.deferWhilePending ?? presetOptions.deferWhilePending ?? true;
-+	const actionsRecoveryEnabled = baseAgent.ciRecovery ?? presetOptions.ciRecovery ?? true;
- 	const waitPolicy = {
- 		ignoreFeedbackAuthors: new Set((baseAgent.ignoreFeedbackAuthors ?? presetOptions.ignoreFeedbackAuthors ?? []).map((author) => author.trim().toLowerCase())),
- 		workerAuthors: new Set(activityAuthors.flatMap((author) => [author.toLowerCase(), `${author.toLowerCase().replace(/\[bot\]$/, "")}[bot]`])),
-@@ -2558,10 +2559,10 @@
- 					await pullRequestInbox.release(inboxClaim);
- 					return;
- 				}
--				const ciRecovery = await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
-+				const ciRecovery = actionsRecoveryEnabled ? await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
- 					...request,
- 					signal: passSignal
--				}));
-+				})) : void 0;
- 				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
- 					outcome = "waiting";
- 					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
 diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
+--- a/dist/babysitter-Cxv_5t2g.js
 +++ b/dist/babysitter-Cxv_5t2g.js
 @@ -594,16 +594,18 @@
  		mentionAllowlist: [],
@@ -291,7 +29,69 @@ diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
  			lifecycle
  		}), babysitterHost);
  	}
+diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
+--- a/dist/channels-C2c1R890.js
++++ b/dist/channels-C2c1R890.js
+@@ -3944,6 +3944,14 @@
+ 	if (!entry.summary?.trim()) return;
+ 	return githubActivityText(entry.summary, 2e3);
+ }
++function githubActivityStatus(activity) {
++	const summary = activity.summary?.trim();
++	const detail = summary ? githubActivityText(summary, 2e3) : void 0;
++	if (activity.status === "queued") return `Queued\n\n${detail || "Waiting for a worker slot."}`;
++	if (activity.status === "running") return `In progress\n\n${detail || "The agent is working. Open the current session for live details."}`;
++	if (activity.status === "waiting") return `Next step\n\n${detail || "Waiting for new pull request evidence."}`;
++	return;
++}
+ /** Saved PR projections and invocation events can describe the same linked session. */
+ function githubActivitySessions(state) {
+ 	const sessions = [];
+@@ -3963,7 +3971,7 @@
+ 	state = githubActivitySessions(state);
+ 	const sections = [encodeGithubActivityState(state)];
+ 	const current = state.current;
+-	const sessions = [current, ...state.history].filter((entry) => !!entry && (entry.links.length > 0 || entry.status !== "queued"));
++	const sessions = [current, ...state.history].filter((entry, index) => !!entry && (entry.links.length > 0 || index === 0 && entry.status !== "queued"));
+ 	const labels = {
+ 		queued: "Starting",
+ 		running: "Running",
+@@ -3986,13 +3994,14 @@
+ 			}))) || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`;
+ 		})
+ 	].join("\n"));
+-	let latestAnswer;
+-	for (const entry of [current, ...state.history]) {
+-		if (!entry) continue;
+-		latestAnswer = githubActivityAnswer(entry);
+-		if (latestAnswer !== void 0) break;
+-	}
+-	if (latestAnswer) sections.push(`Latest answer\n\n${latestAnswer}`);
++	const status = githubActivityStatus(activity);
++	if (status) sections.push(status);
++	const latestAnswer = current && [
++		"completed",
++		"failed",
++		"cancelled"
++	].includes(current.status || "") ? githubActivityAnswer(current) : void 0;
++	if (latestAnswer) sections.push(`Latest result\n\n${latestAnswer}`);
+ 	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
+ 	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
+ 	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
+diff --git a/dist/github-inbox-BPnZlu_P.js b/dist/github-inbox-BPnZlu_P.js
+--- a/dist/github-inbox-BPnZlu_P.js
++++ b/dist/github-inbox-BPnZlu_P.js
+@@ -1921,7 +1921,7 @@
+ 		return (await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
+         AND parent.state='open' AND parent.head_ref=p.base_ref
+-        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
++        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
+       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])).map((row) => {
+ 			const summary = parseSummary(JSON.parse(stringValue(row.summary)));
+ 			if (summary.status !== "ready" || !summary.dirty || row.stack_parent === null || row.stack_parent === void 0) return summary;
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
+--- a/dist/presets/babysitter.d.ts
 +++ b/dist/presets/babysitter.d.ts
 @@ -38,6 +38,8 @@
    labels?: BabysitterLifecycleLabels;
@@ -302,32 +102,112 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
    /** Process admission policy. Concurrency remains the preset hard maximum. */
    capacity?: Pick<ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
    /** Select PRs with the same rules as the GitHub Channel. */
---- a/dist/server-BLQ0_U8X.js
-+++ b/dist/server-BLQ0_U8X.js
-@@ -2306,6 +2306,14 @@
+diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
+--- a/dist/process-5vDQoY8c.js
++++ b/dist/process-5vDQoY8c.js
+@@ -145,7 +145,7 @@
+ 	let lastMemoryHighEvents;
+ 	const sample = options.sample ?? (async (context) => {
+ 		const resources = await readProcessResources(context.signal);
+-		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents;
++		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents && resources.memoryReclaimable < memory.perInvocationBytes;
+ 		lastMemoryHighEvents = resources.memoryHighEvents;
+ 		if (pressurePaused) pressurePaused = memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure;
+ 		else pressurePaused = resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased;
+@@ -154,10 +154,13 @@
+ 			reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})`
  		};
- 		const { publicUrl, repositories } = options;
- 		if (!isAccepting()) return;
-+		// A provider-wide quota breaker must gate claims before any owner can
-+		// fan out another burst of forge requests. The breaker is durable in the
-+		// inbox metadata and is renewed by the provider error paths below.
-+		const providerBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
-+		if (providerBlockedUntil > Date.now()) {
-+			schedulerEvent("babysitter.provider.quota.blocked", { retryAt: providerBlockedUntil });
-+			return;
-+		}
- 		await statusRecovery.recover();
- 		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
- 		let modelAdmission = true;
- 			await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
- 		} catch (error) {
- 			schedulerError("babysitter.snapshot.reconcile.failed", error);
- 		}
- 		await pullRequestInbox.recoverLeases();
- 		try {
+ 		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
+-		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
++		const workingSet = Math.max(0, resources.memoryCurrent - resources.memoryReclaimable);
++		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
+ 		const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory);
+ 		const admissionMemory = Math.min(resources.hostAvailableMemory - memory.reserveBytes, Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes);
+-		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
++		// Fleet passes run on another host and hold no local provider memory.
++		const localActive = Math.max(0, context.active - (globalThis[Symbol.for("vitehub.babysitter.fleet")]?.remoteActive?.() ?? 0));
++		const additional = Math.max(0, Math.floor((admissionMemory - localActive * memory.perInvocationBytes) / memory.perInvocationBytes));
+ 		const memoryConcurrency = context.active + additional;
+ 		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
+ 		return concurrency > context.active ? {
+@@ -192,7 +195,7 @@
+ 		readOptionalCgroupFile("/proc/pressure/memory", signal)
+ 	]);
+ 	const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
+-	const nodeAvailable = process.availableMemory();
++	const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0);
+ 	return {
+ 		availableMemory: nodeAvailable,
+ 		hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
+@@ -201,7 +204,8 @@
+ 		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
+ 		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
+ 		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
+-		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? ""))
++		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
++		memoryReclaimable: cgroup?.memoryReclaimable ?? 0
+ 	};
+ }
+ async function readCgroupResources(signal) {
+@@ -220,11 +224,12 @@
+ 		if (member === "/") break;
+ 	}
+ 	const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
+-		const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
++		const [current, high, max, events, stat, cpuPressure, memoryPressure] = await Promise.all([
+ 			readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
+ 			readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
++			readOptionalCgroupFile(`${root}/memory.stat`, signal),
+ 			readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
+ 			readOptionalCgroupFile(`${root}/memory.pressure`, signal)
+ 		]);
+@@ -234,15 +239,18 @@
+ 			memoryHigh: high === void 0 ? Infinity : parseLimit(high),
+ 			memoryHighEvents: parseEvent(events ?? "", "high"),
+ 			memoryMax: max === void 0 ? Infinity : parseLimit(max),
+-			memoryPressure: parsePressure(memoryPressure ?? "")
++			memoryPressure: parsePressure(memoryPressure ?? ""),
++			memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0
+ 		};
+ 	}));
+ 	let limiting = groups[0];
+ 	if (!limiting) return;
+-	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent;
++	const ownReclaimable = limiting.memoryReclaimable;
++	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - (group.memoryCurrent - group.memoryReclaimable);
+ 	for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group;
+ 	return {
+ 		...limiting,
++		ownReclaimable,
+ 		cpuPressure: Math.max(...groups.map((group) => group.cpuPressure)),
+ 		memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
+ 		memoryPressure: Math.max(...groups.map((group) => group.memoryPressure))
+diff --git a/dist/provider-box-Cdd0DCB1.js b/dist/provider-box-Cdd0DCB1.js
+--- a/dist/provider-box-Cdd0DCB1.js
++++ b/dist/provider-box-Cdd0DCB1.js
+@@ -35,6 +35,8 @@
+ /** True when the Box runtime can reach loopback services of the ViteHub process. */
+ function boxSharesHostNetwork(runtime) {
+ 	if (runtime === "trusted-host") return true;
++	// Custom runtimes that tunnel loopback services declare network: "direct".
++	if (isRuntimeRecord(runtime) && runtime.network === "direct" && typeof runtime.open === "function" && typeof runtime.prepare === "function") return true;
+ 	if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false;
+ 	if (runtime.kind === "trusted-host") return true;
+ 	return runtime.kind === "crabbox" && runtime.network === "direct";
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
 --- a/dist/server-BLQ0_U8X.js
 +++ b/dist/server-BLQ0_U8X.js
-@@ -2059,6 +2059,15 @@
+@@ -1651,6 +1651,7 @@
+ 		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
+ 	});
+ 	const deferWhilePending = baseAgent.deferWhilePending ?? presetOptions.deferWhilePending ?? true;
++	const actionsRecoveryEnabled = baseAgent.ciRecovery ?? presetOptions.ciRecovery ?? true;
+ 	const waitPolicy = {
+ 		ignoreFeedbackAuthors: new Set((baseAgent.ignoreFeedbackAuthors ?? presetOptions.ignoreFeedbackAuthors ?? []).map((author) => author.trim().toLowerCase())),
+ 		workerAuthors: new Set(activityAuthors.flatMap((author) => [author.toLowerCase(), `${author.toLowerCase().replace(/\[bot\]$/, "")}[bot]`])),
+@@ -2058,6 +2059,15 @@
  			}
  		});
  	}
@@ -343,7 +223,22 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  	/** Retries a provider rate limit three times, then blocks admission for an hour. */
  	async function runWithProviderRetry(run, signal) {
  		for (let attempt = 0;; attempt++) try {
-@@ -2365,21 +2374,22 @@
+@@ -2305,6 +2315,14 @@
+ 		};
+ 		const { publicUrl, repositories } = options;
+ 		if (!isAccepting()) return;
++		// A provider-wide quota breaker must gate claims before any owner can
++		// fan out another burst of forge requests. The breaker is durable in the
++		// inbox metadata and is renewed by the provider error paths below.
++		const providerBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
++		if (providerBlockedUntil > Date.now()) {
++			schedulerEvent("babysitter.provider.quota.blocked", { retryAt: providerBlockedUntil });
++			return;
++		}
+ 		await statusRecovery.recover();
+ 		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
+ 		let modelAdmission = true;
+@@ -2356,18 +2374,21 @@
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -363,12 +258,9 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  		} catch (error) {
 +			await noteProviderQuota(error, "snapshot-reconcile");
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
--			const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
--			if (/\b(?:403|rate[ -]?limit|quota)\b/i.test(message)) await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
  		}
  		await pullRequestInbox.recoverLeases();
- 		try {
-@@ -2389,6 +2399,7 @@
+@@ -2378,6 +2399,7 @@
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -376,10 +268,11 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2396,6 +2407,15 @@
+@@ -2385,7 +2407,16 @@
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
+-		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
 +		const providerBlockedAfterReconcile = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
 +		if (providerBlockedAfterReconcile > Date.now()) {
 +			schedulerEvent("babysitter.provider.quota.waiting", { reason, blocked_until: new Date(providerBlockedAfterReconcile).toISOString() });
@@ -390,19 +283,94 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 +		const fleetAdmitted = fleetStatus ? fleetStatus.local.admitted + fleetStatus.hosts.reduce((total, host) => total + host.admitted, 0) : Number.POSITIVE_INFINITY;
 +		const fleetRemaining = Number.isFinite(fleetAdmitted) ? Math.max(0, fleetAdmitted - active.size) : Number.POSITIVE_INFINITY;
 +		const remainingCapacity = Math.min(Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size), fleetRemaining);
--		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
  		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
  			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
---- a/dist/server-BLQ0_U8X.js
-+++ b/dist/server-BLQ0_U8X.js
-@@ -3147,6 +3147,16 @@
+ 			includeBlocked: true,
+@@ -2436,6 +2467,7 @@
+ 			const passController = new AbortController();
+ 			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
+ 			let providerDirectory;
++			let fleetPlacement;
+ 			let modelWorkParked = false;
+ 			const parkBlockedModelWork = async () => {
+ 				const currentAdmission = await options.admission?.();
+@@ -2557,10 +2589,10 @@
+ 					await pullRequestInbox.release(inboxClaim);
+ 					return;
+ 				}
+-				const ciRecovery = await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
++				const ciRecovery = actionsRecoveryEnabled ? await rerunFailedActions(pullRequestInbox, inboxClaim, (args, request) => github.command(args, {
+ 					...request,
+ 					signal: passSignal
+-				}));
++				})) : void 0;
+ 				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
+ 					outcome = "waiting";
+ 					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
+@@ -2755,7 +2787,7 @@
+ 								});
+ 								preparedMergeBase = base;
+ 							}
+-							if (presetOptions.install !== false) try {
++							if (presetOptions.install !== false && !fleetPlacement?.box) try {
+ 								await installDependencies(directory, abortSignal, owner, nodeOptions);
+ 							} catch (error) {
+ 								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
+@@ -2790,15 +2822,16 @@
+ 							await assertLease();
+ 							await assertRepairBase();
+ 							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
+-							if (presetOptions.install !== false && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
++							if (presetOptions.install !== false && !fleetPlacement?.box && (customInstaller || !await hasCurrentGitHubDependencies(providerDirectory))) await installDependencies(providerDirectory, abortSignal, owner, void 0);
+ 							await assertLease();
+ 						},
+ 						commitRepair: async (input) => {
+ 							if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+ 							await assertLease();
+ 							await assertRepairBase();
+-							if (presetOptions.install !== false) await assertGitHubDependenciesCurrent(providerDirectory);
+-							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false });
++							// A fleet Box installs dependencies on its own host; the host checkout has none.
++							if (presetOptions.install !== false && !fleetPlacement?.box) await assertGitHubDependenciesCurrent(providerDirectory);
++							const head = await prepared.commitRepair(providerDirectory, input, { verifyDependencies: presetOptions.install !== false && !fleetPlacement?.box });
+ 							await assertLease();
+ 							return head;
+ 						},
+@@ -2882,6 +2915,12 @@
+ 					const baseSettings = getAgentLayerOptions(baseAgent);
+ 					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
+ 					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
++					const fleet = globalThis[Symbol.for("vitehub.babysitter.fleet")];
++					// A fleet places the pass locally or on a remote host before any host install.
++					if (fleet && !workerSettings.box) {
++						fleetPlacement ??= await fleet.place({ repository, number });
++						if (fleetPlacement.box) workerSettings.box = fleetPlacement.box;
++					}
+ 					if (workerSettings.box) providerDirectory = checkout;
+ 					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
+ 					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
+@@ -2908,6 +2947,7 @@
+ 							if (!box.localWorkspace) {
+ 								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
+ 								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
++								else if (typeof box.session.importWorkspace === "function") await box.session.importWorkspace(checkout, abortSignal);
+ 								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
+ 							}
+ 							await assertLease();
+@@ -2917,7 +2957,7 @@
+ 							await assertLease();
+ 							const box = activeProviderBox(context);
+ 							if (!box) throw new Error("The repair Box is not prepared.");
+-							if (!box.localWorkspace) await publishBoxDependencies(box.session, checkout, abortSignal);
++							if (!box.localWorkspace) await (typeof box.session.refreshDependencies === "function" ? box.session.refreshDependencies(checkout, abortSignal) : publishBoxDependencies(box.session, checkout, abortSignal));
+ 							await assertLease();
+ 						}
+ 					});
+@@ -3111,6 +3151,14 @@
  					outcome = "waiting";
  					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
  					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
 +				} else if (error instanceof Error && (error.name === "FleetCapacityError" || error.code === "fleet_capacity")) {
-+					// Fleet capacity is transient. Persist a wake instead of retrying
-+					// immediately, which would claim and fail the same PR repeatedly.
 +					outcome = "waiting";
 +					const retryAt = Date.now() + 30_000;
 +					await pullRequestInbox.finish(inboxClaim, {
@@ -413,3 +381,11 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
+@@ -3144,6 +3192,7 @@
+ 			} finally {
+ 				clearTimeout(pushedAt);
+ 				stopPullRequestWatch();
++				fleetPlacement?.release();
+ 				try {
+ 					await pullRequestInbox.release(inboxClaim);
+ 				} finally {
