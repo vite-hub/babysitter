@@ -337,7 +337,7 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 +	/** Records a provider-wide quota failure so reconcile stops selecting new work. */
 +	async function noteProviderQuota(error, operation) {
 +		const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
-+		if (!isProviderRateLimit(error) && !/(?:403|rate[ -]?limit|quota|invalid character '<'|Command failed: gh api)/i.test(message)) return false;
++		if (!isProviderRateLimit(error)) return false;
 +		const blockedUntil = Math.max(await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0, Date.now() + 36e5);
 +		await pullRequestInbox.setMeta("provider-quota-blocked-until", blockedUntil);
 +		schedulerEvent("babysitter.provider.quota.blocked", { operation, blocked_until: new Date(blockedUntil).toISOString(), reason: message.slice(0, 200) });
@@ -391,3 +391,33 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
  		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
  			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
+diff --git a/dist/server-BLQ0_U8X.js
+--- a/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -2387,7 +2387,11 @@
+ 		if (!isAccepting()) return;
++		const fleet = globalThis[Symbol.for("vitehub.babysitter.fleet")];
++		const fleetStatus = typeof fleet?.admission === "function" ? await fleet.admission() : void 0;
++		const fleetAdmitted = fleetStatus ? fleetStatus.local.admitted + fleetStatus.hosts.reduce((total, host) => total + host.admitted, 0) : Number.POSITIVE_INFINITY;
++		const fleetRemaining = Number.isFinite(fleetAdmitted) ? Math.max(0, fleetAdmitted - active.size) : Number.POSITIVE_INFINITY;
++		const remainingCapacity = Math.min(Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size), fleetRemaining);
+-		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
+ 		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
+diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
+--- a/dist/server-BLQ0_U8X.js
++++ b/dist/server-BLQ0_U8X.js
+@@ -3147,6 +3147,16 @@
+ 					outcome = "waiting";
+ 					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
+ 					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
++				} else if (error instanceof Error && (error.name === "FleetCapacityError" || error.code === "fleet_capacity")) {
++					// Fleet capacity is transient. Persist a wake instead of retrying
++					// immediately, which would claim and fail the same PR repeatedly.
++					outcome = "waiting";
++					const retryAt = Date.now() + 30_000;
++					await pullRequestInbox.finish(inboxClaim, {
++						text: "Waiting for an admitted fleet slot before the next repair pass.",
++						wait: { ...createCheckWait(inboxClaim.snapshot, waitPolicy), kind: "external", reason: error.message, retryAt }
++					});
++					schedulerEvent("babysitter.fleet.capacity.waiting", { ...owner, retryAt });
+ 				} else if (isAbortError(error)) {

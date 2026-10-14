@@ -184,6 +184,28 @@ test('limits remote admissions by memory and pressure without local overflow', a
   rmSync(root, { recursive: true, force: true })
 })
 
+test('admission refreshes local resources before the scheduler claims work', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'fleet-admission-'))
+  let availableMemoryBytes = 3 * 1024 ** 3
+  const fleet = createFleet({
+    localSlots: 2,
+    hosts: [{ name: 'remote', target: 'unused', slots: 2 }],
+    stateDirectory: join(root, 'state'),
+    transport: () => staticTransport(['/home/fake', '10000000', String(3 * 1024 * 1024), '0', 'tools-ok']),
+    minFreeBytes: 1,
+    minFreeMemoryBytes: 2 * 1024 ** 3,
+    localResources: () => ({ availableMemoryBytes, memoryPressure: 0 }),
+  })
+
+  assert.equal((await fleet.admission()).local.admitted, 2)
+  availableMemoryBytes = 2 * 1024 ** 3
+  const reduced = await fleet.admission()
+  assert.equal(reduced.local.admitted, 0)
+  assert.equal(reduced.hosts[0]!.admitted, 2)
+  assert.equal(fleet.status().local.admitted, 0)
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('rejects a remote host under memory pressure', async () => {
   const root = mkdtempSync(join(tmpdir(), 'fleet-pressure-'))
   const fleet = createFleet({

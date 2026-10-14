@@ -274,6 +274,12 @@ export function createFleet(options: FleetOptions) {
     async refresh() {
       await Promise.all(hosts.map(host => health(host)))
     },
+    /** Refresh resource admission before the scheduler claims another batch. */
+    async admission() {
+      await localResources()
+      await Promise.all(hosts.map(host => health(host)))
+      return this.status()
+    },
   }
 }
 
