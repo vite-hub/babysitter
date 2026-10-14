@@ -319,12 +319,9 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2370,6 +2378,8 @@
  			await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
  		} catch (error) {
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
-+			const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
-+			if (/\b(?:403|rate[ -]?limit|quota)\b/i.test(message)) await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
  		}
  		await pullRequestInbox.recoverLeases();
  		try {
