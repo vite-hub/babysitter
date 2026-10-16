@@ -163,6 +163,92 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
+diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..7dbf58254f35cd1d9b6ff18bf95f5d94584122ab 100644
+--- a/dist/github-C5fJH50u.js
++++ b/dist/github-C5fJH50u.js
+@@ -519,39 +519,57 @@ var GitHubWorkspaceInstallError = class extends Error {
+ 		this.retryable = retryable;
+ 	}
+ };
+-let installationTail = Promise.resolve();
++/**
++* Installs share one pnpm store, which handles concurrent installs, so a few run at once. A pass
++* that waits keeps its checkout; failing after two minutes threw that work away and requeued the PR.
++*/
++const installSlots = Math.max(1, Number.parseInt(process.env.VITEHUB_INSTALL_CONCURRENCY ?? "", 10) || 2);
++const installQueueTimeoutMs = 6e5;
++let installsRunning = 0;
++const installWaiters = [];
++function acquireInstallSlot(signal) {
++	if (installsRunning < installSlots) {
++		installsRunning++;
++		return Promise.resolve();
++	}
++	return new Promise((resolve, reject) => {
++		const waiter = () => {
++			cleanup();
++			installsRunning++;
++			resolve();
++		};
++		const fail = (error) => {
++			cleanup();
++			const index = installWaiters.indexOf(waiter);
++			if (index >= 0) installWaiters.splice(index, 1);
++			reject(error);
++		};
++		const abort = () => fail(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
++		const timeout = setTimeout(() => fail(new GitHubWorkspaceInstallError(/* @__PURE__ */ new Error("Dependency installer capacity remained busy for ten minutes; retry when capacity is available."))), installQueueTimeoutMs);
++		const cleanup = () => {
++			clearTimeout(timeout);
++			signal?.removeEventListener("abort", abort);
++		};
++		installWaiters.push(waiter);
++		signal?.addEventListener("abort", abort, { once: true });
++		if (signal?.aborted) abort();
++	});
++}
++function releaseInstallSlot() {
++	installsRunning--;
++	installWaiters.shift()?.();
++}
+ /** Install frozen dependencies before entering the provider's network sandbox. */
+ async function installGitHubPullRequestWorkspace(target, signal, run) {
+ 	signal?.throwIfAborted();
+ 	if (!await exists(join(target, "package.json")) && !await exists(join(target, "pnpm-workspace.yaml"))) return;
+ 	signal?.throwIfAborted();
+-	const previous = installationTail;
+-	let release;
+-	const held = new Promise((resolve) => {
+-		release = resolve;
+-	});
+-	installationTail = previous.then(() => held);
+-	let abort;
+-	let queueTimeout;
++	await acquireInstallSlot(signal);
+ 	try {
+-		await Promise.race([
+-			previous,
+-			new Promise((_resolve, reject) => {
+-				queueTimeout = setTimeout(() => reject(new GitHubWorkspaceInstallError(/* @__PURE__ */ new Error("Dependency installer capacity remained busy for two minutes; retry when capacity is available."))), 12e4);
+-			}),
+-			new Promise((_resolve, reject) => {
+-				abort = () => reject(signal?.reason ?? new DOMException("Installation cancelled.", "AbortError"));
+-				signal?.addEventListener("abort", abort, { once: true });
+-				if (signal?.aborted) abort();
+-			})
+-		]);
+-		clearTimeout(queueTimeout);
+ 		signal?.throwIfAborted();
+ 		await installWorkspace(target, signal, run);
+ 	} finally {
+-		clearTimeout(queueTimeout);
+-		signal?.removeEventListener("abort", abort);
+-		release();
++		releaseInstallSlot();
+ 	}
+ }
+ async function installWorkspace(target, signal, run) {
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
 index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..bf4ee17d6e150cf3539a5d2a700f1b9aae8b03df 100644
 --- a/dist/github-inbox-emRhJnWe.js

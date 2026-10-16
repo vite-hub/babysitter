@@ -100,3 +100,11 @@ test('provider breaker ignores malformed JSON and recognizes HTTP rate limits', 
   assert.equal(isProviderRateLimit(new Error('Command failed: gh api --paginate ... unexpected end of JSON input')), false)
   assert.equal(isProviderRateLimit(new Error('GitHub API returned HTTP 429 Too Many Requests')), true)
 })
+
+test('dependency installs share a few slots and wait instead of discarding the checkout', () => {
+  // One serial installer of about 70 s made every third pass fail after two minutes and redo its checkout.
+  assert.match(source, /const installSlots = Math\.max\(1, Number\.parseInt\(process\.env\.VITEHUB_INSTALL_CONCURRENCY \?\? "", 10\) \|\| 2\);/)
+  assert.match(source, /const installQueueTimeoutMs = 6e5;/)
+  assert.match(source, /await acquireInstallSlot\(signal\);\n\ttry \{\n\t\tsignal\?\.throwIfAborted\(\);\n\t\tawait installWorkspace\(target, signal, run\);\n\t\} finally \{\n\t\treleaseInstallSlot\(\);/)
+  assert.doesNotMatch(source, /let installationTail = /)
+})
