@@ -40,6 +40,11 @@ test('a model quota cooldown keeps host merges running while GitHub limits stop 
   assert.match(source, /forgeBlockedUntil > Date\.now\(\)\) \{\n[^\n]*\n\t+return;/)
 })
 
+test('PRs with a reviewed current head are claimed before model passes', () => {
+  // Their claim is a host merge check, so it must not wait behind every model pass.
+  assert.match(source, /ORDER BY EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
+})
+
 test('provider breaker ignores malformed JSON and recognizes HTTP rate limits', () => {
   assert.equal(isProviderRateLimit(new Error('Command failed: gh api --paginate ... unexpected end of JSON input')), false)
   assert.equal(isProviderRateLimit(new Error('GitHub API returned HTTP 429 Too Many Requests')), true)
