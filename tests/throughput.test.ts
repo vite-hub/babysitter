@@ -81,6 +81,17 @@ test('a new main commit does not reopen an assessed review', async () => {
   assert.equal(directMergeReadiness(snapshot('2'.repeat(40), 'next'), 'passed', assessment).ready, false)
 })
 
+test('a direct merge first updates a branch whose files changed on main after its checks ran', () => {
+  // PR checks test the base of that moment. Two PRs that both added the same import passed
+  // separately and broke main together, so overlapping PRs are retested on the current base.
+  assert.match(source, /const overlap = await staleBaseOverlap\(snapshot, live, signal\);/)
+  assert.match(source, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/update-branch`,\n\t+"-f",\n\t+`expected_head_sha=\$\{decision\.head\}`/)
+  // The tested base comes from the push history, not commit dates, and the lookups read one page.
+  assert.match(source, /activity\?ref=\$\{encodeURIComponent\(`refs\/heads\/\$\{baseRef\}`\)\}&per_page=100`/)
+  assert.match(source, /compare\/\$\{testedBase\}\.\.\.\$\{encodeURIComponent\(baseRef\)\}\?per_page=1`/)
+  assert.doesNotMatch(source, /readRest\(`repos\/\$\{repository\}\/(commits\?|compare\/)/)
+})
+
 test('a live merge read waits for GitHub to compute mergeability', () => {
   assert.match(source, /live\.mergeable === null \|\| live\.mergeable_state === "unknown"\); attempt\+\+\) \{\n\t+await new Promise\(\(resolve\) => setTimeout\(resolve, mergeabilityRetryDelayMs\)\);/)
 })
