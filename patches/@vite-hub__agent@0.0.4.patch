@@ -164,14 +164,22 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..7dbf58254f35cd1d9b6ff18bf95f5d94584122ab 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..027ebb8a2169badb67d1cceea90b8084816b2663 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
-@@ -519,39 +519,57 @@ var GitHubWorkspaceInstallError = class extends Error {
+@@ -519,39 +519,65 @@ var GitHubWorkspaceInstallError = class extends Error {
  		this.retryable = retryable;
  	}
  };
 -let installationTail = Promise.resolve();
++/**
++* A lockfile the frozen install rejects stays rejected until the PR changes it. Retrying every few
++* minutes repeated the checkout and the install, and held an install slot, for no progress.
++*/
++function lockfileDefect(error) {
++	const text = [error, error?.cause, error?.stderr].map((value) => value instanceof Error ? value.message : String(value ?? "")).join("\n");
++	return /ERR_PNPM_(?:BROKEN_LOCKFILE|OUTDATED_LOCKFILE|LOCKFILE_\w+|MISSING_TARBALL_INTEGRITY)|Map keys must be unique/.test(text);
++}
 +/**
 +* Installs share one pnpm store, which handles concurrent installs, so a few run at once. A pass
 +* that waits keeps its checkout; failing after two minutes threw that work away and requeued the PR.
@@ -249,6 +257,21 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..7dbf58254f35cd1d9b6ff18bf95f5d94
  	}
  }
  async function installWorkspace(target, signal, run) {
+@@ -689,7 +715,7 @@ async function installWorkspace(target, signal, run) {
+ 			reason
+ 		})).catch(() => void 0);
+ 		if (signal?.aborted) throw error;
+-		throw new GitHubWorkspaceInstallError(error, retryable || isSystemError(error));
++		throw new GitHubWorkspaceInstallError(error, !lockfileDefect(error) && (retryable || isSystemError(error)));
+ 	} finally {
+ 		try {
+ 			try {
+@@ -3190,4 +3216,4 @@ function combine(states) {
+ 	return states.includes("pending") ? "pending" : "passed";
+ }
+ //#endregion
+-export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
++export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
 index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..bf4ee17d6e150cf3539a5d2a700f1b9aae8b03df 100644
 --- a/dist/github-inbox-emRhJnWe.js
@@ -292,18 +315,20 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..da5b3e870e691e599b5339c394d0310cd08054d1 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..6d29ffc84c6342c8e8eb2fabfa366f91b547a428 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
-@@ -4,7 +4,7 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
+@@ -4,8 +4,8 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
  import { C as asMetadataTarget, E as getAgentLayerOptions, w as copyDefinitionDecorations } from "./workspace-agent-6t4RAx_3.js";
  import { c as publishAgentActivity, i as defineAgent, p as runAgent } from "./src-DBofpFt6.js";
  import { t as activeProviderBox } from "./provider-box-DPG-jyBA.js";
 -import { c as feedbackFingerprints, d as resolveBabysitterMerge, f as snapshotCheckEvidence, i as babysitterModelAdmission, l as liveMergeReadiness, p as createBabysitterPassResultSchema, r as resolveBabysitterLifecycleFilter, s as directMergeReadiness, u as mergeReviewEvidenceKey } from "./babysitter-ZENI2mzg.js";
+-import { _ as assertGitHubDependenciesCurrent, a as createGitHubPullRequestRun, b as GitHubDependencyConflictError, g as GitHubWorkspaceInstallError, h as prepareGitHubRepairBase, i as normalizeGitHubMentionAllowlist, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, v as hasCurrentGitHubDependencies, y as installGitHubPullRequestWorkspace } from "./github-C5fJH50u.js";
 +import { c as feedbackFingerprints, d as resolveBabysitterMerge, f as snapshotCheckEvidence, i as babysitterModelAdmission, l as liveMergeReadiness, p as createBabysitterPassResultSchema, r as resolveBabysitterLifecycleFilter, s as directMergeReadiness, u as mergeReviewEvidenceKey, v as matchesMergeReviewEvidence } from "./babysitter-ZENI2mzg.js";
- import { _ as assertGitHubDependenciesCurrent, a as createGitHubPullRequestRun, b as GitHubDependencyConflictError, g as GitHubWorkspaceInstallError, h as prepareGitHubRepairBase, i as normalizeGitHubMentionAllowlist, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, v as hasCurrentGitHubDependencies, y as installGitHubPullRequestWorkspace } from "./github-C5fJH50u.js";
++import { _ as assertGitHubDependenciesCurrent, a as createGitHubPullRequestRun, b as GitHubDependencyConflictError, g as GitHubWorkspaceInstallError, h as prepareGitHubRepairBase, i as normalizeGitHubMentionAllowlist, n as evaluateGitHubRequiredChecks, r as createGitHubPullRequestOperations, t as createGitHubRequiredCheckPolicyReader, v as hasCurrentGitHubDependencies, y as installGitHubPullRequestWorkspace, x as lockfileDefect } from "./github-C5fJH50u.js";
  import { _ as isStatusDeliveryCurrent, a as snapshotPrompt, f as reconcileOneSnapshot, h as normalizePullRequest, i as assertPromptFits, l as probeChangedSnapshots, n as createClaimStopCheck, o as detectChangedPullRequests, p as PullRequestInbox, r as snapshotPullRequest, s as hydrateSnapshot, t as claimStopReason, u as readPullRequestThreads } from "./github-inbox-emRhJnWe.js";
  import * as v from "valibot";
+ import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
 @@ -1653,6 +1653,7 @@ function createBabysitterRuntime(options) {
  		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
  	});
@@ -648,7 +673,27 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..da5b3e870e691e599b5339c394d0310c
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3164,6 +3331,7 @@ function createBabysitterRuntime(options) {
+@@ -3142,6 +3309,19 @@ function createBabysitterRuntime(options) {
+ 						reason: "pull-request-state-changed-or-aborted",
+ 						...owner
+ 					});
++				} else if (!pushSucceeded && error instanceof Error && (/^\[fleet\] Dependency install failed/.test(error.message) || lockfileDefect(error))) {
++					// A fleet install failure used to retry at once. A lockfile defect waits for a new push;
++					// anything else waits five minutes like a local install failure.
++					outcome = "waiting";
++					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
++					wait.kind = "external";
++					wait.reason = error.message;
++					if (!lockfileDefect(error)) wait.retryAt = Date.now() + 3e5;
++					await pullRequestInbox.finish(inboxClaim, {
++						text: error.message,
++						wait
++					});
++					schedulerError("babysitter.install.failed", error, owner);
+ 				} else if (github.isRateLimitError(error)) {
+ 					outcome = "deferred";
+ 					await pullRequestInbox.finish(inboxClaim, {
+@@ -3164,6 +3344,7 @@ function createBabysitterRuntime(options) {
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();

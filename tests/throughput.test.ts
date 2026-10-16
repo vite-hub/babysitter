@@ -108,3 +108,17 @@ test('dependency installs share a few slots and wait instead of discarding the c
   assert.match(source, /await acquireInstallSlot\(signal\);\n\ttry \{\n\t\tsignal\?\.throwIfAborted\(\);\n\t\tawait installWorkspace\(target, signal, run\);\n\t\} finally \{\n\t\treleaseInstallSlot\(\);/)
   assert.doesNotMatch(source, /let installationTail = /)
 })
+
+test('a rejected lockfile waits for a new push instead of reinstalling every few minutes', async () => {
+  // Four PRs with broken lockfiles took about 230 checkouts in 30 hours, most of them retried at once from the fleet.
+  const { x: lockfileDefect } = await import(join(dist, 'github-C5fJH50u.js'))
+  assert.equal(lockfileDefect(new Error('[fleet] Dependency install failed on servarica:\n ERR_PNPM_BROKEN_LOCKFILE  The lockfile at')), true)
+  assert.equal(lockfileDefect(new Error('Frozen dependency installation failed: Map keys must be unique at line 961')), true)
+  assert.equal(lockfileDefect(new Error('x', { cause: new Error(' ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile"') })), true)
+  // A slow installer, a corrupt download or a network error can pass on the next try.
+  assert.equal(lockfileDefect(new Error('Dependency installer capacity remained busy for ten minutes')), false)
+  assert.equal(lockfileDefect(new Error('ERR_PNPM_TARBALL_INTEGRITY  Got unexpected checksum')), false)
+  assert.match(source, /throw new GitHubWorkspaceInstallError\(error, !lockfileDefect\(error\) && \(retryable \|\| isSystemError\(error\)\)\);/)
+  assert.match(source, /\/\^\\\[fleet\\\] Dependency install failed\/\.test\(error\.message\) \|\| lockfileDefect\(error\)\)\) \{/)
+  assert.match(source, /if \(!lockfileDefect\(error\)\) wait\.retryAt = Date\.now\(\) \+ 3e5;/)
+})
