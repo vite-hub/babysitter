@@ -139,3 +139,10 @@ test('a pass waits for checks that still run on its head, even beside an early f
   assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
   assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
 })
+
+test('green PRs without a stored review are claimed before PRs that need model passes', () => {
+  // A fully green PR with no stored review sat behind about 100 older PRs needing 15-minute passes.
+  assert.match(source, /mergeReady: looksMergeReady\(s\),/)
+  assert.match(source, /json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,\n\s+coalesce\(json_extract\(p\.summary, '\$\.mergeReady'\), 0\) DESC,/)
+  assert.match(source, /return signals\.length > 0 && signals\.every\(\(signal\) => signal\.status === "completed" && \[/)
+})

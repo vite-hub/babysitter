@@ -273,15 +273,60 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..027ebb8a2169badb67d1cceea90b8084
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..bf4ee17d6e150cf3539a5d2a700f1b9aae8b03df 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..5e1566c798bffd86cc44c1b2188736b3fa554834 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
-@@ -1579,7 +1579,8 @@ var PullRequestInbox = class {
+@@ -527,11 +527,43 @@ function legacySnapshot(raw) {
+ 		return;
+ 	}
+ }
++/**
++* Every current-head check and status finished without failing, and nothing conflicts. Claims put
++* these first: they are one host merge check away from merging, but without a stored review they
++* waited behind every older PR that needed a 15-minute model pass.
++*/
++function looksMergeReady(s) {
++	const pr = s.pr;
++	const head = pr?.head?.sha;
++	if (!head || pr.draft || String(pr.state).toLowerCase() !== "open" || pr.mergeable === false || pr.mergeable_state === "dirty") return false;
++	const latest = /* @__PURE__ */ new Map();
++	for (const check of Object.values(s.checks ?? {})) {
++		if (check.deleted || check.head_sha !== head) continue;
++		const key = `check\0${check.name}\0${check.app?.id ?? ""}`;
++		if (!latest.has(key) || Number(check.id ?? 0) >= Number(latest.get(key).id ?? 0)) latest.set(key, check);
++	}
++	for (const status of Object.values(s.statuses ?? {})) {
++		if (status.deleted || status.sha !== head) continue;
++		const key = `status\0${status.context}`;
++		if (!latest.has(key) || Number(status.id ?? 0) >= Number(latest.get(key).id ?? 0)) latest.set(key, {
++			id: status.id,
++			status: "completed",
++			conclusion: status.state
++		});
++	}
++	const signals = [...latest.values()];
++	return signals.length > 0 && signals.every((signal) => signal.status === "completed" && [
++		"success",
++		"neutral",
++		"skipped"
++	].includes(String(signal.conclusion).toLowerCase()));
++}
+ function summaryOf(s) {
+ 	return {
+ 		repository: s.repository,
+ 		number: s.number,
+ 		head: s.pr?.head?.sha,
++		mergeReady: looksMergeReady(s),
+ 		generation: s.generation,
+ 		handled: s.handled,
+ 		status: s.status,
+@@ -1579,7 +1611,9 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
 -        ORDER BY (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
 +        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND json_extract(m.value, '$.head')=p.head_sha) DESC,
++          coalesce(json_extract(p.summary, '$.mergeReady'), 0) DESC,
 +          (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
            p.dirty_at, p.number`, [
  				this.scope,
