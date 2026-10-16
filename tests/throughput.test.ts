@@ -40,6 +40,17 @@ test('a model quota cooldown keeps host merges running while GitHub limits stop 
   assert.match(source, /forgeBlockedUntil > Date\.now\(\)\) \{\n[^\n]*\n\t+return;/)
 })
 
+test('a provider rate limit pauses model passes briefly and resumes them at lower concurrency', () => {
+  // Codex 429s clear within minutes. A fixed hour left the model about 9 minutes of work per hour.
+  assert.doesNotMatch(source, /setMeta\("provider-quota-blocked-until", Date\.now\(\) \+ 36e5\)/)
+  assert.match(source, /providerCooldownMs = options\.providerCooldownMs \?\? 3e5;/)
+  assert.match(source, /Date\.now\(\) \+ Math\.min\(providerCooldownMs \* 2 \*\* \(strikes - 1\), 36e5\)/)
+  // Passes that fail together escalate the cooldown once, and each success steps back one strike.
+  assert.match(source, /if \(blockedUntil > Date\.now\(\)\) return;\n\t+const strikes = Math\.min\(await providerStrikes\(\) \+ 1, 5\);/)
+  assert.match(source, /if \(strikes > 0\) await pullRequestInbox\.setMeta\("provider-quota-strikes", strikes - 1\);/)
+  assert.match(source, /const modelLimit = modelAdmission \? Math\.max\(2, ownerLimit >> await providerStrikes\(\)\) : ownerLimit \+ 5;/)
+})
+
 test('PRs with a reviewed current head are claimed before model passes', () => {
   // Their claim is a host merge check, so it must not wait behind every model pass.
   assert.match(source, /ORDER BY EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
