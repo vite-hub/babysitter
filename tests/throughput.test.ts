@@ -122,3 +122,20 @@ test('a rejected lockfile waits for a new push instead of reinstalling every few
   assert.match(source, /\/\^\\\[fleet\\\] Dependency install failed\/\.test\(error\.message\) \|\| lockfileDefect\(error\)\)\) \{/)
   assert.match(source, /if \(!lockfileDefect\(error\)\) wait\.retryAt = Date\.now\(\) \+ 3e5;/)
 })
+
+test('a pass waits for checks that still run on its head, even beside an early failure', async () => {
+  // 75% of model passes started while required checks were pending: a fast lint failure or the
+  // not-yet-created ci aggregator let a 15-minute pass start before the other checks and the review.
+  const { w: checksStillRunning } = await import(join(dist, 'server-DZOuXkga.js'))
+  const head = 'a'.repeat(40)
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 6e4).toISOString()
+  const snapshot = (...checks: object[]) => ({ pr: { head: { sha: head } }, checks: Object.fromEntries(checks.map((check, index) => [index, { id: index + 1, head_sha: head, app: { id: 1 }, ...check }])), statuses: {} })
+  const lintFailed = { name: 'fast checks', status: 'completed', conclusion: 'failure', started_at: at(3) }
+  assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'pullfrog', status: 'in_progress', started_at: at(3) })), true)
+  assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'docs', status: 'queued', started_at: at(1) })), true)
+  // Everything settled, or the only running check is stuck: the pass runs now.
+  assert.equal(checksStillRunning(snapshot(lintFailed)), false)
+  assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'Workers Builds', status: 'in_progress', started_at: at(45) })), false)
+  assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
+  assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
+})
