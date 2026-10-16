@@ -19,7 +19,7 @@ export default defineConfig({
       },
       blob: false,
       console: {
-        exposure: 'host-managed',
+        auth: false,
         authorize: './server/console-authorize.ts',
         // Keep the Console journal beside the worker's durable agent data. This
         // is part of the project configuration so production does not depend on

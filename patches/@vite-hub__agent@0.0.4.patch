@@ -1,7 +1,8 @@
-diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
---- a/dist/babysitter-Cxv_5t2g.js
-+++ b/dist/babysitter-Cxv_5t2g.js
-@@ -594,16 +594,18 @@
+diff --git a/dist/babysitter-ZENI2mzg.js b/dist/babysitter-ZENI2mzg.js
+index 1c139c9d5e55953ad12c260e6623758314af6c22..e14c6951eb21e1e6718212c830e2e1a9bca4518a 100644
+--- a/dist/babysitter-ZENI2mzg.js
++++ b/dist/babysitter-ZENI2mzg.js
+@@ -618,16 +618,18 @@ const babysitter = defineAgent({
  		mentionAllowlist: [],
  		concurrency: 1,
  		admission: {},
@@ -21,7 +22,7 @@ diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
  		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
  		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
  		resolveBabysitterLifecycleFilter(filter, lifecycle);
-@@ -626,6 +628,7 @@
+@@ -650,6 +652,7 @@ const babysitter = defineAgent({
  			noProgressBudget,
  			deferWhilePending,
  			install,
@@ -29,10 +30,11 @@ diff --git a/dist/babysitter-Cxv_5t2g.js b/dist/babysitter-Cxv_5t2g.js
  			lifecycle
  		}), babysitterHost);
  	}
-diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
---- a/dist/channels-C2c1R890.js
-+++ b/dist/channels-C2c1R890.js
-@@ -3944,6 +3944,14 @@
+diff --git a/dist/channels-CHMum11Z.js b/dist/channels-CHMum11Z.js
+index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382cb4e2dbe9 100644
+--- a/dist/channels-CHMum11Z.js
++++ b/dist/channels-CHMum11Z.js
+@@ -3957,6 +3957,14 @@ function githubActivityAnswer(entry) {
  	if (!entry.summary?.trim()) return;
  	return githubActivityText(entry.summary, 2e3);
  }
@@ -47,7 +49,7 @@ diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
  /** Saved PR projections and invocation events can describe the same linked session. */
  function githubActivitySessions(state) {
  	const sessions = [];
-@@ -3963,7 +3971,7 @@
+@@ -3976,7 +3984,7 @@ function renderGithubActivity(activity, state) {
  	state = githubActivitySessions(state);
  	const sections = [encodeGithubActivityState(state)];
  	const current = state.current;
@@ -56,7 +58,7 @@ diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
  	const labels = {
  		queued: "Starting",
  		running: "Running",
-@@ -3986,13 +3994,14 @@
+@@ -3999,13 +4007,14 @@ function renderGithubActivity(activity, state) {
  			}))) || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`;
  		})
  	].join("\n"));
@@ -78,22 +80,11 @@ diff --git a/dist/channels-C2c1R890.js b/dist/channels-C2c1R890.js
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
-diff --git a/dist/github-inbox-BPnZlu_P.js b/dist/github-inbox-BPnZlu_P.js
---- a/dist/github-inbox-BPnZlu_P.js
-+++ b/dist/github-inbox-BPnZlu_P.js
-@@ -1921,7 +1921,7 @@
- 		return (await this.read(`SELECT p.summary, (SELECT parent.number FROM ${this.tables.pullRequests} parent
-       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
-         AND parent.state='open' AND parent.head_ref=p.base_ref
--        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY parent.number LIMIT 1) AS stack_parent
-+        AND json_extract(parent.value, '$.pr.head.repo.full_name') = COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent
-       FROM ${this.tables.pullRequests} p WHERE p.scope=? AND p.${repositories.sql} ORDER BY p.repository, p.number`, [this.scope, ...repositories.args])).map((row) => {
- 			const summary = parseSummary(JSON.parse(stringValue(row.summary)));
- 			if (summary.status !== "ready" || !summary.dirty || row.stack_parent === null || row.stack_parent === void 0) return summary;
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
+index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..7b2e14c43f679b16c06b1876d01e3d2704b2074f 100644
 --- a/dist/presets/babysitter.d.ts
 +++ b/dist/presets/babysitter.d.ts
-@@ -38,6 +38,8 @@
+@@ -62,6 +62,8 @@ export interface BabysitterLifecycleOptions {
    labels?: BabysitterLifecycleLabels;
  }
  export interface BabysitterOptions {
@@ -102,25 +93,12 @@ diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
    /** Process admission policy. Concurrency remains the preset hard maximum. */
    capacity?: Pick<ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
    /** Select PRs with the same rules as the GitHub Channel. */
-diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
---- a/dist/process-5vDQoY8c.js
-+++ b/dist/process-5vDQoY8c.js
-@@ -145,7 +145,7 @@
- 	let lastMemoryHighEvents;
- 	const sample = options.sample ?? (async (context) => {
- 		const resources = await readProcessResources(context.signal);
--		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents;
-+		const memoryHighIncreased = lastMemoryHighEvents !== void 0 && resources.memoryHighEvents > lastMemoryHighEvents && resources.memoryReclaimable < memory.perInvocationBytes;
- 		lastMemoryHighEvents = resources.memoryHighEvents;
- 		if (pressurePaused) pressurePaused = memoryHighIncreased || resources.cpuPressure > cpu.resumePressure || resources.memoryPressure > memory.resumePressure;
- 		else pressurePaused = resources.cpuPressure > cpu.pausePressure || resources.memoryPressure > memory.pausePressure || memoryHighIncreased;
-@@ -154,10 +154,13 @@
- 			reason: memoryHighIncreased ? "memory.high event" : `resource pressure (cpu=${formatPressure(resources.cpuPressure)}, memory=${formatPressure(resources.memoryPressure)})`
- 		};
- 		const limit = Math.min(resources.memoryHigh, resources.memoryMax);
--		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - resources.memoryCurrent) : Number.POSITIVE_INFINITY;
-+		const workingSet = Math.max(0, resources.memoryCurrent - resources.memoryReclaimable);
-+		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
+diff --git a/dist/process-D57Lnx2h.js b/dist/process-D57Lnx2h.js
+index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7fda546de 100644
+--- a/dist/process-D57Lnx2h.js
++++ b/dist/process-D57Lnx2h.js
+@@ -158,7 +158,9 @@ function createProcessAgentCapacity(options) {
+ 		const cgroupAvailableMemory = Number.isFinite(limit) ? Math.max(0, limit - workingSet) : Number.POSITIVE_INFINITY;
  		const availableMemory = Math.min(resources.hostAvailableMemory, resources.availableMemory, cgroupAvailableMemory);
  		const admissionMemory = Math.min(resources.hostAvailableMemory - memory.reserveBytes, Math.min(resources.availableMemory, cgroupAvailableMemory) - memory.serviceReserveBytes);
 -		const additional = Math.max(0, Math.floor((admissionMemory - context.active * memory.perInvocationBytes) / memory.perInvocationBytes));
@@ -130,76 +108,11 @@ diff --git a/dist/process-5vDQoY8c.js b/dist/process-5vDQoY8c.js
  		const memoryConcurrency = context.active + additional;
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
-@@ -192,7 +195,7 @@
- 		readOptionalCgroupFile("/proc/pressure/memory", signal)
- 	]);
- 	const hostAvailable = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo ?? "");
--	const nodeAvailable = process.availableMemory();
-+	const nodeAvailable = process.availableMemory() + (cgroup?.ownReclaimable ?? 0);
- 	return {
- 		availableMemory: nodeAvailable,
- 		hostAvailableMemory: hostAvailable ? Number(hostAvailable[1]) * 1024 : nodeAvailable,
-@@ -201,7 +204,8 @@
- 		memoryHigh: cgroup?.memoryHigh ?? Number.POSITIVE_INFINITY,
- 		memoryHighEvents: cgroup?.memoryHighEvents ?? 0,
- 		memoryMax: cgroup?.memoryMax ?? Number.POSITIVE_INFINITY,
--		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? ""))
-+		memoryPressure: Math.max(cgroup?.memoryPressure ?? 0, parsePressure(memory ?? "")),
-+		memoryReclaimable: cgroup?.memoryReclaimable ?? 0
- 	};
- }
- async function readCgroupResources(signal) {
-@@ -220,11 +224,12 @@
- 		if (member === "/") break;
- 	}
- 	const groups = await Promise.all(roots.map(async ({ path: root, rootCandidate }) => {
--		const [current, high, max, events, cpuPressure, memoryPressure] = await Promise.all([
-+		const [current, high, max, events, stat, cpuPressure, memoryPressure] = await Promise.all([
- 			readCgroupMemoryFile(`${root}/memory.current`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.high`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.max`, signal, rootCandidate),
- 			readCgroupMemoryFile(`${root}/memory.events`, signal, rootCandidate),
-+			readOptionalCgroupFile(`${root}/memory.stat`, signal),
- 			readOptionalCgroupFile(`${root}/cpu.pressure`, signal),
- 			readOptionalCgroupFile(`${root}/memory.pressure`, signal)
- 		]);
-@@ -234,15 +239,18 @@
- 			memoryHigh: high === void 0 ? Infinity : parseLimit(high),
- 			memoryHighEvents: parseEvent(events ?? "", "high"),
- 			memoryMax: max === void 0 ? Infinity : parseLimit(max),
--			memoryPressure: parsePressure(memoryPressure ?? "")
-+			memoryPressure: parsePressure(memoryPressure ?? ""),
-+			memoryReclaimable: parseEvent(stat ?? "", "inactive_file") || 0
- 		};
- 	}));
- 	let limiting = groups[0];
- 	if (!limiting) return;
--	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - group.memoryCurrent;
-+	const ownReclaimable = limiting.memoryReclaimable;
-+	const headroom = (group) => Math.min(group.memoryHigh, group.memoryMax) - (group.memoryCurrent - group.memoryReclaimable);
- 	for (const group of groups) if (headroom(group) < headroom(limiting)) limiting = group;
- 	return {
- 		...limiting,
-+		ownReclaimable,
- 		cpuPressure: Math.max(...groups.map((group) => group.cpuPressure)),
- 		memoryHighEvents: groups.reduce((sum, group) => sum + group.memoryHighEvents, 0),
- 		memoryPressure: Math.max(...groups.map((group) => group.memoryPressure))
-diff --git a/dist/provider-box-Cdd0DCB1.js b/dist/provider-box-Cdd0DCB1.js
---- a/dist/provider-box-Cdd0DCB1.js
-+++ b/dist/provider-box-Cdd0DCB1.js
-@@ -35,6 +35,8 @@
- /** True when the Box runtime can reach loopback services of the ViteHub process. */
- function boxSharesHostNetwork(runtime) {
- 	if (runtime === "trusted-host") return true;
-+	// Custom runtimes that tunnel loopback services declare network: "direct".
-+	if (isRuntimeRecord(runtime) && runtime.network === "direct" && typeof runtime.open === "function" && typeof runtime.prepare === "function") return true;
- 	if (!isRuntimeRecord(runtime) || !("kind" in runtime)) return false;
- 	if (runtime.kind === "trusted-host") return true;
- 	return runtime.kind === "crabbox" && runtime.network === "direct";
-diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
---- a/dist/server-BLQ0_U8X.js
-+++ b/dist/server-BLQ0_U8X.js
-@@ -1651,6 +1651,7 @@
+diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..e5f82d44fbfad1c85af927489a8027d8ab4fd06c 100644
+--- a/dist/server-DZOuXkga.js
++++ b/dist/server-DZOuXkga.js
+@@ -1653,6 +1653,7 @@ function createBabysitterRuntime(options) {
  		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
  	});
  	const deferWhilePending = baseAgent.deferWhilePending ?? presetOptions.deferWhilePending ?? true;
@@ -207,38 +120,38 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  	const waitPolicy = {
  		ignoreFeedbackAuthors: new Set((baseAgent.ignoreFeedbackAuthors ?? presetOptions.ignoreFeedbackAuthors ?? []).map((author) => author.trim().toLowerCase())),
  		workerAuthors: new Set(activityAuthors.flatMap((author) => [author.toLowerCase(), `${author.toLowerCase().replace(/\[bot\]$/, "")}[bot]`])),
-@@ -2058,6 +2059,15 @@
+@@ -2060,6 +2061,15 @@ function createBabysitterRuntime(options) {
  			}
  		});
  	}
-+	/** Records a provider-wide quota failure so reconcile stops selecting new work. */
++	/** Records a GitHub rate limit so reconcile stops sending forge requests. */
 +	async function noteProviderQuota(error, operation) {
 +		const message = error instanceof Error ? `${error.message} ${error.cause instanceof Error ? error.cause.message : ""}` : String(error);
 +		if (!isProviderRateLimit(error)) return false;
-+		const blockedUntil = Math.max(await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0, Date.now() + 36e5);
-+		await pullRequestInbox.setMeta("provider-quota-blocked-until", blockedUntil);
-+		schedulerEvent("babysitter.provider.quota.blocked", { operation, blocked_until: new Date(blockedUntil).toISOString(), reason: message.slice(0, 200) });
++		const blockedUntil = Math.max(await pullRequestInbox.metaNumber("forge-quota-blocked-until") ?? 0, Date.now() + 36e5);
++		await pullRequestInbox.setMeta("forge-quota-blocked-until", blockedUntil);
++		schedulerEvent("babysitter.forge.quota.blocked", { operation, blocked_until: new Date(blockedUntil).toISOString(), reason: message.slice(0, 200) });
 +		return true;
 +	}
  	/** Retries a provider rate limit three times, then blocks admission for an hour. */
  	async function runWithProviderRetry(run, signal) {
  		for (let attempt = 0;; attempt++) try {
-@@ -2305,6 +2315,14 @@
+@@ -2307,6 +2317,14 @@ function createBabysitterRuntime(options) {
  		};
  		const { publicUrl, repositories } = options;
  		if (!isAccepting()) return;
-+		// A provider-wide quota breaker must gate claims before any owner can
-+		// fan out another burst of forge requests. The breaker is durable in the
-+		// inbox metadata and is renewed by the provider error paths below.
-+		const providerBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
-+		if (providerBlockedUntil > Date.now()) {
-+			schedulerEvent("babysitter.provider.quota.blocked", { retryAt: providerBlockedUntil });
++		// A GitHub rate limit stops every forge request until it resets. The
++		// breaker is durable in the inbox metadata and is renewed by the forge
++		// error paths below.
++		const forgeBlockedUntil = await pullRequestInbox.metaNumber("forge-quota-blocked-until") ?? 0;
++		if (forgeBlockedUntil > Date.now()) {
++			schedulerEvent("babysitter.forge.quota.blocked", { retryAt: forgeBlockedUntil });
 +			return;
 +		}
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2356,18 +2374,21 @@
+@@ -2358,18 +2376,21 @@ function createBabysitterRuntime(options) {
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -260,7 +173,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
  		}
  		await pullRequestInbox.recoverLeases();
-@@ -2378,6 +2399,7 @@
+@@ -2380,6 +2401,7 @@ function createBabysitterRuntime(options) {
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -268,15 +181,24 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2385,7 +2407,16 @@
+@@ -2387,7 +2409,25 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
 -		const remainingCapacity = Math.max(0, ownerLimit + (modelAdmission ? 0 : 5) - active.size);
-+		const providerBlockedAfterReconcile = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
-+		if (providerBlockedAfterReconcile > Date.now()) {
-+			schedulerEvent("babysitter.provider.quota.waiting", { reason, blocked_until: new Date(providerBlockedAfterReconcile).toISOString() });
++		const forgeBlockedAfterReconcile = await pullRequestInbox.metaNumber("forge-quota-blocked-until") ?? 0;
++		if (forgeBlockedAfterReconcile > Date.now()) {
++			schedulerEvent("babysitter.forge.quota.waiting", { reason, blocked_until: new Date(forgeBlockedAfterReconcile).toISOString() });
 +			return;
++		}
++		// A model quota cooldown pauses model passes only. Host work still merges
++		// ready PRs and retargets stacks; PRs that need a model pass are released
++		// unchanged and skipped until their evidence changes.
++		const providerBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
++		if (providerBlockedUntil > Date.now() && modelAdmission) {
++			modelAdmission = false;
++			modelRetryAt = providerBlockedUntil;
++			schedulerEvent("babysitter.provider.quota.host_only", { reason, blocked_until: new Date(providerBlockedUntil).toISOString() });
 +		}
 +		const fleet = globalThis[Symbol.for("vitehub.babysitter.fleet")];
 +		const fleetStatus = typeof fleet?.admission === "function" ? await fleet.admission() : void 0;
@@ -286,7 +208,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
  			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
  			includeBlocked: true,
-@@ -2436,6 +2467,7 @@
+@@ -2444,6 +2484,7 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
@@ -294,7 +216,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  			let modelWorkParked = false;
  			const parkBlockedModelWork = async () => {
  				const currentAdmission = await options.admission?.();
-@@ -2557,10 +2589,10 @@
+@@ -2565,10 +2606,10 @@ function createBabysitterRuntime(options) {
  					await pullRequestInbox.release(inboxClaim);
  					return;
  				}
@@ -307,7 +229,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2755,7 +2787,7 @@
+@@ -2763,7 +2804,7 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -316,7 +238,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  								await installDependencies(directory, abortSignal, owner, nodeOptions);
  							} catch (error) {
  								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
-@@ -2790,15 +2822,16 @@
+@@ -2798,15 +2839,16 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							await assertRepairBase();
  							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -336,7 +258,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  							await assertLease();
  							return head;
  						},
-@@ -2882,6 +2915,12 @@
+@@ -2890,6 +2932,12 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -349,7 +271,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  					if (workerSettings.box) providerDirectory = checkout;
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-@@ -2908,6 +2947,7 @@
+@@ -2916,6 +2964,7 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -357,7 +279,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
  							}
  							await assertLease();
-@@ -2917,7 +2957,7 @@
+@@ -2925,7 +2974,7 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -366,7 +288,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  							await assertLease();
  						}
  					});
-@@ -3111,6 +3151,14 @@
+@@ -3131,6 +3180,14 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
  					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
@@ -381,7 +303,7 @@ diff --git a/dist/server-BLQ0_U8X.js b/dist/server-BLQ0_U8X.js
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3144,6 +3192,7 @@
+@@ -3164,6 +3221,7 @@ function createBabysitterRuntime(options) {
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();

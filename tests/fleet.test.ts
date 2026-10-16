@@ -297,7 +297,7 @@ test('the patched framework accepts tunnelled Box runtimes and places passes bef
   const dist = join(modules, '..', '@vite-hub', 'agent', 'dist')
   const files = execFileSync('ls', [dist], { encoding: 'utf8' }).split('\n').filter(name => name.endsWith('.js'))
   const source = files.map(name => readFileSync(join(dist, name), 'utf8')).join('\n')
-  assert.match(source, /runtime\.network === "direct" && typeof runtime\.open === "function"/)
+  assert.match(source, /!\("kind" in runtime\) && runtime\.network === "direct"/)
   assert.match(source, /fleetPlacement \?\?= await fleet\.place\(\{ repository, number \}\)/)
   assert.match(source, /presetOptions\.install !== false && !fleetPlacement\?\.box\) try \{/)
   assert.match(source, /fleetPlacement\?\.release\(\);/)

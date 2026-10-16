@@ -30,6 +30,16 @@ test('provider capacity has a bounded pending queue', () => {
   assert.match(source, /timeout: 36e5/)
 })
 
+test('a model quota cooldown keeps host merges running while GitHub limits stop the scheduler', () => {
+  // The model breaker only closes model admission, so ready PRs still merge.
+  assert.match(source, /providerBlockedUntil > Date\.now\(\) && modelAdmission\) \{\n\t+modelAdmission = false;/)
+  assert.match(source, /babysitter\.provider\.quota\.host_only/)
+  assert.doesNotMatch(source, /schedulerEvent\("babysitter\.provider\.quota\.blocked", \{ retryAt: providerBlockedUntil \}\);\n\t+return;/)
+  // GitHub rate limits keep their own breaker and still stop every forge request.
+  assert.match(source, /setMeta\("forge-quota-blocked-until", blockedUntil\)/)
+  assert.match(source, /forgeBlockedUntil > Date\.now\(\)\) \{\n[^\n]*\n\t+return;/)
+})
+
 test('provider breaker ignores malformed JSON and recognizes HTTP rate limits', () => {
   assert.equal(isProviderRateLimit(new Error('Command failed: gh api --paginate ... unexpected end of JSON input')), false)
   assert.equal(isProviderRateLimit(new Error('GitHub API returned HTTP 429 Too Many Requests')), true)
