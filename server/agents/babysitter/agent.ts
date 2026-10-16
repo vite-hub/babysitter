@@ -44,7 +44,11 @@ export default defineAgent({
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
     concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
-    reviewChecks: ['pullfrog'],
+    // Do not hold an agent pass behind a slow review bot; local validation and
+    // the fast required CI gate provide the immediate signal. Full validation
+    // continues asynchronously on main.
+    reviewChecks: [],
+    deferWhilePending: false,
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
