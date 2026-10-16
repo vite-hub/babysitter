@@ -161,3 +161,10 @@ test('failed checks from an older base get one model-free retest on the current 
   // The retest runs before model admission, so it also works while the provider is cooling down.
   assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < source.indexOf('if (await parkBlockedModelWork()) return;'))
 })
+
+test('a pass that reports its pushed head as reviewed records the feedback it inspected', () => {
+  // After a repair push, the same comments otherwise needed a second 15-minute pass before the merge.
+  assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead && passResult\?\.wait\?\.kind !== "external"\) await recordAssessment\(inboxClaim\.snapshot\);/)
+  // The unchanged-head assessment still binds the head and its check evidence.
+  assert.match(source, /const assessed = passResult\?\.wait\?\.kind !== "external" && !pushedHead && disposition === "park"/)
+})

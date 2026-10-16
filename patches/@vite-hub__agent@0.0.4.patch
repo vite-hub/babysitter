@@ -360,7 +360,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa56c55527 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945432559e5 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,8 +4,8 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -810,7 +810,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa
  							await assertLease();
  						}
  					});
-@@ -3131,6 +3359,14 @@ function createBabysitterRuntime(options) {
+@@ -3060,6 +3288,10 @@ function createBabysitterRuntime(options) {
+ 					head: pullRequest.headRefOid,
+ 					evidenceKey: mergeReviewEvidenceKey(inboxClaim.snapshot, waitPolicy)
+ 				});
++				// A push alone proves nothing, but a pass that reports its own pushed head as reviewed has
++				// inspected the feedback it was given. Record that feedback only, never the head's check
++				// evidence, so the next claim does not spend another pass re-reading the same comments.
++				else if (pushedHead && passResult?.reviewedHead === pushedHead && passResult?.wait?.kind !== "external") await recordAssessment(inboxClaim.snapshot);
+ 				let recorded = false;
+ 				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
+ 					text: resultText,
+@@ -3131,6 +3363,14 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
  					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
@@ -825,7 +836,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3142,6 +3378,19 @@ function createBabysitterRuntime(options) {
+@@ -3142,6 +3382,19 @@ function createBabysitterRuntime(options) {
  						reason: "pull-request-state-changed-or-aborted",
  						...owner
  					});
@@ -845,7 +856,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3164,6 +3413,7 @@ function createBabysitterRuntime(options) {
+@@ -3164,6 +3417,7 @@ function createBabysitterRuntime(options) {
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();
@@ -853,7 +864,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +3446,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +3450,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
