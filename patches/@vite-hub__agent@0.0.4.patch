@@ -360,7 +360,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9f4a2ea7d 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7c70996e7c927d9ec48ade4735d66fa56c55527 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,8 +4,8 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -422,7 +422,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  			const current = liveMergeReadiness(live, decision.head);
  			if (!current.ready) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
-@@ -1956,6 +1971,41 @@ function createBabysitterRuntime(options) {
+@@ -1956,6 +1971,22 @@ function createBabysitterRuntime(options) {
  				});
  				return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
  			}
@@ -434,26 +434,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
 +						...owner,
 +						reason: `main changed files this PR touches after its checks ran: ${files}`
 +					});
-+					try {
-+						await github.command([
-+							"api",
-+							"-X",
-+							"PUT",
-+							`repos/${repository}/pulls/${number}/update-branch`,
-+							"-f",
-+							`expected_head_sha=${decision.head}`
-+						], {
-+							repository,
-+							timeout: 6e4,
-+							signal
-+						});
-+					} catch (error) {
-+						schedulerEvent("babysitter.branch.update_failed", {
-+							...owner,
-+							reason: (error instanceof Error ? error.message : String(error)).slice(0, 200)
-+						});
-+						return "not-ready";
-+					}
++					if (!await updateBranch(owner, repository, number, decision.head, signal)) return "not-ready";
 +					schedulerEvent("babysitter.branch.updated", {
 +						...owner,
 +						files: overlap.slice(0, 10)
@@ -464,7 +445,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  			const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
  			const branchSafety = directMergeBranchSafety(repositorySettings, live, await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal));
  			if (branchSafety !== true) {
-@@ -2060,14 +2110,88 @@ function createBabysitterRuntime(options) {
+@@ -2060,14 +2091,147 @@ function createBabysitterRuntime(options) {
  			}
  		});
  	}
@@ -513,12 +494,15 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
 +		});
 +		return stdout.trim() ? JSON.parse(stdout.trim()) : void 0;
 +	}
-+	async function staleBaseOverlap(snapshot, live, signal) {
-+		const { repository, number } = snapshot;
-+		const head = live.head.sha;
-+		const baseRef = live.base.ref;
++	/**
++	* The base tip that the earliest Actions run behind the selected current-head checks tested: the last
++	* push to the base before that run started. Commit dates cannot tell, because a pushed branch keeps
++	* its older dates. Undefined when no run qualifies or the push is older than the activity page.
++	*/
++	async function checksTestedBase(snapshot, head, baseRef, conclusions, signal) {
++		const { repository } = snapshot;
 +		const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-+			if (check.deleted || check.head_sha !== head || String(check.conclusion).toLowerCase() !== "success") return [];
++			if (check.deleted || check.head_sha !== head || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
 +			const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
 +			return id ? [id] : [];
 +		}))];
@@ -526,12 +510,68 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
 +			const [created] = await readRest(`repos/${repository}/actions/runs/${id}`, ".created_at", signal);
 +			return Date.parse(String(created));
 +		}))).filter(Number.isFinite));
-+		const [prFiles, testedBase] = await Promise.all([
-+			readRest(`repos/${repository}/pulls/${number}/files?per_page=100`, ".[] | [.filename, .previous_filename]", signal),
-+			// The base tip when the checks started is the last push to the base before then. Commit dates
-+			// cannot tell, because a pushed branch keeps its older dates.
-+			Number.isFinite(ranAt) ? readOnePage(`repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${baseRef}`)}&per_page=100`, `[.[] | select((.timestamp | fromdate) <= ${Math.floor((ranAt - 12e4) / 1e3)})][0].after`, signal) : Promise.resolve(void 0)
-+		]);
++		if (!Number.isFinite(ranAt)) return void 0;
++		const tested = await readOnePage(`repos/${repository}/activity?ref=${encodeURIComponent(`refs/heads/${baseRef}`)}&per_page=100`, `[.[] | select((.timestamp | fromdate) <= ${Math.floor((ranAt - 12e4) / 1e3)})][0].after`, signal);
++		return hasRuntimeType(tested, "string") ? tested : void 0;
++	}
++	/** Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses. */
++	async function updateBranch(owner, repository, number, head, signal) {
++		try {
++			await github.command([
++				"api",
++				"-X",
++				"PUT",
++				`repos/${repository}/pulls/${number}/update-branch`,
++				"-f",
++				`expected_head_sha=${head}`
++			], {
++				repository,
++				timeout: 6e4,
++				signal
++			});
++			return true;
++		} catch (error) {
++			schedulerEvent("babysitter.branch.update_failed", {
++				...owner,
++				reason: (error instanceof Error ? error.message : String(error)).slice(0, 200)
++			});
++			return false;
++		}
++	}
++	/**
++	* Failed checks that ran on an older base get one retest on the current base before a model pass.
++	* A broken main fails every PR that tests against it; once main is fixed, an update makes most of
++	* them green, while a model pass would spend 15 minutes on each. One retest per PR every six hours.
++	*/
++	async function retestOnCurrentBase(snapshot, owner, signal) {
++		const { repository, number } = snapshot;
++		const pr = snapshot.pr;
++		const head = pr?.head?.sha;
++		const baseRef = pr?.base?.ref;
++		if (!head || !baseRef || pr.draft || pr.mergeable === false || pr.mergeable_state === "dirty") return false;
++		if (!failureKeys(snapshot).length || checksStillRunning(snapshot)) return false;
++		const key = `base-retest:${repository}#${number}`;
++		if ((await pullRequestInbox.metaNumber(key) ?? 0) > Date.now() - 216e5) return false;
++		const testedBase = await checksTestedBase(snapshot, head, baseRef, failed, signal);
++		if (!testedBase) return false;
++		const compare = await readOnePage(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(baseRef)}?per_page=1`, "{ahead: .ahead_by}", signal);
++		if (!isRuntimeRecord(compare) || !compare.ahead) return false;
++		// While the base itself fails, the update inherits the same failures and only spends the retest.
++		const baseFailures = await readOnePage(`repos/${repository}/commits/${encodeURIComponent(baseRef)}/check-runs?per_page=100`, `[.check_runs[] | select(.conclusion as $c | ${JSON.stringify([...failed])} | index($c))] | length`, signal);
++		if (baseFailures !== 0) return false;
++		await pullRequestInbox.setMeta(key, Date.now());
++		if (!await updateBranch(owner, repository, number, head, signal)) return false;
++		schedulerEvent("babysitter.branch.retest", {
++			...owner,
++			base_ahead: compare.ahead
++		});
++		return true;
++	}
++	async function staleBaseOverlap(snapshot, live, signal) {
++		const { repository, number } = snapshot;
++		const head = live.head.sha;
++		const baseRef = live.base.ref;
++		const [prFiles, testedBase] = await Promise.all([readRest(`repos/${repository}/pulls/${number}/files?per_page=100`, ".[] | [.filename, .previous_filename]", signal), checksTestedBase(snapshot, head, baseRef, new Set(["success"]), signal)]);
 +		const changed = new Set(prFiles.flat().filter((file) => hasRuntimeType(file, "string")));
 +		if (!hasRuntimeType(testedBase, "string")) return [...changed];
 +		// Only the first page: later pages repeat the file list and only add commits.
@@ -556,7 +596,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  				throw error;
  			}
  			await new Promise((resolve) => setTimeout(resolve, providerRetryDelayMs));
-@@ -2075,6 +2199,8 @@ function createBabysitterRuntime(options) {
+@@ -2075,6 +2239,8 @@ function createBabysitterRuntime(options) {
  		}
  	}
  	const providerRetryDelayMs = options.providerRetryDelayMs ?? 1e4;
@@ -565,7 +605,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  	async function requiredCheckEvaluation(snapshot) {
  		const base = snapshot.pr?.base?.ref;
  		if (!base) return void 0;
-@@ -2099,11 +2225,18 @@ function createBabysitterRuntime(options) {
+@@ -2099,11 +2265,18 @@ function createBabysitterRuntime(options) {
  			feedback: [.../* @__PURE__ */ new Set([...known, ...feedbackFingerprints(snapshot, waitPolicy)])].slice(-2e3)
  		});
  	}
@@ -586,7 +626,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  		if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
  		const evaluation = await requiredCheckEvaluation(snapshot);
  		return evaluation?.state === "pending" && !evaluation.missing.length ? "required checks" : void 0;
-@@ -2307,6 +2440,14 @@ function createBabysitterRuntime(options) {
+@@ -2307,6 +2480,14 @@ function createBabysitterRuntime(options) {
  		};
  		const { publicUrl, repositories } = options;
  		if (!isAccepting()) return;
@@ -601,7 +641,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2358,18 +2499,21 @@ function createBabysitterRuntime(options) {
+@@ -2358,18 +2539,21 @@ function createBabysitterRuntime(options) {
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -623,7 +663,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
  		}
  		await pullRequestInbox.recoverLeases();
-@@ -2380,6 +2524,7 @@ function createBabysitterRuntime(options) {
+@@ -2380,6 +2564,7 @@ function createBabysitterRuntime(options) {
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -631,7 +671,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2387,7 +2532,27 @@ function createBabysitterRuntime(options) {
+@@ -2387,7 +2572,27 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
@@ -660,7 +700,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
  			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
  			includeBlocked: true,
-@@ -2444,6 +2609,7 @@ function createBabysitterRuntime(options) {
+@@ -2444,6 +2649,7 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
@@ -668,7 +708,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  			let modelWorkParked = false;
  			const parkBlockedModelWork = async () => {
  				const currentAdmission = await options.admission?.();
-@@ -2512,7 +2678,7 @@ function createBabysitterRuntime(options) {
+@@ -2512,7 +2718,7 @@ function createBabysitterRuntime(options) {
  				if (merge.mode === "direct") {
  					if (await mergeReadyPullRequest(inboxClaim, owner, passSignal) !== "not-ready") return;
  					const assessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
@@ -677,7 +717,28 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  						await pullRequestInbox.finish(inboxClaim, {
  							text: inboxClaim.snapshot.lastResult || "Reviewed head is unchanged; waiting for merge gates.",
  							wait: {
-@@ -2565,10 +2731,10 @@ function createBabysitterRuntime(options) {
+@@ -2529,6 +2735,20 @@ function createBabysitterRuntime(options) {
+ 						return;
+ 					}
+ 				}
++				if (merge.mode === "direct" && await retestOnCurrentBase(inboxClaim.snapshot, owner, passSignal)) {
++					outcome = "waiting";
++					await pullRequestInbox.finish(inboxClaim, {
++						text: inboxClaim.snapshot.lastResult || `Updated the branch with ${inboxClaim.snapshot.pr?.base?.ref} to retest its failed checks on the current base.`,
++						wait: createCheckWait(inboxClaim.snapshot, waitPolicy)
++					});
++					schedulerEvent("babysitter.wait.kept", {
++						...owner,
++						head_sha: inboxClaim.snapshot.pr?.head?.sha,
++						avoided_invocation: true,
++						reason: "retest-on-current-base"
++					});
++					return;
++				}
+ 				const deferral = await pendingGateDeferral(inboxClaim.snapshot);
+ 				if (deferral) {
+ 					await pullRequestInbox.finish(inboxClaim, {
+@@ -2565,10 +2785,10 @@ function createBabysitterRuntime(options) {
  					await pullRequestInbox.release(inboxClaim);
  					return;
  				}
@@ -690,7 +751,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2763,7 +2929,7 @@ function createBabysitterRuntime(options) {
+@@ -2763,7 +2983,7 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -699,7 +760,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  								await installDependencies(directory, abortSignal, owner, nodeOptions);
  							} catch (error) {
  								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
-@@ -2798,15 +2964,16 @@ function createBabysitterRuntime(options) {
+@@ -2798,15 +3018,16 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							await assertRepairBase();
  							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -719,7 +780,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  							await assertLease();
  							return head;
  						},
-@@ -2890,6 +3057,12 @@ function createBabysitterRuntime(options) {
+@@ -2890,6 +3111,12 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -732,7 +793,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  					if (workerSettings.box) providerDirectory = checkout;
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-@@ -2916,6 +3089,7 @@ function createBabysitterRuntime(options) {
+@@ -2916,6 +3143,7 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -740,7 +801,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
  							}
  							await assertLease();
-@@ -2925,7 +3099,7 @@ function createBabysitterRuntime(options) {
+@@ -2925,7 +3153,7 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -749,7 +810,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  							await assertLease();
  						}
  					});
-@@ -3131,6 +3305,14 @@ function createBabysitterRuntime(options) {
+@@ -3131,6 +3359,14 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
  					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
@@ -764,7 +825,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3142,6 +3324,19 @@ function createBabysitterRuntime(options) {
+@@ -3142,6 +3378,19 @@ function createBabysitterRuntime(options) {
  						reason: "pull-request-state-changed-or-aborted",
  						...owner
  					});
@@ -784,7 +845,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3164,6 +3359,7 @@ function createBabysitterRuntime(options) {
+@@ -3164,6 +3413,7 @@ function createBabysitterRuntime(options) {
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();
@@ -792,7 +853,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..16f7bdde1179520bb37975a2edb518e9
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +3392,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +3446,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion

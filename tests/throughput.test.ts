@@ -85,7 +85,8 @@ test('a direct merge first updates a branch whose files changed on main after it
   // PR checks test the base of that moment. Two PRs that both added the same import passed
   // separately and broke main together, so overlapping PRs are retested on the current base.
   assert.match(source, /const overlap = await staleBaseOverlap\(snapshot, live, signal\);/)
-  assert.match(source, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/update-branch`,\n\t+"-f",\n\t+`expected_head_sha=\$\{decision\.head\}`/)
+  assert.match(source, /if \(!await updateBranch\(owner, repository, number, decision\.head, signal\)\) return "not-ready";/)
+  assert.match(source, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/update-branch`,\n\t+"-f",\n\t+`expected_head_sha=\$\{head\}`/)
   // The tested base comes from the push history, not commit dates, and the lookups read one page.
   assert.match(source, /activity\?ref=\$\{encodeURIComponent\(`refs\/heads\/\$\{baseRef\}`\)\}&per_page=100`/)
   assert.match(source, /compare\/\$\{testedBase\}\.\.\.\$\{encodeURIComponent\(baseRef\)\}\?per_page=1`/)
@@ -145,4 +146,18 @@ test('green PRs without a stored review are claimed before PRs that need model p
   assert.match(source, /mergeReady: looksMergeReady\(s\),/)
   assert.match(source, /json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,\n\s+coalesce\(json_extract\(p\.summary, '\$\.mergeReady'\), 0\) DESC,/)
   assert.match(source, /return signals\.length > 0 && signals\.every\(\(signal\) => signal\.status === "completed" && \[/)
+})
+
+test('failed checks from an older base get one model-free retest on the current base', () => {
+  // While main was red, 9 of 12 sampled red PRs failed only main's duplicate import. An update
+  // makes them green once main is fixed; a model pass would spend 15 minutes on each.
+  assert.match(source, /if \(merge\.mode === "direct" && await retestOnCurrentBase\(inboxClaim\.snapshot, owner, passSignal\)\) \{/)
+  assert.match(source, /if \(!failureKeys\(snapshot\)\.length \|\| checksStillRunning\(snapshot\)\) return false;/)
+  assert.match(source, /const key = `base-retest:\$\{repository\}#\$\{number\}`;\n\t+if \(\(await pullRequestInbox\.metaNumber\(key\) \?\? 0\) > Date\.now\(\) - 216e5\) return false;/)
+  assert.match(source, /const testedBase = await checksTestedBase\(snapshot, head, baseRef, failed, signal\);/)
+  // No retest while the base tip itself fails: the update would inherit the failures.
+  assert.match(source, /commits\/\$\{encodeURIComponent\(baseRef\)\}\/check-runs\?per_page=100`/)
+  assert.match(source, /if \(baseFailures !== 0\) return false;/)
+  // The retest runs before model admission, so it also works while the provider is cooling down.
+  assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < source.indexOf('if (await parkBlockedModelWork()) return;'))
 })
