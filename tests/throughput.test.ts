@@ -32,6 +32,12 @@ test('parks on one head count against the no-progress budget, and exhausted head
   assert.match(source, /const regular = await pullRequestInbox\.claim\([^\n]*\{ includeBlocked: true, skip:/)
 })
 
+test('a cancelled model pass on one head counts against the no-progress budget', () => {
+  // vite-hub/vitehub#2509: conflict repairs cancelled by a moving base restarted without limit.
+  assert.match(source, /modelDispatched = true;\n\t+return await runAgent\(agent, \{/)
+  assert.match(source, /"Pass interrupted; current webhook state retained\.",\n\t+retry: !pushSucceeded,\n[^\n]*\n\t+\.\.\.modelDispatched && !pushSucceeded \? \{ progress: \{ kind: "no-progress" \} \} : \{\}/)
+})
+
 test('provider capacity has a bounded pending queue', () => {
   assert.match(source, /maxPending: agent\.options\.concurrency/)
   assert.match(source, /timeout: 36e5/)
