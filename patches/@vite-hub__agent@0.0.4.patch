@@ -273,10 +273,18 @@ index 47439de..027ebb8 100644
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb4..5e1566c 100644
+index dffcfb4..de958cb 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
-@@ -527,11 +527,43 @@ function legacySnapshot(raw) {
+@@ -433,6 +433,7 @@ function parseSnapshot(value) {
+ 	if (input.sourcePushOverflow !== void 0) v.parse(v.boolean(), input.sourcePushOverflow);
+ 	if (input.sourcePushHead !== void 0) v.parse(v.string(), input.sourcePushHead);
+ 	if (input.recoveryHead !== void 0) v.parse(v.string(), input.recoveryHead);
++	if (input.humanFeedbackGeneration !== void 0) v.parse(v.pipe(v.number(), v.integer(), v.minValue(0)), input.humanFeedbackGeneration);
+ 	if (input.ciEvidence !== void 0) v.parse(v.array(v.record(v.string(), v.unknown())), input.ciEvidence);
+ 	if (input.wait !== void 0) parseWait(input.wait);
+ 	if (input.progressBudget !== void 0) parseProgressBudget(input.progressBudget);
+@@ -527,11 +528,43 @@ function legacySnapshot(raw) {
  		return;
  	}
  }
@@ -320,7 +328,19 @@ index dffcfb4..5e1566c 100644
  		generation: s.generation,
  		handled: s.handled,
  		status: s.status,
-@@ -1579,7 +1611,9 @@ var PullRequestInbox = class {
+@@ -1552,6 +1585,11 @@ var PullRequestInbox = class {
+ 					resetReason: `${event}:${payload.sender?.login ?? "unknown"}`
+ 				};
+ 				if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? "updated"}`);
++				if (changed && human && [
++					"issue_comment",
++					"pull_request_review",
++					"pull_request_review_comment"
++				].includes(event)) s.humanFeedbackGeneration = s.generation;
+ 				else if (changed) s.revision = (s.revision ?? 0) + 1;
+ 				const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha;
+ 				const eligible = this.eligible(repository, s.pr);
+@@ -1579,7 +1617,9 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
@@ -331,6 +351,32 @@ index dffcfb4..5e1566c 100644
            p.dirty_at, p.number`, [
  				this.scope,
  				...repositories.args,
+@@ -1752,6 +1792,7 @@ var PullRequestInbox = class {
+ 						s.status = "ready";
+ 						s.nextAt = 0;
+ 					}
++					this.recordRejectedProgress(s, claim, result.progress);
+ 					await this.put(tx, s);
+ 					return false;
+ 				}
+@@ -1781,6 +1822,7 @@ var PullRequestInbox = class {
+ 						s.status = "ready";
+ 						s.nextAt = 0;
+ 					}
++					this.recordRejectedProgress(s, claim, result.progress);
+ 					await this.put(tx, s);
+ 					return false;
+ 				}
+@@ -1822,6 +1864,9 @@ var PullRequestInbox = class {
+ 			return true;
+ 		});
+ 	}
++	recordRejectedProgress(s, claim, progress) {
++		if ((s.humanFeedbackGeneration ?? 0) <= claim.generation) this.recordProgress(s, claim, progress);
++	}
+ 	recordProgress(s, claim, progress) {
+ 		const head = s.pr?.head?.sha;
+ 		if (progress?.kind === "verified") requireEvidence(progress.evidence);
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 index 7ea5f46..7b2e14c 100644
 --- a/dist/presets/babysitter.d.ts
