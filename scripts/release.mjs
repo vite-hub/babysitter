@@ -54,7 +54,8 @@ const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
 
 async function json(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(20_000) })
+  // Disk pressure from other work on the host can stall the live event loop for tens of seconds.
+  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) })
   if (!response.ok) throw new Error(`${url} answered ${response.status}`)
   return await response.json()
 }
@@ -235,7 +236,7 @@ async function drainAndRestart(expectedRelease) {
     return (!expectedRelease || health.agent?.release === expectedRelease) && (await json(`${LIVE}/api/drain`)).status === 'accepting'
   })
 }
-const initialHealth = await babysitterHealth(LIVE)
+const initialHealth = await waitFor('live health before the switch', 300_000, () => babysitterHealth(LIVE))
 const serviceTmp = initialHealth.agent?.budget?.tmp?.dir || '/tmp'
 const baseline = { tmp: tmpUsage(serviceTmp), free: workspaceFree() }
 log(`baseline: service tmp ${baseline.tmp.toFixed(0)}% (${serviceTmp}), ${(baseline.free / 2 ** 30).toFixed(0)} GiB free`)
