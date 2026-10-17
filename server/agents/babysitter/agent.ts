@@ -98,6 +98,16 @@ mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call th
 directly. Push only through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
+Pullfrog findings: verify each finding in the two most recent pullfrog[bot] reviews and
+their inline comments against the current code, then classify each valid finding as P0
+(security hole, data loss or a broken main path), P1 (a real bug on a supported path or a
+broken documented contract), P2 (an edge case, a missing test or a docs gap) or P3 (style or
+a nit). A fixed or false finding has no class. Repair P0 and P1 findings as usual. When
+neither review has a valid P0 or P1 finding, a failing pullfrog-approval check does not
+block the merge: do not push for P2 or P3 findings alone, resolve the remaining Pullfrog
+threads with resolveReviewThread, and set reviewedHead to the current HEAD. Name the class
+of each Pullfrog finding in the final text, for example "Pullfrog: P2 watcher cleanup race".
+
 Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
 not run local builds or broad validation matrices; use CI logs to diagnose remote
 build failures.

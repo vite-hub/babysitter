@@ -52,3 +52,10 @@ test('Babysitter can leave Actions untouched while keeping check evidence and me
   assert.match(appSource, /admission: \{ inputTokens: admissionInputTokens \}/)
   assert.match(appSource, /deferWhilePending: false/)
 })
+
+test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
+  const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
+  assert.match(appSource, /two most recent pullfrog\[bot\] reviews/)
+  assert.match(appSource, /neither review has a valid P0 or P1 finding, a failing pullfrog-approval check does not\s+block the merge/)
+  assert.match(appSource, /do not push for P2 or P3 findings alone, resolve the remaining Pullfrog\s+threads with resolveReviewThread, and set reviewedHead to the current HEAD/)
+})
