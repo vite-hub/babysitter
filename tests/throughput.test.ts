@@ -64,6 +64,11 @@ test('a provider rate limit pauses model passes briefly and resumes them at lowe
   assert.match(source, /const modelLimit = modelAdmission \? Math\.max\(2, ownerLimit >> await providerStrikes\(\)\) : ownerLimit \+ 5;/)
 })
 
+test('a pass that runs out of provider retries waits for the cooldown instead of failing the PR', () => {
+  // 2026-10-17: 53 of 55 owner failures were Codex 429s, each published as a failed PR status.
+  assert.match(source, /\} else if \(!pushSucceeded && isProviderRateLimit\(error\) && await parkBlockedModelWork\(\)\) \{\n(?:\t+\/\/[^\n]*\n)*\t+schedulerEvent\("babysitter\.owner\.deferred", \{\n\t+reason: "provider-rate-limit",/)
+})
+
 test('PRs with a reviewed current head are claimed before model passes', () => {
   // Their claim is a host merge check, so it must not wait behind every model pass.
   assert.match(source, /ORDER BY EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
