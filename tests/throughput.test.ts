@@ -196,3 +196,16 @@ test('a pass whose wait loses to new bot evidence still counts', () => {
   assert.match(source, /this\.recordRejectedProgress\(s, claim, result\.progress\);\n\t+await this\.put\(tx, s\);\n\t+return false;/)
   assert.match(source, /if \(\(s\.humanFeedbackGeneration \?\? 0\) <= claim\.generation\) this\.recordProgress\(s, claim, progress\);/)
 })
+
+test('a conflict repair continues when its base only moved forward', () => {
+  // vite-hub/vitehub#2550
+  assert.match(source, /compare\/\$\{from\}\.\.\.\$\{to\}`, "\{status, behind_by\}"/)
+  assert.match(source, /if \(!liveBase \|\| liveBase !== preparedMergeBase && !await baseAdvanced\(preparedMergeBase, liveBase\)\) \{/)
+})
+
+test('transient GitHub reads and token requests are retried, writes are not', () => {
+  // vite-hub/vitehub#2551
+  assert.match(source, /return await retryTransient\(\(\) => exec\("gh", args, execOptions\), operation\.signal, isRestRead\(args\)\);/)
+  assert.match(source, /auth = await retryTransient\(\(\) => scopedAccess\(/)
+  assert.match(source, /if \(rateLimitMessage\(error\)\) return false;/)
+})
