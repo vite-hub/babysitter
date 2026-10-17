@@ -181,3 +181,18 @@ test('a pass that reports its pushed head as reviewed records the feedback it in
   // The unchanged-head assessment still binds the head and its check evidence.
   assert.match(source, /const assessed = passResult\?\.wait\?\.kind !== "external" && !pushedHead && disposition === "park"/)
 })
+
+test('an exhausted head gets one more pass for a new conflict or new bot feedback, once each', () => {
+  // vite-hub/vitehub: grants on the no-progress budget.
+  assert.match(source, /grants: v\.optional\(v\.array\(v\.picklist\(\["conflict", "bot-feedback"\]\)\)\)/)
+  assert.match(source, /if \(previous && !newHead && conflicted\(s\.pr\) && !conflicted\(previous\)\) this\.grantProgress\(s, "conflict"\);/)
+  assert.match(source, /toLowerCase\(\) === "bot" && !this\.activityAuthors\.has\([^\n]*\)\) this\.grantProgress\(s, "bot-feedback"\);/)
+  assert.match(source, /budget\.grants\?\.includes\(grant\)\) return;/)
+  assert.match(source, /resetReason: previous\?\.resetReason,\n\t+\.\.\.previous\?\.grants \? \{ grants: previous\.grants \} : \{\}/)
+})
+
+test('a pass whose wait loses to new bot evidence still counts', () => {
+  // vite-hub/vitehub#2531
+  assert.match(source, /this\.recordRejectedProgress\(s, claim, result\.progress\);\n\t+await this\.put\(tx, s\);\n\t+return false;/)
+  assert.match(source, /if \(\(s\.humanFeedbackGeneration \?\? 0\) <= claim\.generation\) this\.recordProgress\(s, claim, progress\);/)
+})
