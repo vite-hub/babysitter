@@ -58,6 +58,10 @@ export default defineAgent({
     // typecheck/test slots share the larger service reserve instead.
     capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
     admission: { inputTokens: admissionInputTokens },
+    // The install cache copies whole node_modules trees, and ext4 has no reflinks. Since the
+    // 2026-10-17 reboot, a plain install with pnpm's warm store took 16 s, but a cached pass took
+    // 81-125 s, and 28 of 50 restored trees failed verification. The copies also stalled the server.
+    install: { cache: false },
     // Keep repair passes moving while external CI and review checks are pending.
     // Their evidence and required merge gates remain authoritative.
     deferWhilePending: false,
