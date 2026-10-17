@@ -199,7 +199,7 @@ test('a pass whose wait loses to new bot evidence still counts', () => {
 
 test('a conflict repair continues when its base only moved forward', () => {
   // vite-hub/vitehub#2550
-  assert.match(source, /compare\/\$\{from\}\.\.\.\$\{to\}`, "\{status, behind_by\}"/)
+  assert.match(source, /readOnePage\(`repos\/\$\{repository\}\/compare\/\$\{from\}\.\.\.\$\{to\}\?per_page=1`, "\{status, behind_by\}"/)
   assert.match(source, /if \(!liveBase \|\| liveBase !== preparedMergeBase && !await baseAdvanced\(preparedMergeBase, liveBase\)\) \{/)
 })
 

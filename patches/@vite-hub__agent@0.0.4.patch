@@ -544,7 +544,7 @@ index 7f003b2..5a43ab4 100644
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e2..8cf0145 100644
+index 3d014e2..7d469a5 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,8 +4,8 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -949,7 +949,7 @@ index 3d014e2..8cf0145 100644
  						return ref.object.sha;
  					};
 +					const baseAdvanced = async (from, to) => {
-+						const [comparison] = await readRest(`repos/${repository}/compare/${from}...${to}`, "{status, behind_by}", abortSignal);
++						const comparison = await readOnePage(`repos/${repository}/compare/${from}...${to}?per_page=1`, "{status, behind_by}", abortSignal);
 +						return isRuntimeRecord(comparison) && comparison.status === "ahead" && comparison.behind_by === 0;
 +					};
  					const assertRepairBase = async () => {
