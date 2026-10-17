@@ -25,6 +25,13 @@ test('admission pauses model passes while leaving durable host state visible', (
   assert.match(source, /budget: \{/)
 })
 
+test('parks on one head count against the no-progress budget, and exhausted heads still merge', () => {
+  // vite-hub/vitehub#2479: external and reviewed-head parks used to start unbounded passes.
+  assert.match(source, /progress: \{ kind: "no-progress" \},\n\t+wait: await externalWait\(/)
+  assert.match(source, /\} else if \(assessed\) \{\n\t+outcome = "waiting";\n\t+recorded = await pullRequestInbox\.finish\(inboxClaim, \{\n\t+text: resultText,\n\t+progress: \{ kind: "no-progress" \},/)
+  assert.match(source, /const regular = await pullRequestInbox\.claim\([^\n]*\{ includeBlocked: true, skip:/)
+})
+
 test('provider capacity has a bounded pending queue', () => {
   assert.match(source, /maxPending: agent\.options\.concurrency/)
   assert.match(source, /timeout: 36e5/)

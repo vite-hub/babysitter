@@ -360,7 +360,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945432559e5 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..a90e3b936fb71958d31a5f98a9e5346c20c3082b 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,8 +4,8 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -671,7 +671,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2387,7 +2572,27 @@ function createBabysitterRuntime(options) {
+@@ -2387,13 +2572,33 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
@@ -700,6 +700,13 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  		const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
  			only: (snapshot) => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
  			includeBlocked: true,
+ 			skip: (snapshot) => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot)
+ 		});
+-		const regular = await pullRequestInbox.claim(Math.max(0, remainingCapacity - lane.length), { skip: (snapshot) => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
++		const regular = await pullRequestInbox.claim(Math.max(0, remainingCapacity - lane.length), { includeBlocked: true, skip: (snapshot) => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
+ 		const jobs = [...lane, ...regular];
+ 		if (!jobs.length) return;
+ 		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
 @@ -2444,6 +2649,7 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
@@ -821,7 +828,23 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  				let recorded = false;
  				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
  					text: resultText,
-@@ -3131,6 +3363,14 @@ function createBabysitterRuntime(options) {
+@@ -3073,6 +3305,7 @@ function createBabysitterRuntime(options) {
+ 					await pullRequestInbox.setMeta(`review-assessment:${repository}#${number}`, null);
+ 					recorded = await pullRequestInbox.finish(inboxClaim, {
+ 						text: resultText,
++						progress: { kind: "no-progress" },
+ 						wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason)
+ 					});
+ 				} else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
+@@ -3090,6 +3323,7 @@ function createBabysitterRuntime(options) {
+ 					outcome = "waiting";
+ 					recorded = await pullRequestInbox.finish(inboxClaim, {
+ 						text: resultText,
++						progress: { kind: "no-progress" },
+ 						wait: {
+ 							...createCheckWait(inboxClaim.snapshot, waitPolicy),
+ 							headSha: pullRequest.headRefOid,
+@@ -3131,6 +3365,14 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					await parkOnPushedHead(inboxClaim, error instanceof Error ? error.message : String(error), pushedHead, [...verifiedPushHeads], passResult?.wait);
  					if (!(isAbortError(error) || error instanceof Error && error.name === "TimeoutError" || github.isRateLimitError(error))) schedulerError("babysitter.owner.failed", error, owner);
@@ -836,7 +859,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  				} else if (isAbortError(error)) {
  					outcome = "completed";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3142,6 +3382,19 @@ function createBabysitterRuntime(options) {
+@@ -3142,6 +3384,19 @@ function createBabysitterRuntime(options) {
  						reason: "pull-request-state-changed-or-aborted",
  						...owner
  					});
@@ -856,7 +879,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3164,6 +3417,7 @@ function createBabysitterRuntime(options) {
+@@ -3164,6 +3419,7 @@ function createBabysitterRuntime(options) {
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();
@@ -864,7 +887,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..17f798bb3d2d8c683bdf2cab5f87b945
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +3450,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +3452,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
