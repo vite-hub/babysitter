@@ -105,7 +105,7 @@ test('a direct merge first updates a branch whose files changed on main after it
   // PR checks test the base of that moment. Two PRs that both added the same import passed
   // separately and broke main together, so overlapping PRs are retested on the current base.
   assert.match(source, /const overlap = await staleBaseOverlap\(snapshot, live, signal\);/)
-  assert.match(source, /if \(!await updateBranch\(owner, repository, number, decision\.head, signal\)\) return "not-ready";/)
+  assert.match(source, /if \(!await updateBranch\(owner, repository, number, decision\.head, signal, live\)\) return "not-ready";/)
   assert.match(source, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/update-branch`,\n\t+"-f",\n\t+`expected_head_sha=\$\{head\}`/)
   // The tested base comes from the push history, not commit dates, and the lookups read one page.
   assert.match(source, /activity\?ref=\$\{encodeURIComponent\(`refs\/heads\/\$\{baseRef\}`\)\}&per_page=100`/)
@@ -241,4 +241,10 @@ test('a pass interrupted by provider rate limits keeps the same-head budget', ()
   // waited for a human comment instead of one cheap assessment pass.
   assert.match(source, /\.\.\.modelDispatched && !pushSucceeded && !providerLimited \? \{ progress: \{ kind: "no-progress" \} \} : \{\}/)
   assert.match(source, /onRateLimit\?\.\(\);/)
+})
+
+test('a refused update-branch for a stacked PR falls back to the merges API', () => {
+  // 2026-10-18: GitHub refused update-branch for #2498 18 times in an hour; it never merged.
+  assert.match(source, /if \(\/stacked PR\/i\.test\(message\) && pr\?\.head\?\.ref && pr\?\.base\?\.ref && pr\.head\.repo\?\.full_name === repository\) try \{/)
+  assert.match(source, /`repos\/\$\{repository\}\/merges`/)
 })
