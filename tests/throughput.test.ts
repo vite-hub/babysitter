@@ -58,10 +58,12 @@ test('a provider rate limit pauses model passes briefly and resumes them at lowe
   assert.doesNotMatch(source, /setMeta\("provider-quota-blocked-until", Date\.now\(\) \+ 36e5\)/)
   assert.match(source, /providerCooldownMs = options\.providerCooldownMs \?\? 3e5;/)
   assert.match(source, /Date\.now\(\) \+ Math\.min\(providerCooldownMs \* 2 \*\* \(strikes - 1\), 36e5\)/)
-  // Passes that fail together escalate the cooldown once, and each success steps back one strike.
+  // Passes that fail together escalate the cooldown once. 2026-10-18: stepping back a strike on every
+  // success held the cooldown at five minutes all night, so only a success 30 minutes after the last one counts.
   assert.match(source, /if \(blockedUntil > Date\.now\(\)\) return;\n\t+const strikes = Math\.min\(await providerStrikes\(\) \+ 1, 5\);/)
-  assert.match(source, /if \(strikes > 0\) await pullRequestInbox\.setMeta\("provider-quota-strikes", strikes - 1\);/)
-  assert.match(source, /const modelLimit = modelAdmission \? Math\.max\(2, ownerLimit >> await providerStrikes\(\)\) : ownerLimit \+ 5;/)
+  assert.match(source, /if \(strikes > 0 && Date\.now\(\) - lastBlockedUntil > 18e5\) await pullRequestInbox\.setMeta\("provider-quota-strikes", strikes - 1\);/)
+  // BABYSITTER_MODEL_CONCURRENCY caps model passes to what the remaining accounts can serve.
+  assert.match(source, /const modelLimit = modelAdmission \? Math\.min\(providerConcurrency, Math\.max\(2, ownerLimit >> await providerStrikes\(\)\)\) : ownerLimit \+ 5;/)
 })
 
 test('a pass that runs out of provider retries waits for the cooldown instead of failing the PR', () => {
