@@ -386,11 +386,16 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { ${line} > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s; }`
     let result = await runScript(transport, script(command), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
     if (result.code !== 0 && !frozen) result = await runScript(transport, script(command.replace('--frozen-lockfile', '--no-frozen-lockfile')), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
-    if (result.code === 0) return
+    const record = (status: 'installed' | 'failed', reason?: string) => files.write(`${work}/.git/vitehub-install.json`, Buffer.from(JSON.stringify({ status, reason, at: new Date().toISOString() })), { signal: abortSignal })
+    if (result.code === 0) return await record('installed')
     // A prepared conflict merge can leave lockfiles unmerged; the pass resolves them.
     const unmerged = await runScript(transport, `git -C ${q(work)} ls-files -u | head -1`, { signal: abortSignal })
     if (unmerged.code === 0 && unmerged.stdout.length) return
-    throw new Error(`[fleet] Dependency install failed on ${options.host}: ${result.stderr.trim().slice(-2000)}`)
+    const failure = `[fleet] Dependency install failed on ${options.host}: ${result.stderr.trim().slice(-2000)}`
+    // Materializing the Box continues without dependencies: the model reads the record and repairs
+    // the PR's dependency inputs or works without them. A refresh the model asked for still throws.
+    if (frozen) return await record('failed', failure)
+    throw new Error(failure)
   }
 
   /** Copy host-side files into the Box work tree as one tarball. */

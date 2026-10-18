@@ -225,7 +225,13 @@ test('a lockfile the frozen install rejects goes to a model pass on the same hea
   assert.match(source, /if \(!lockfileDefect\(error\)\) wait\.retryAt = Date\.now\(\) \+ 3e5;\n\t+else await handInstallDefect\(error, wait\);/)
   // peerDependencyRules only shapes peer resolution; onmax/vite-doctor#271 could not install at all.
   assert.match(source, /"overrides",\n\t"peerDependencyRules",\n\t"minimumReleaseAge",\n\t"minimumReleaseAgeExclude",/)
-  assert.match(source, /if \(installDefect && !abortSignal\.aborted && lockfileDefect\(error\)\) \{/)
   assert.match(source, /if \(fleet && !workerSettings\.box && !installDefect\) \{/)
   assert.match(source, /<dependency-install-failure>/)
+})
+
+test('a failed dependency install never blocks the pass', () => {
+  // 2026-10-18: install is optional. The pass continues without dependencies and the model reads
+  // .git/vitehub-install.json; commits after a failed install leave validation to hosted CI.
+  assert.match(source, /schedulerEvent\("babysitter\.install\.continued"/)
+  assert.match(source, /const verifyDependencies = presetOptions\.install !== false && !fleetPlacement\?\.box && !await installFailed\(providerDirectory\);/)
 })
