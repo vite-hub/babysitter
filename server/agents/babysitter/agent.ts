@@ -48,8 +48,9 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      // app/vitehub-bot opens the main-guardian repair PRs (scripts/main-guardian.mjs).
-      author: { allow: ['onmax', 'app/renovate', 'app/vitehub-bot'] },
+      // Logins match exactly, so bots need their REST login. vitehub-bot opens the main-guardian
+      // repair PRs (scripts/main-guardian.mjs).
+      author: { allow: ['onmax', 'renovate[bot]', 'vitehub-bot[bot]'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
