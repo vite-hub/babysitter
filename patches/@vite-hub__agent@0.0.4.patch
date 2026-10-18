@@ -164,7 +164,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577c52f2de8 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..aca99a6dc69762682c58cb77de156e4e41f752b3 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
 @@ -9,6 +9,7 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -175,15 +175,17 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
  import { execFile } from "node:child_process";
  import { AsyncLocalStorage } from "node:async_hooks";
-@@ -97,6 +98,7 @@ const workspaceFields = /* @__PURE__ */ new Set([
+@@ -97,6 +98,9 @@ const workspaceFields = /* @__PURE__ */ new Set([
  	"catalogs",
  	"catalogMode",
  	"overrides",
 +	"peerDependencyRules",
++	"minimumReleaseAge",
++	"minimumReleaseAgeExclude",
  	"packageExtensions",
  	"patchedDependencies",
  	"onlyBuiltDependencies",
-@@ -519,39 +521,65 @@ var GitHubWorkspaceInstallError = class extends Error {
+@@ -519,39 +523,65 @@ var GitHubWorkspaceInstallError = class extends Error {
  		this.retryable = retryable;
  	}
  };
@@ -273,7 +275,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  	}
  }
  async function installWorkspace(target, signal, run) {
-@@ -689,7 +717,7 @@ async function installWorkspace(target, signal, run) {
+@@ -689,7 +719,7 @@ async function installWorkspace(target, signal, run) {
  			reason
  		})).catch(() => void 0);
  		if (signal?.aborted) throw error;
@@ -282,7 +284,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  	} finally {
  		try {
  			try {
-@@ -1259,6 +1287,26 @@ function isGraphQLCommand(args) {
+@@ -1259,6 +1289,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -309,7 +311,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1498,10 +1546,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1548,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -322,7 +324,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1516,7 +1564,7 @@ function createGitHubHost(options) {
+@@ -1516,7 +1566,7 @@ function createGitHubHost(options) {
  				signal: operation.signal
  			};
  			if (input.cwd) execOptions.cwd = input.cwd;
@@ -331,7 +333,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f5ae336b50a83811dac37482b0d64577
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -3190,4 +3238,4 @@ function combine(states) {
+@@ -3190,4 +3240,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion
