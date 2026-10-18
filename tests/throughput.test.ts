@@ -216,3 +216,11 @@ test('transient GitHub reads and token requests are retried, writes are not', ()
   assert.match(source, /auth = await retryTransient\(\(\) => scopedAccess\(/)
   assert.match(source, /if \(rateLimitMessage\(error\)\) return false;/)
 })
+
+test('a lockfile the frozen install rejects goes to a model pass on the same head', () => {
+  // 2026-10-18: four PRs with broken lockfiles failed about 110 installs overnight and waited for a human push.
+  assert.match(source, /await pullRequestInbox\.setMeta\(installDefectKey, \{\n\t+head: inboxClaim\.snapshot\.pr\.head\.sha,/)
+  assert.match(source, /if \(installDefect && !abortSignal\.aborted && lockfileDefect\(error\)\) \{/)
+  assert.match(source, /if \(fleet && !workerSettings\.box && !installDefect\) \{/)
+  assert.match(source, /<dependency-install-failure>/)
+})

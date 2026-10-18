@@ -91,7 +91,9 @@ current maintainer explicitly requests it for this PR. Remove stale blockers bas
 only on a generic media requirement.
 
 The checkout has full Git history and network access, but no GitHub credentials. The
-host installs dependencies with the frozen lockfile before you start. The PR tools are MCP tools named mcp__t3_code__pushRepair,
+host installs dependencies with the frozen lockfile before you start. When the prompt has a
+dependency-install-failure block, that install failed and you start without dependencies: repair
+the lockfile or manifest yourself, then call refreshDependencies before validating. The PR tools are MCP tools named mcp__t3_code__pushRepair,
 mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
 mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
 mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them
