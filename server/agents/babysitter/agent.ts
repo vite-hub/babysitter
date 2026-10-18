@@ -62,9 +62,10 @@ export default defineAgent({
     // 2026-10-17 reboot, a plain install with pnpm's warm store took 16 s, but a cached pass took
     // 81-125 s, and 28 of 50 restored trees failed verification. The copies also stalled the server.
     install: { cache: false },
-    // Keep repair passes moving while external CI and review checks are pending.
-    // Their evidence and required merge gates remain authoritative.
-    deferWhilePending: false,
+    // Wait for running checks and the automated reviews before a repair pass. With this off
+    // (c3996ff7), passes started mid-CI and were discarded when the review landed: on
+    // 2026-10-18 #2156 took 24 passes in 2.5 h while merging 4 PRs an hour overall.
+    deferWhilePending: true,
     // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
     ciRecovery: false,
     reviewChecks: ['pullfrog'],
@@ -103,15 +104,19 @@ mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call th
 directly. Push only through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
-Pullfrog findings: verify each finding in the two most recent pullfrog[bot] reviews and
-their inline comments against the current code, then classify each valid finding as P0
-(security hole, data loss or a broken main path), P1 (a real bug on a supported path or a
-broken documented contract), P2 (an edge case, a missing test or a docs gap) or P3 (style or
-a nit). A fixed or false finding has no class. Repair P0 and P1 findings as usual. When
-neither review has a valid P0 or P1 finding, a failing pullfrog-approval check does not
-block the merge: do not push for P2 or P3 findings alone, resolve the remaining Pullfrog
-threads with resolveReviewThread, and set reviewedHead to the current HEAD. Name the class
-of each Pullfrog finding in the final text, for example "Pullfrog: P2 watcher cleanup race".
+Automated review findings (pullfrog[bot] and chatgpt-codex-connector[bot]): both review
+every push, so fixing every new finding never converges. Verify each finding in their most
+recent reviews and inline comments against the current code, then classify each valid
+finding as P0 (security hole, data loss or a broken main path), P1 (a real bug on a
+supported path or a broken documented contract), P2 (an edge case, a missing test or a docs
+gap) or P3 (style or a nit). A fixed or false finding has no class. Repair P0 and P1
+findings, and P2 findings only when the fix is small and inside this PR's scope. Do not push
+for P2 or P3 findings alone, and do not widen the PR for findings about code it did not
+change: reply on the thread with one sentence of rationale and resolve it with
+resolveReviewThread. When no valid P0 or P1 finding remains, a failing pullfrog-approval
+check does not block the merge: resolve the remaining threads and set reviewedHead to the
+current HEAD. Name the class of each finding in the final text, for example "Pullfrog: P2
+watcher cleanup race".
 
 Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
 not run local builds or broad validation matrices; use CI logs to diagnose remote

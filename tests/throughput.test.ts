@@ -157,7 +157,7 @@ test('a pass waits for checks that still run on its head, even beside an early f
   // Everything settled, or the only running check is stuck: the pass runs now.
   assert.equal(checksStillRunning(snapshot(lintFailed)), false)
   assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'Workers Builds', status: 'in_progress', started_at: at(45) })), false)
-  assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
+  assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(reviewSettleDeadline\(snapshot\)\) return "automated review";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
   assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
 })
 
@@ -258,4 +258,11 @@ test('a transient network error retries the pass instead of failing it', () => {
 test('a head that already contains the base passes the stale-base overlap gate', () => {
   // 2026-10-18: #2567 was 0 commits behind main, yet update-branch was retried 7 times in an hour.
   assert.match(source, /if \(isRuntimeRecord\(behind\) && behind\.behind === 0\) return \[\];/)
+})
+
+test('a pass after our own push waits for the Codex review on the new head', () => {
+  // 2026-10-18: Codex's GitHub reviewer lands minutes after each push with no check run; passes that
+  // started first were discarded, and #2156 took 24 passes in 2.5 h.
+  assert.match(source, /if \(reviewSettleDeadline\(snapshot\)\) return "automated review";/)
+  assert.match(source, /\.\.\.deferral === "automated review" \? \{ retryAt: reviewSettleDeadline\(inboxClaim\.snapshot\) \} : \{\}/)
 })
