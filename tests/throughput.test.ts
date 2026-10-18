@@ -235,3 +235,10 @@ test('a failed dependency install never blocks the pass', () => {
   assert.match(source, /schedulerEvent\("babysitter\.install\.continued"/)
   assert.match(source, /const verifyDependencies = presetOptions\.install !== false && !fleetPlacement\?\.box && !await installFailed\(providerDirectory\);/)
 })
+
+test('a pass interrupted by provider rate limits keeps the same-head budget', () => {
+  // 2026-10-18: overnight 429s spent the 3-pass budget of 18 PRs, several of them green, so they
+  // waited for a human comment instead of one cheap assessment pass.
+  assert.match(source, /\.\.\.modelDispatched && !pushSucceeded && !providerLimited \? \{ progress: \{ kind: "no-progress" \} \} : \{\}/)
+  assert.match(source, /onRateLimit\?\.\(\);/)
+})
