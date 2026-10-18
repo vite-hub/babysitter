@@ -248,3 +248,9 @@ test('a refused update-branch for a stacked PR falls back to the merges API', ()
   assert.match(source, /if \(\/stacked PR\/i\.test\(message\) && pr\?\.head\?\.ref && pr\?\.base\?\.ref && pr\.head\.repo\?\.full_name === repository\) try \{/)
   assert.match(source, /`repos\/\$\{repository\}\/merges`/)
 })
+
+test('a transient network error retries the pass instead of failing it', () => {
+  // 2026-10-18: GitHub App token timeouts and TLS disconnects showed up as failed Babysitter runs.
+  assert.match(source, /\} else if \(!pushSucceeded && transientNetworkError\(error\)\) \{/)
+  assert.match(source, /reason: "network",/)
+})
