@@ -220,6 +220,11 @@ test('transient GitHub reads and token requests are retried, writes are not', ()
 test('a lockfile the frozen install rejects goes to a model pass on the same head', () => {
   // 2026-10-18: four PRs with broken lockfiles failed about 110 installs overnight and waited for a human push.
   assert.match(source, /await pullRequestInbox\.setMeta\(installDefectKey, \{\n\t+head: inboxClaim\.snapshot\.pr\.head\.sha,/)
+  // Local installs throw GitHubWorkspaceInstallError and fleet installs a plain Error; both hand off.
+  assert.match(source, /if \(error\.retryable\) wait\.retryAt = Date\.now\(\) \+ 3e5;\n\t+else if \(lockfileDefect\(error\)\) await handInstallDefect\(error, wait\);/)
+  assert.match(source, /if \(!lockfileDefect\(error\)\) wait\.retryAt = Date\.now\(\) \+ 3e5;\n\t+else await handInstallDefect\(error, wait\);/)
+  // peerDependencyRules only shapes peer resolution; onmax/vite-doctor#271 could not install at all.
+  assert.match(source, /"overrides",\n\t"peerDependencyRules",/)
   assert.match(source, /if \(installDefect && !abortSignal\.aborted && lockfileDefect\(error\)\) \{/)
   assert.match(source, /if \(fleet && !workerSettings\.box && !installDefect\) \{/)
   assert.match(source, /<dependency-install-failure>/)
