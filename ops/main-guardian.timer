@@ -1,0 +1,10 @@
+[Unit]
+Description=Check main's CI every 10 minutes for the Babysitter main guardian
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

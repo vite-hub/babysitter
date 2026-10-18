@@ -1,0 +1,10 @@
+[Unit]
+Description=Open a Babysitter repair PR when main's CI fails
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=svc-babysitter
+EnvironmentFile=/etc/babysitter-vitehub/github-app.env
+ExecStart=/usr/local/bin/node /home/workspace/babysitter-data/bin/main-guardian.mjs
+TimeoutStartSec=120
