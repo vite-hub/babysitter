@@ -73,7 +73,7 @@ test('a pass that runs out of provider retries waits for the cooldown instead of
 
 test('PRs with a reviewed current head are claimed before model passes', () => {
   // Their claim is a host merge check, so it must not wait behind every model pass.
-  assert.match(source, /ORDER BY EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
+  assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,\n\t*\s*EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
 })
 
 test('a new main commit does not reopen an assessed review', async () => {
@@ -265,4 +265,9 @@ test('a pass after our own push waits for the Codex review on the new head', () 
   // started first were discarded, and #2156 took 24 passes in 2.5 h.
   assert.match(source, /if \(reviewSettleDeadline\(snapshot\)\) return "automated review";/)
   assert.match(source, /\.\.\.deferral === "automated review" \? \{ retryAt: reviewSettleDeadline\(inboxClaim\.snapshot\) \} : \{\}/)
+})
+
+test('a main repair PR is claimed before every other PR', () => {
+  // A red main fails every PR that runs the full suites, so its repair goes first.
+  assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,/)
 })

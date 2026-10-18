@@ -340,7 +340,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..aca99a6dc69762682c58cb77de156e4e
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f170203d230da5 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..92030da391aa0a5d2e6ca746ef5e2ee93f572595 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,7 +26,8 @@ const progressBudgetSchema = v.object({
@@ -450,18 +450,19 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f17020
  				const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha;
  				const eligible = this.eligible(repository, s.pr);
  				if (s.pr && !eligible) {
-@@ -1579,7 +1626,9 @@ var PullRequestInbox = class {
+@@ -1579,7 +1626,10 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
 -        ORDER BY (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
-+        ORDER BY EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND json_extract(m.value, '$.head')=p.head_sha) DESC,
++        ORDER BY (p.head_ref LIKE 'babysitter/repair-main-%') DESC,
++          EXISTS (SELECT 1 FROM ${t.meta} m WHERE m.scope=p.scope AND m.key='review-assessment:' || p.repository || '#' || p.number AND json_extract(m.value, '$.head')=p.head_sha) DESC,
 +          coalesce(json_extract(p.summary, '$.mergeReady'), 0) DESC,
 +          (SELECT COUNT(*) FROM ${t.pullRequests} c WHERE c.scope=p.scope AND c.repository=p.repository AND c.state='open' AND c.base_ref=p.head_ref) DESC,
            p.dirty_at, p.number`, [
  				this.scope,
  				...repositories.args,
-@@ -1631,10 +1680,15 @@ var PullRequestInbox = class {
+@@ -1631,10 +1681,15 @@ var PullRequestInbox = class {
  					pr
  				};
  			}
@@ -478,7 +479,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f17020
  			return true;
  		});
  	}
-@@ -1752,6 +1806,7 @@ var PullRequestInbox = class {
+@@ -1752,6 +1807,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -486,7 +487,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f17020
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1781,6 +1836,7 @@ var PullRequestInbox = class {
+@@ -1781,6 +1837,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -494,7 +495,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f17020
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1822,6 +1878,20 @@ var PullRequestInbox = class {
+@@ -1822,6 +1879,20 @@ var PullRequestInbox = class {
  			return true;
  		});
  	}
@@ -515,7 +516,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a191d7fdb8900e37630bc47835f17020
  	recordProgress(s, claim, progress) {
  		const head = s.pr?.head?.sha;
  		if (progress?.kind === "verified") requireEvidence(progress.evidence);
-@@ -1838,7 +1908,8 @@ var PullRequestInbox = class {
+@@ -1838,7 +1909,8 @@ var PullRequestInbox = class {
  				exhausted: count >= limit,
  				evidence: verified ? progress.evidence : previous?.evidence,
  				creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
