@@ -64,7 +64,7 @@ test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
 test('the main guardian opens repair PRs the Babysitter accepts', () => {
   // 2026-10-18: main stayed red because PR CI runs only fast checks and nothing repaired main.
   const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
-  assert.match(appSource, /author: \{ allow: \['onmax', 'renovate\[bot\]', 'vitehub-bot\[bot\]'\] \}/)
+  assert.match(appSource, /author: \{ allow: \['onmax', 'renovate\[bot\]', 'renovate', 'vitehub-bot\[bot\]', 'vitehub-bot'\] \}/)
   const guardian = readFileSync(new URL('../scripts/main-guardian.mjs', import.meta.url), 'utf8')
   assert.match(guardian, /const branchPrefix = 'babysitter\/repair-main-'/)
   assert.match(guardian, /pull\.head\.ref\.startsWith\(branchPrefix\)/)

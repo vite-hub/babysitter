@@ -48,9 +48,10 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      // Logins match exactly, so bots need their REST login. vitehub-bot opens the main-guardian
+      // Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
+      // commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
       // repair PRs (scripts/main-guardian.mjs).
-      author: { allow: ['onmax', 'renovate[bot]', 'vitehub-bot[bot]'] },
+      author: { allow: ['onmax', 'renovate[bot]', 'renovate', 'vitehub-bot[bot]', 'vitehub-bot'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
