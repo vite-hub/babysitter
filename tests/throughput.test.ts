@@ -254,3 +254,8 @@ test('a transient network error retries the pass instead of failing it', () => {
   assert.match(source, /\} else if \(!pushSucceeded && transientNetworkError\(error\)\) \{/)
   assert.match(source, /reason: "network",/)
 })
+
+test('a head that already contains the base passes the stale-base overlap gate', () => {
+  // 2026-10-18: #2567 was 0 commits behind main, yet update-branch was retried 7 times in an hour.
+  assert.match(source, /if \(isRuntimeRecord\(behind\) && behind\.behind === 0\) return \[\];/)
+})
