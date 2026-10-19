@@ -200,9 +200,11 @@ test('failed checks from an older base get one model-free retest on the current 
   assert.match(source, /if \(!failureKeys\(snapshot\)\.length \|\| checksStillRunning\(snapshot\)\) return false;/)
   assert.match(source, /const key = `base-retest:\$\{repository\}#\$\{number\}`;\n\t+if \(\(await pullRequestInbox\.metaNumber\(key\) \?\? 0\) > Date\.now\(\) - 216e5\) return false;/)
   assert.match(source, /const testedBase = await checksTestedBase\(snapshot, head, baseRef, failed, signal\);/)
-  // No retest while the base tip itself fails: the update would inherit the failures.
+  // No retest while the base tip fails the same checks: the update would inherit them. Other base
+  // failures (release proposal, docs deploy) fail on most main pushes and must not block it.
   assert.match(source, /commits\/\$\{encodeURIComponent\(baseRef\)\}\/check-runs\?per_page=100`/)
-  assert.match(source, /if \(baseFailures !== 0\) return false;/)
+  assert.doesNotMatch(source, /if \(baseFailures !== 0\) return false;/)
+  assert.match(source, /baseFailing\.has\(String\(check\.name \?\? check\.context\)\)\)\) return false;/)
   // The retest runs before model admission, so it also works while the provider is cooling down.
   assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < source.indexOf('if (await parkBlockedModelWork()) return;'))
 })
