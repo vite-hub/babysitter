@@ -321,10 +321,9 @@ test('no PR stays parked until a person acts', () => {
   // 2026-10-19: about 45 PRs sat in external waits for 13+ hours, 30 of them on a vite-doctor
   // install error the host had already fixed, and exhausted heads waited for a human push.
   assert.match(source, /kind: "external",\n\t+reason,\n\t+retryAt: Date\.now\(\) \+ 72e5\n/)
-  // A wake on the PR's own head or the PR itself gets the same retry; a wake on another PR does not.
-  assert.match(source, /const ownHead = wake\.kind === "checks" && [^\n]*wake\.headSha === observed\.pr\?\.head\?\.sha;/)
-  assert.match(source, /const ownPullRequest = wake\.kind === "pull-request" && [^\n]*wake\.number === observed\.number;/)
-  assert.match(source, /wake,\n\t+\.\.\.ownHead \|\| ownPullRequest \? \{ retryAt: Date\.now\(\) \+ 72e5 \} : \{\}/)
+  // A checks wake gets the same retry; only a wait for another PR, which merges or closes, does not.
+  assert.match(source, /const otherPullRequest = wake\.kind === "pull-request" && !\([^\n]*wake\.number === observed\.number\);/)
+  assert.match(source, /wake,\n\t+\.\.\.otherPullRequest \? \{\} : \{ retryAt: Date\.now\(\) \+ 72e5 \}/)
   assert.match(source, /const progressCooldownMs = 3 \* 36e5;/)
   assert.match(source, /if \(s\.wait\) s\.wait\.retryAt = s\.wait\.retryAt === void 0 \? due : Math\.min\(s\.wait\.retryAt, due\);/)
   assert.match(source, /this\.clock\(\) - \(budget\.exhaustedAt \?\? 0\) >= progressCooldownMs\) s\.progressBudget = \{\n\t+\.\.\.budget,\n\t+count: budget\.limit - 1,/)

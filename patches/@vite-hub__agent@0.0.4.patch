@@ -846,7 +846,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..2e768d80bfb8849c9b4b5fa77b465ad71c5f60bf 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..5f2303322517420877d04a6db10742f590d551ea 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -1426,18 +1426,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..2e768d80bfb8849c9b4b5fa77b465ad7
  		if (!options.repositories.includes(wake.repository.toLowerCase())) throw new Error("External wake repository is outside the configured repositories.");
  		const evidence = await dependencyEvidence(wake);
  		await pullRequestInbox.setMeta(`dependency:${observed.repository}#${observed.number}`, evidence);
-+		// A wake on the PR's own head or the PR itself fires only when someone pushes or reruns checks, and
-+		// an external wait ignores merge conflicts. On 2026-10-19 six PRs sat this way after main's
-+		// baseline failures were fixed, so they get the same two-hour retry as a blocker without a wake.
-+		const ownHead = wake.kind === "checks" && wake.repository.toLowerCase() === observed.repository.toLowerCase() && wake.headSha === observed.pr?.head?.sha;
-+		const ownPullRequest = wake.kind === "pull-request" && wake.repository.toLowerCase() === observed.repository.toLowerCase() && wake.number === observed.number;
++		// A checks wake fires only when someone reruns checks on that commit, and an external wait ignores
++		// merge conflicts. On 2026-10-19 six PRs sat this way after main's baseline failures were fixed,
++		// one of them on checks of a main commit 90 commits back. Only a wait for another PR, which
++		// merges or closes, keeps no retry; the rest get the two-hour retry of a blocker without a wake.
++		const otherPullRequest = wake.kind === "pull-request" && !(wake.repository.toLowerCase() === observed.repository.toLowerCase() && wake.number === observed.number);
  		return {
  			...createCheckWait(observed, waitPolicy),
  			kind: "external",
  			reason,
 -			wake
 +			wake,
-+			...ownHead || ownPullRequest ? { retryAt: Date.now() + 72e5 } : {}
++			...otherPullRequest ? {} : { retryAt: Date.now() + 72e5 }
  		};
  	}
  	async function recoverFailedCiWaits() {
