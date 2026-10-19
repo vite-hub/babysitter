@@ -510,3 +510,11 @@ test('reconcile deliveries of unchanged reviews keep their ID across probes', ()
   assert.match(source, /const identity = event === "pull_request" \|\| !pr \? full : \{\n\t+\.\.\.full,\n\t+pull_request: \{\n\t+number: pr\.number,\n\t+head: pr\.head\?\.sha\n/)
   assert.match(source, /const id = `reconcile:\$\{createHash\("sha256"\)\.update\(JSON\.stringify\(\[event, identity\]\)\)\.digest\("hex"\)\}`;/)
 })
+
+test('a reviewed head with failing required checks waits only while the push cap blocks its repair', () => {
+  // 2026-10-19: five PRs had a repair refused by the push cap, reported the head as reviewed, and
+  // then took the reviewed-head shortcut every two minutes without ever getting the repair pass.
+  assert.match(source, /if \(await requiredCheckState\(inboxClaim\.snapshot\) === "failed"\) \{/)
+  assert.match(source, /reviewedRetryAt = pushes\.length >= repairPushCap \? Math\.min\(\.\.\.pushes\) \+ 864e5 \+ 6e4 : void 0;/)
+  assert.match(source, /if \(reviewedRetryAt !== void 0 && isRuntimeRecord\(assessment\) && assessment\.version === 2/)
+})
