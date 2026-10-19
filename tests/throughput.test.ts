@@ -101,6 +101,31 @@ test('a new main commit does not reopen an assessed review', async () => {
   assert.equal(directMergeReadiness(snapshot('2'.repeat(40), 'next'), 'passed', assessment).ready, false)
 })
 
+test('an assessed bot thread left open does not block a green PR', async () => {
+  // 2026-10-19: seven green PRs sat parked for hours behind outdated chatgpt-codex-connector threads
+  // the agent had assessed but not resolved. GitHub only requires `ci`; threads by people still block.
+  const { s: directMergeReadiness } = await import(join(dist, 'babysitter-ZENI2mzg.js'))
+  const snapshot = (user: { login: string, type: string }) => ({
+    repository: 'vite-hub/vitehub',
+    pr: { state: 'open', draft: false, head: { sha: 'a'.repeat(40), ref: 'fix' }, base: { sha: '1'.repeat(40), ref: 'main', repo: { full_name: 'vite-hub/vitehub' } } },
+    checks: {},
+    statuses: {},
+    comments: {},
+    reviews: {},
+    reviewComments: { 9: { id: 9, body: 'P2: handle aliases.', user } },
+    threads: [{ id: 'T1', isResolved: false, isOutdated: true, comments: [{ id: 'C1', databaseId: 9 }] }],
+    threadsHydrated: true,
+  })
+  const assessment = { assessedFeedback: new Set<string>(), reviewedEvidenceKey: undefined }
+  const { c: feedbackFingerprints } = await import(join(dist, 'babysitter-ZENI2mzg.js'))
+  const bot = snapshot({ login: 'chatgpt-codex-connector[bot]', type: 'Bot' })
+  assert.equal(directMergeReadiness(bot, 'passed', { ...assessment, assessedFeedback: new Set(feedbackFingerprints(bot)) }).ready, true)
+  const person = snapshot({ login: 'onmax', type: 'User' })
+  assert.deepEqual(directMergeReadiness(person, 'passed', { ...assessment, assessedFeedback: new Set(feedbackFingerprints(person)) }), { ready: false, reason: 'unresolved review threads' })
+  // The wake check ignores the same assessed bot threads.
+  assert.match(source, /if \(s\.threads\.some\(\(thread\) => thread\.isResolved !== true && humanThread\(thread\)\)\) reasons\.push\("unresolved-thread"\);/)
+})
+
 test('a direct merge first updates a branch whose files changed on main after its checks ran', () => {
   // PR checks test the base of that moment. Two PRs that both added the same import passed
   // separately and broke main together, so overlapping PRs are retested on the current base.
