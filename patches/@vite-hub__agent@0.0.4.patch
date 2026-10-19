@@ -1,5 +1,5 @@
 diff --git a/dist/babysitter-ZENI2mzg.js b/dist/babysitter-ZENI2mzg.js
-index 1c139c9d5e55953ad12c260e6623758314af6c22..45a298ece4ba4fc6829c342eb150025e21a668b6 100644
+index 1c139c9d5e55953ad12c260e6623758314af6c22..b273627b507d902962d77c8bb2f3a97b5a19003c 100644
 --- a/dist/babysitter-ZENI2mzg.js
 +++ b/dist/babysitter-ZENI2mzg.js
 @@ -144,6 +144,8 @@ function botAuthor(value) {
@@ -78,7 +78,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..45a298ece4ba4fc6829c342eb150025e
  	return kinds.flatMap(([kind, values]) => values.map((value) => createHash("sha256").update(JSON.stringify([
  		target,
  		kind,
-@@ -301,12 +316,24 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
+@@ -301,12 +316,29 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
  	const evidence = snapshotCheckEvidence(snapshot);
  	const reviewChecks = assessment.pendingReviewChecks ?? /* @__PURE__ */ new Set();
  	if (evidence.checkRuns.some((check) => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase())) || evidence.statuses.some((status) => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase()))) return no("a current-head review is still running");
@@ -91,7 +91,12 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..45a298ece4ba4fc6829c342eb150025e
 -	if ((failedChecks || unassessed) && assessment.reviewedEvidenceKey !== mergeReviewEvidenceKey(snapshot, assessment)) return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
 +	const legacyFingerprints = feedbackFingerprints(snapshot, assessment, true);
 +	const unassessed = feedbackFingerprints(snapshot, assessment).filter((id, index) => !assessed.has(id) && !assessed.has(legacyFingerprints[index])).length;
-+	if ((failedChecks || unassessed) && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
++	// A pass that assessed this head with every feedback item covered has judged the review checks too:
++	// their verdict comes from the same reviews. The exact evidence key still drifted after such passes
++	// (#2156 took three 0.6-2M token passes on one head on 2026-10-19), so it gates only other failures.
++	const nonReviewFailure = evidence.checkRuns.some((check) => failing.has(String(check.conclusion).toLowerCase()) && !reviewChecks.has(check.name.toLowerCase())) || evidence.statuses.some((status) => failing.has(status.state.toLowerCase()) && !reviewChecks.has(status.context.toLowerCase()));
++	const reviewChecksAssessed = failedChecks && !nonReviewFailure && !unassessed && hasRuntimeType(assessment.reviewedEvidenceKey, "string");
++	if ((failedChecks || unassessed) && !reviewChecksAssessed && !matchesMergeReviewEvidence(assessment.reviewedEvidenceKey, snapshot, assessment)) return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
  	if (!snapshot.threadsHydrated) return no("review threads not loaded");
 -	if (snapshot.threads.some((thread) => thread.isResolved !== true)) return no("unresolved review threads");
 +	// Every bot thread comment is in the assessed feedback above, and GitHub does not require
@@ -107,7 +112,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..45a298ece4ba4fc6829c342eb150025e
  	return {
  		ready: true,
  		head
-@@ -613,21 +640,27 @@ const babysitter = defineAgent({
+@@ -613,21 +645,27 @@ const babysitter = defineAgent({
  		noFindingsReviews: [],
  		ignoreFeedbackAuthors: [],
  		noProgressBudget: 3,
@@ -136,7 +141,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..45a298ece4ba4fc6829c342eb150025e
  		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
  		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
  		resolveBabysitterLifecycleFilter(filter, lifecycle);
-@@ -648,11 +681,14 @@ const babysitter = defineAgent({
+@@ -648,11 +686,14 @@ const babysitter = defineAgent({
  			mentionAllowlist,
  			ignoreFeedbackAuthors,
  			noProgressBudget,

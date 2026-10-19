@@ -496,3 +496,10 @@ test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemption
   assert.match(source, /reason: "daily-pass-budget",\n\t+retryAt: resumeAt/)
   assert.match(source, /parked: budgetParks\(queue\)/)
 })
+
+test('an assessed head merges past failing review checks without an exact evidence key', () => {
+  // 2026-10-19: #2156 took three passes on one head; each assessed it, but the stored evidence key
+  // never matched again, so "current-head failures need assessment" repeated until the budget ran out.
+  assert.match(source, /const reviewChecksAssessed = failedChecks && !nonReviewFailure && !unassessed && hasRuntimeType\(assessment\.reviewedEvidenceKey, "string"\);/)
+  assert.match(source, /if \(\(failedChecks \|\| unassessed\) && !reviewChecksAssessed && !matchesMergeReviewEvidence\(/)
+})
