@@ -218,6 +218,8 @@ test('failures that the base tip shares park without a model pass until the base
   assert.match(gate, /if \(\(snapshot\.humanFeedbackGeneration \?\? 0\) > \(snapshot\.handled \?\? 0\)\) return \[\];/)
   assert.match(gate, /hasHumanComment\(thread, waitPolicy\.workerAuthors, snapshot\)\)\) return \[\];/)
   assert.match(gate, /return failing\.every\(\(name\) => inherited\.has\(name\)\) \? failing : \[\];/)
+  // An optional inherited failure still gets the pass that assesses it, so the PR can merge.
+  assert.match(gate, /if \(!failing\.length \|\| await requiredCheckState\(snapshot\) !== "failed"\) return \[\];/)
   assert.match(source, /reason: "base-failing",/)
   assert.match(source, /wait\.retryAt = Date\.now\(\) \+ 9e5;/)
   // After the retest (which updates the branch once the base is green) and before model admission.
