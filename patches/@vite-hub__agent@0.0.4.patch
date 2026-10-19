@@ -384,7 +384,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..aca99a6dc69762682c58cb77de156e4e
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..eb4927b0fd5e351b54e8f0640461637ef4d2190a 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..a54541ba539db5c684c176bf69c3b069452be6c9 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,14 +26,76 @@ const progressBudgetSchema = v.object({
@@ -762,7 +762,27 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..eb4927b0fd5e351b54e8f0640461637e
  			if (options.recovery) {
  				s.recoveryHead = s.pr?.head?.sha;
  				s.refresh = true;
-@@ -2668,4 +2865,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
+@@ -2209,7 +2406,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
+ 			repository: { full_name: s.repository },
+ 			...payload
+ 		};
+-		const id = `reconcile:${createHash("sha256").update(JSON.stringify([event, full])).digest("hex")}`;
++		// Review and comment payloads embed the whole PR, whose updated_at and mergeability change with any
++		// activity. Hashing it gave every unchanged review a new ID on each 15-minute probe: on 2026-10-19
++		// that stored 27k redundant deliveries (500 MB) an hour and grew the state DB to 18 GB.
++		const pr = full.pull_request;
++		const identity = event === "pull_request" || !pr ? full : {
++			...full,
++			pull_request: {
++				number: pr.number,
++				head: pr.head?.sha
++			}
++		};
++		const id = `reconcile:${createHash("sha256").update(JSON.stringify([event, identity])).digest("hex")}`;
+ 		await inbox.ingest(id, event, full);
+ 	};
+ 	await ingest("pull_request", {
+@@ -2668,4 +2876,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
  	};
  }
  //#endregion

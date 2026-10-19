@@ -503,3 +503,10 @@ test('an assessed head merges past failing review checks without an exact eviden
   assert.match(source, /const reviewChecksAssessed = failedChecks && !nonReviewFailure && !unassessed && hasRuntimeType\(assessment\.reviewedEvidenceKey, "string"\);/)
   assert.match(source, /if \(\(failedChecks \|\| unassessed\) && !reviewChecksAssessed && !matchesMergeReviewEvidence\(/)
 })
+
+test('reconcile deliveries of unchanged reviews keep their ID across probes', () => {
+  // 2026-10-19: the ID hashed the embedded PR, so each probe re-stored every review and comment
+  // (27k deliveries, 500 MB an hour); the state DB reached 18 GB and reads stalled the main thread.
+  assert.match(source, /const identity = event === "pull_request" \|\| !pr \? full : \{\n\t+\.\.\.full,\n\t+pull_request: \{\n\t+number: pr\.number,\n\t+head: pr\.head\?\.sha\n/)
+  assert.match(source, /const id = `reconcile:\$\{createHash\("sha256"\)\.update\(JSON\.stringify\(\[event, identity\]\)\)\.digest\("hex"\)\}`;/)
+})
