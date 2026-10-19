@@ -71,7 +71,12 @@ export default defineAgent({
     deferWhilePending: true,
     // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
     ciRecovery: false,
-    reviewChecks: ['pullfrog'],
+    // pullfrog-approval is Pullfrog's verdict check. Listing it lets the review push budget stop its
+    // failures from waking passes; the host merges a reviewed head on the required checks.
+    reviewChecks: ['pullfrog', 'pullfrog-approval'],
+    // Defaults, written out because they gate most model passes (2026-10-19 pass-volume review).
+    reviewPushBudget: 3,
+    dailyPassBudget: 16,
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
@@ -124,9 +129,8 @@ watcher cleanup race".
 Converge instead of hardening forever. A finding that only reproduces with deliberately forged
 or hostile runtime objects (Proxies, cross-realm values, poisoned prototypes or species,
 spoofed brands or toStringTag, values copied to imitate an intrinsic) is P2, even when the
-reviewer labels it P1. Once git log shows three or more commits on this PR that answered
-automated review findings, only P0 justifies another push: reply to and resolve everything
-else, then set reviewedHead. Never park a PR to ask the maintainer to choose between
+reviewer labels it P1. The host limits review-driven pushes per PR; when the prompt has a
+review-push-budget block, follow it. Never park a PR to ask the maintainer to choose between
 requirements; pick the option that keeps existing behavior compatible, say which in the
 thread reply, and resolve it. Park with an external wait only for something outside the
 repository that a retry cannot fix; the host retries every external wait after two hours.
