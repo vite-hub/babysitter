@@ -207,6 +207,23 @@ test('failed checks from an older base get one model-free retest on the current 
   assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < source.indexOf('if (await parkBlockedModelWork()) return;'))
 })
 
+test('failures that the base tip shares park without a model pass until the base passes', () => {
+  // On 2026-10-19 main's preview build failed for 4 h; 47 of 69 open PRs inherited the failure and
+  // each still took a 1-4M token pass to assess it.
+  const gate = source.slice(source.indexOf('async function inheritedBaseFailures('), source.indexOf('async function staleBaseOverlap('))
+  assert.match(gate, /startsWith\("babysitter\/repair-main-"\)\) return \[\];/)
+  assert.match(gate, /if \(conflictedSnapshot\(snapshot\) \|\| checksStillRunning\(snapshot\)\) return \[\];/)
+  assert.match(gate, /if \(\(snapshot\.humanFeedbackGeneration \?\? 0\) > \(snapshot\.handled \?\? 0\)\) return \[\];/)
+  assert.match(gate, /hasHumanComment\(thread, waitPolicy\.workerAuthors, snapshot\)\)\) return \[\];/)
+  assert.match(gate, /return failing\.every\(\(name\) => inherited\.has\(name\)\) \? failing : \[\];/)
+  assert.match(source, /reason: "base-failing",/)
+  assert.match(source, /wait\.retryAt = Date\.now\(\) \+ 9e5;/)
+  // After the retest (which updates the branch once the base is green) and before model admission.
+  const call = source.indexOf('await inheritedBaseFailures(inboxClaim.snapshot')
+  assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < call)
+  assert.ok(call < source.indexOf('if (await parkBlockedModelWork()) return;'))
+})
+
 test('a pass that reports its pushed head as reviewed records the feedback it inspected', () => {
   // After a repair push, the same comments otherwise needed a second 15-minute pass before the merge.
   assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead\) await recordAssessment\(inboxClaim\.snapshot\);/)

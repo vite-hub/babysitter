@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Opens one "repair main" pull request when main's CI fails, so the Babysitter repairs main the
-// same way it repairs any PR. PR CI runs only fast checks and the full suites run on main, so PRs
-// that each pass can break main together, and nothing else fixes it.
+// Opens one "repair main" pull request when one of main's watched workflows fails, so the Babysitter
+// repairs main the same way it repairs any PR. PR CI runs only fast checks and the full suites run
+// on main, so PRs that each pass can break main together, and nothing else fixes it.
 //
 // Runs from a systemd timer with the Babysitter's GitHub App environment:
 // GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY.
@@ -10,7 +10,9 @@ import { createSign } from 'node:crypto'
 
 const repository = process.env.MAIN_GUARDIAN_REPOSITORY ?? 'vite-hub/vitehub'
 const base = process.env.MAIN_GUARDIAN_BRANCH ?? 'main'
-const workflowName = process.env.MAIN_GUARDIAN_WORKFLOW ?? 'ci'
+// pkg.pr.new builds every package with isolatedDeclarations, which `ci` does not. On 2026-10-19
+// it failed on main for 4 h and every open PR inherited the failure.
+const workflowNames = (process.env.MAIN_GUARDIAN_WORKFLOWS ?? process.env.MAIN_GUARDIAN_WORKFLOW ?? 'ci,pkg.pr.new').split(',').map(name => name.trim()).filter(Boolean)
 const branchPrefix = 'babysitter/repair-main-'
 const dryRun = process.argv.includes('--dry-run')
 
@@ -38,12 +40,12 @@ const log = (message, fields = {}) => console.log(JSON.stringify({ event: `main-
 
 const { token } = await api(`app/installations/${process.env.GITHUB_APP_INSTALLATION_ID}/access_tokens`, { token: appJwt(), method: 'POST' })
 const head = (await api(`repos/${repository}/commits/${base}`, { token })).sha
-const runs = (await api(`repos/${repository}/actions/runs?branch=${base}&event=push&head_sha=${head}&per_page=20`, { token })).workflow_runs.filter(run => run.name === workflowName)
-if (!runs.length || runs.some(run => run.status !== 'completed')) {
+const runs = (await api(`repos/${repository}/actions/runs?branch=${base}&event=push&head_sha=${head}&per_page=20`, { token })).workflow_runs.filter(run => workflowNames.includes(run.name))
+const failed = runs.find(run => run.status === 'completed' && run.conclusion === 'failure')
+if (!failed && (!runs.length || runs.some(run => run.status !== 'completed'))) {
   log('waiting', { head, reason: runs.length ? 'ci-running' : 'no-ci-run' })
   process.exit(0)
 }
-const failed = runs.find(run => run.conclusion === 'failure')
 if (!failed) {
   log('green', { head })
   process.exit(0)
@@ -63,7 +65,7 @@ if (await api(`repos/${repository}/git/ref/heads/${branch}`, { token })) {
 }
 
 const jobs = (await api(`repos/${repository}/actions/runs/${failed.id}/jobs?filter=latest&per_page=100`, { token })).jobs.filter(job => job.conclusion === 'failure')
-const body = `${base} is red at ${head}: the \`${workflowName}\` run ${failed.html_url} failed.
+const body = `${base} is red at ${head}: the \`${failed.name}\` run ${failed.html_url} failed.
 
 Failed jobs:
 ${jobs.map(job => `- [${job.name}](${job.html_url})`).join('\n') || '- (see the run)'}
