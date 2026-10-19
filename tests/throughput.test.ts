@@ -319,3 +319,8 @@ test('repair pushes are capped per PR except for conflict repairs', () => {
   assert.match(source, /if \(pushes\.length >= repairPushCap && current\.pr\?\.mergeable !== false\) throw new Error\(`Push cap reached/)
   assert.match(source, /await pullRequestInbox\.setMeta\(`repair-pushes:\$\{repository\}#\$\{number\}`, \[/)
 })
+
+test('a green PR behind a strict base is updated instead of skipped', () => {
+  // 2026-10-19: better-auth requires up-to-date branches; renovate #603 was skipped 19 times an hour.
+  assert.match(source, /if \(!pending && !current\.ready && current\.reason === "mergeable_state behind"\) \{/)
+})
