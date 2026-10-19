@@ -182,8 +182,8 @@ test('a pass waits for checks that still run on its head, even beside an early f
   // Everything settled, or the only running check is stuck: the pass runs now.
   assert.equal(checksStillRunning(snapshot(lintFailed)), false)
   assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'Workers Builds', status: 'in_progress', started_at: at(45) })), false)
-  assert.match(source, /if \(checksStillRunning\(snapshot, muted\)\) return !muted && reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot, muted\)\.length\) return void 0;/)
-  assert.match(source, /if \(!conflict && checksStillRunning\(s, muted\)\) return \[\];/)
+  assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
+  assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
 })
 
 test('green PRs without a stored review are claimed before PRs that need model passes', () => {
@@ -209,7 +209,7 @@ test('failed checks from an older base get one model-free retest on the current 
 
 test('a pass that reports its pushed head as reviewed records the feedback it inspected', () => {
   // After a repair push, the same comments otherwise needed a second 15-minute pass before the merge.
-  assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead\) await recordAssessment\(inboxClaim\.snapshot, \{ reviewedHead: pushedHead \}\);/)
+  assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead\) await recordAssessment\(inboxClaim\.snapshot\);/)
   // The unchanged-head assessment still binds the head and its check evidence.
   assert.match(source, /const assessed = !pushedHead && disposition === "park"/)
 })
@@ -324,25 +324,47 @@ test('a green PR behind a strict base is updated instead of skipped', () => {
   assert.match(source, /if \(!pending && !current\.ready && current\.reason === "mergeable_state behind"\) \{/)
 })
 
-test('a pass that reviewed the unchanged head keeps its result when events arrived during the pass', () => {
+test('a pass that reviewed the unchanged head keeps its result when events arrived during the pass', async () => {
   // 2026-10-19: 70 of 317 passes ended as unqualified_park because a webhook or snapshot refresh made the
-  // claim stale; 34 of 35 sampled had reported the current head as reviewed and the next pass re-reported it.
-  assert.match(source, /const assessed = !pushedHead && disposition === "park" && passResult\?\.reviewedHead === pullRequest\.headRefOid && current\?\.pr\?\.head\?\.sha === pullRequest\.headRefOid && await pullRequestInbox\.holdsLease\(inboxClaim\);/)
-  assert.match(source, /async holdsLease\(claim\) \{\n\t+const s = await this\.get\(claim\.snapshot\.repository, claim\.snapshot\.number\);\n\t+return Boolean\(s && s\.lease === claim\.token && s\.leaseUntil > this\.clock\(\) && s\.status !== "terminal"\);/)
+  // claim stale; 34 of 35 sampled had reported the current head as reviewed. Port of vite-hub/vitehub#2631.
+  assert.match(source, /const assessed = !pushedHead && disposition === "park" && passResult\?\.reviewedHead === pullRequest\.headRefOid && current\?\.pr\?\.head\?\.sha === pullRequest\.headRefOid && await pullRequestInbox\.holdsClaimedHead\(inboxClaim\);/)
   // The assessment binds the claim-time evidence, so newer feedback or checks still need a pass.
   assert.match(source, /if \(assessed\) await recordAssessment\(inboxClaim\.snapshot, \{\n\t+head: pullRequest\.headRefOid,\n\t+evidenceKey: mergeReviewEvidenceKey\(inboxClaim\.snapshot, waitPolicy\)/)
-  // Its wait pins the head, so the events that arrived during the pass stay unhandled for the wait evaluator.
+  // Its wait pins the head; finish() accepts a pinned wait after the generation moved, and still charges the pass once.
   assert.match(source, /\} else if \(assessed\) \{\n\t+outcome = "waiting";\n\t+recorded = await pullRequestInbox\.finish\(inboxClaim, \{\n\t+text: resultText,\n\t+progress: \{ kind: "no-progress" \},\n\t+wait: \{\n\t+\.\.\.createCheckWait\(inboxClaim\.snapshot, waitPolicy\),\n\t+headSha: pullRequest\.headRefOid,/)
+  const { p: PullRequestInbox } = await import(join(dist, 'github-inbox-emRhJnWe.js'))
+  let now = 1_000
+  const head = 'a'.repeat(40)
+  const pr = (sha = head) => ({ number: 42, state: 'open', draft: false, title: 't', body: '', user: { login: 'onmax' }, head: { sha, ref: 'feature', repo: { full_name: 'vite-hub/vitehub' } }, base: { sha: '1'.repeat(40), ref: 'main', repo: { full_name: 'vite-hub/vitehub' } } })
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], clock: () => now })
+  try {
+    await inbox.ingest('opened', 'pull_request', { repository: { full_name: 'vite-hub/vitehub' }, action: 'opened', pull_request: pr() })
+    const [claim] = await inbox.claim(1)
+    await inbox.ingest('comment-during-pass', 'issue_comment', { repository: { full_name: 'vite-hub/vitehub' }, issue: { number: 42, pull_request: {} }, action: 'created', comment: { id: 1, body: 'Looks fine', user: { login: 'review-bot[bot]', type: 'Bot' } } })
+    assert.equal(await inbox.isClaimCurrent(claim), false)
+    assert.equal(await inbox.holdsClaimedHead(claim), true)
+    assert.equal(await inbox.finish(claim, { text: 'Reviewed', progress: { kind: 'no-progress' }, wait: { reason: 'checks', evidenceKey: 'k', headSha: head } }), true)
+    assert.equal((await inbox.get('vite-hub/vitehub', 42)).status, 'waiting')
+    // A lost lease or a new head discards the result.
+    await inbox.ingest('push', 'pull_request', { repository: { full_name: 'vite-hub/vitehub' }, action: 'synchronize', pull_request: pr('b'.repeat(40)) })
+    const [next] = await inbox.claim(1)
+    if (next) {
+      await inbox.ingest('push-2', 'pull_request', { repository: { full_name: 'vite-hub/vitehub' }, action: 'synchronize', pull_request: pr('c'.repeat(40)) })
+      assert.equal(await inbox.holdsClaimedHead(next), false)
+    }
+    now += 3 * 36e5
+    assert.equal(await inbox.holdsClaimedHead(claim), false)
+  } finally { await inbox.close() }
 })
 
-test('after the review push budget, automated reviews and review checks stop waking passes', async () => {
+test('after the review push budget, bot feedback and review checks stop waking passes', async () => {
   // 2026-10-19: 72% of pushes were followed by another push within two passes, and 51% of passes had
-  // pullfrog-approval as their only failing check. The prompt-only rule was ignored about half the time.
-  const { x: wakeReasons, y: repairContextKey } = await import(join(dist, 'server-DZOuXkga.js'))
+  // pullfrog-approval as their only failing check. Port of vite-hub/vitehub#2633.
+  const { x: wakeReasons, y: repairContextKey, z: reviewPushBudgetWork, k: pushCause } = await import(join(dist, 'server-DZOuXkga.js'))
   const head = 'a'.repeat(40)
   const bot = { login: 'pullfrog[bot]', type: 'Bot' }
   const person = { login: 'onmax', type: 'User' }
-  const snapshot = (extra: { reviews?: object, checks?: object, mergeable?: boolean } = {}) => ({
+  const snapshot = (count: number, extra: { reviews?: object, checks?: object, mergeable?: boolean } = {}) => ({
     repository: 'vite-hub/vitehub',
     number: 7,
     pr: { state: 'open', title: 't', body: 'b', head: { sha: head }, base: { sha: '1'.repeat(40), ref: 'main' }, mergeable: extra.mergeable ?? true, mergeable_state: extra.mergeable === false ? 'dirty' : 'clean' },
@@ -352,39 +374,57 @@ test('after the review push budget, automated reviews and review checks stop wak
     reviews: { 1: { id: 1, state: 'COMMENTED', body: 'P2: an older finding', user: bot }, ...extra.reviews },
     reviewComments: {},
     threads: [],
+    reviewPushBudget: { count, heads: [head] },
   })
-  const policy = (muted: boolean) => ({
+  const policy = {
     workerAuthors: new Set<string>(),
     ignoreFeedbackAuthors: new Set<string>(),
     pendingReviewChecks: new Set(['pullfrog', 'pullfrog-approval']),
     noFindingsReviews: [],
     wakeWhenReady: true,
-    reviewMutedPullRequests: new Set(muted ? ['vite-hub/vitehub#7'] : []),
-  })
-  const parked = (p: ReturnType<typeof policy>) => ({ ...snapshot(), wait: { headSha: head, reason: 'checks', evidenceKey: repairContextKey(snapshot(), p), knownFailures: [] } })
-  const botReview = { reviews: { 2: { id: 2, state: 'COMMENTED', body: 'P1: another hardening idea', user: bot } } }
+    reviewPushBudget: 3,
+  }
+  const wake = (count: number, extra: object, required = 'pending') => wakeReasons({ ...snapshot(count, extra as never), wait: { headSha: head, reason: 'checks', evidenceKey: repairContextKey(snapshot(count), policy), knownFailures: [] } }, required, policy)
+  const botReview = { reviews: { 2: { id: 2, state: 'CHANGES_REQUESTED', body: 'P1: another hardening idea', user: bot } } }
   const approvalFailed = { checks: { 2: { id: 2, name: 'pullfrog-approval', app: { id: 2 }, head_sha: head, status: 'completed', conclusion: 'failure' } } }
-  const wake = (p: ReturnType<typeof policy>, extra: object, required = 'pending') => wakeReasons({ ...parked(p), ...snapshot(extra as never), wait: parked(p).wait }, required, p)
-  // Before the budget, both wake a pass.
-  assert.deepEqual(wake(policy(false), botReview), ['feedback-changed'])
-  assert.deepEqual(wake(policy(false), approvalFailed), ['new-failure'])
-  // After it, neither does; a person, a CI failure and a conflict still do.
-  assert.deepEqual(wake(policy(true), botReview), [])
-  assert.deepEqual(wake(policy(true), approvalFailed), [])
-  assert.deepEqual(wake(policy(true), { reviews: { 3: { id: 3, state: 'COMMENTED', body: 'Please rename this.', user: person } } }), ['feedback-changed'])
-  assert.deepEqual(wake(policy(true), { checks: { 3: { id: 3, name: 'test', app: { id: 1 }, head_sha: head, status: 'completed', conclusion: 'failure' } } }), ['new-failure'])
-  assert.deepEqual(wake(policy(true), { mergeable: false }), ['merge-conflict'])
-  // A green reviewed head wakes for its direct merge even with a failing review check.
-  assert.deepEqual(wake(policy(true), approvalFailed, 'passed'), ['ready-to-merge'])
-  // Review-driven pushes are counted at push time and the pass gate parks a reviewed head before the model.
-  assert.match(source, /if \(reviewDrivenPass && reviewPushBudget !== false\) \{\n\t+await pullRequestInbox\.setMeta\(`review-pushes:\$\{repository\}#\$\{number\}`/)
-  assert.match(source, /reason: "review-push-budget",/)
-  assert.match(source, /const reviewPushBudget = baseAgent\.reviewPushBudget \?\? presetOptions\.reviewPushBudget \?\? 3;/)
+  // Before the budget is spent, both wake a pass.
+  assert.deepEqual(wake(2, botReview), ['feedback-changed'])
+  assert.deepEqual(wake(2, approvalFailed), ['new-failure'])
+  // After it, neither does; a person, another failing check and a conflict still do.
+  assert.deepEqual(wake(3, botReview), [])
+  assert.deepEqual(wake(3, approvalFailed), [])
+  assert.deepEqual(wake(3, { reviews: { 3: { id: 3, state: 'COMMENTED', body: 'Please rename this.', user: person } } }), ['feedback-changed'])
+  assert.deepEqual(wake(3, { checks: { 3: { id: 3, name: 'test', app: { id: 1 }, head_sha: head, status: 'completed', conclusion: 'failure' } } }), ['new-failure'])
+  assert.deepEqual(wake(3, { mergeable: false }), ['merge-conflict'])
+  assert.deepEqual(wake(3, approvalFailed, 'passed'), ['ready-to-merge'])
+  // The host decides whether a push answered review, from the claimed snapshot.
+  assert.equal(pushCause(snapshot(0, approvalFailed), policy), 'review')
+  assert.equal(pushCause(snapshot(0, { mergeable: false }), policy), 'repair')
+  // A spent PR with only bot work left parks; a head someone else pushed still gets a pass.
+  assert.deepEqual(reviewPushBudgetWork(snapshot(3, { ...botReview, ...approvalFailed }), policy, new Set()), [])
+  assert.deepEqual(reviewPushBudgetWork({ ...snapshot(3), reviewPushBudget: { count: 3, heads: [] } }, policy, new Set()), ['new-head'])
+  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkSpentReviewPushBudget\(\) \|\| await parkSpentDailyPassBudget\(\);/)
+  assert.match(source, /reason: "review-push-budget"\n/)
+  // Pushes are counted on the snapshot in finish(), once per head, even when the wait is rejected.
+  assert.match(source, /this\.recordReviewPush\(s, claim, result\.progress\);\n\t+const pinnedHead = result\.wait\?\.headSha;/)
   // The 5-per-24h repair push cap stays as a backstop.
   assert.match(source, /const repairPushCap = 5;/)
 })
 
-test('after the review push budget, a reviewed head merges on required checks despite review bots', async () => {
+test('the review push record counts review-driven pushes once per head', async () => {
+  const { e: nextReviewPushBudget } = await import(join(dist, 'github-inbox-emRhJnWe.js'))
+  const push = (head: string, reviewDriven = true) => ({ kind: 'verified', evidence: `push:${head}`, ...reviewDriven ? { reviewDriven } : {} })
+  let budget = nextReviewPushBudget(undefined, 3, push('a'), 'h0')
+  budget = nextReviewPushBudget(budget, 3, push('a'), 'h0')
+  budget = nextReviewPushBudget(budget, 3, push('b', false), 'a')
+  assert.deepEqual(budget, { count: 1, heads: ['a', 'b'] })
+  budget = nextReviewPushBudget(nextReviewPushBudget(budget, 3, push('c'), 'b'), 3, push('d'), 'c')
+  assert.equal(budget.count, 3)
+  // Once spent, a model pass adds its claimed head, so that head is no longer new.
+  assert.deepEqual(nextReviewPushBudget(budget, 3, { kind: 'no-progress' }, 'x').heads.at(-1), 'x')
+})
+
+test('after the review push budget, a green PR merges despite review bots', async () => {
   const { s: directMergeReadiness, c: feedbackFingerprints } = await import(join(dist, 'babysitter-ZENI2mzg.js'))
   const head = 'a'.repeat(40)
   const snapshot = (reviews: object) => ({
@@ -400,29 +440,35 @@ test('after the review push budget, a reviewed head merges on required checks de
   })
   const botReview = { 2: { id: 2, state: 'COMMENTED', body: 'P1: harden against Proxies', user: { login: 'pullfrog[bot]', type: 'Bot' } } }
   const policy = { pendingReviewChecks: new Set(['pullfrog', 'pullfrog-approval']), assessedFeedback: new Set<string>() }
-  const spent = { ...policy, reviewBudgetSpent: true, reviewedHead: head }
+  const settled = { ...policy, automatedReviewSettled: true }
   assert.equal(directMergeReadiness(snapshot(botReview), 'passed', policy).ready, false)
-  assert.deepEqual(directMergeReadiness(snapshot(botReview), 'passed', spent), { ready: true, head })
-  // Only a head the agent reported as reviewed; feedback from people and required checks still gate it.
-  assert.equal(directMergeReadiness(snapshot(botReview), 'passed', { ...spent, reviewedHead: 'b'.repeat(40) }).ready, false)
+  assert.deepEqual(directMergeReadiness(snapshot(botReview), 'passed', settled), { ready: true, head })
+  // Feedback from people and required checks still gate it.
   const person = { 3: { id: 3, state: 'COMMENTED', body: 'Please keep the old name.', user: { login: 'onmax', type: 'User' } } }
-  assert.equal(directMergeReadiness(snapshot(person), 'passed', spent).ready, false)
-  assert.equal(directMergeReadiness(snapshot(person), 'passed', { ...spent, assessedFeedback: new Set(feedbackFingerprints(snapshot(person))) }).ready, true)
-  assert.equal(directMergeReadiness(snapshot(botReview), 'failed', spent).ready, false)
+  assert.equal(directMergeReadiness(snapshot(person), 'passed', settled).ready, false)
+  assert.equal(directMergeReadiness(snapshot(person), 'passed', { ...settled, assessedFeedback: new Set(feedbackFingerprints(snapshot(person))) }).ready, true)
+  assert.equal(directMergeReadiness(snapshot(botReview), 'failed', settled).ready, false)
+  assert.match(source, /automatedReviewSettled: reviewPushBudgetSpent\(snapshot, waitPolicy\)/)
 })
 
-test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemptions', () => {
+test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemptions', async () => {
   // Simulated on 2026-10-18: a cap of 16 model passes per PR per day removes about 20% of passes.
-  assert.match(source, /const dailyPassBudget = baseAgent\.dailyPassBudget \?\? presetOptions\.dailyPassBudget \?\? 16;/)
-  // Counted once per dispatched pass, checked once before the first dispatch, after direct merges.
-  assert.match(source, /if \(!modelDispatched\) await pullRequestInbox\.setMeta\(passBudgetKey, \[/)
-  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return !modelDispatched && !passBudgetChecked && await parkSpentPassBudget\(\);/)
-  assert.ok(source.indexOf('await mergeReadyPullRequest(inboxClaim, owner, passSignal)') < source.indexOf('if (await parkBlockedModelWork()) return;'))
-  // A person's feedback, the first required-check failure on a head and a conflict on a green PR still get a pass.
-  assert.match(source, /if \(\(s\.humanFeedbackGeneration \?\? 0\) > \(record\.humanGeneration \?\? 0\)\) exemption = \["human-feedback"/)
-  assert.match(source, /else if \(requiredState === "failed" && record\.failureHead !== head\) exemption = \["required-check-failure"/)
-  assert.match(source, /else if \(conflict && requiredState === "passed" && record\.conflictHead !== head\) exemption = \["conflict"/)
-  // The park says why and when the next pass may run.
-  assert.match(source, /reason: `daily-pass-budget: \$\{passes\.length\} model passes in 24 h \(limit \$\{dailyPassBudget\}\)\. Next pass after /)
-  assert.match(source, /reason: "daily-pass-budget",/)
+  // Port of vite-hub/vitehub#2634.
+  const { y: dailyPassResumeAt } = await import(join(dist, 'github-inbox-emRhJnWe.js'))
+  const { q: dailyPassExemption } = await import(join(dist, 'server-DZOuXkga.js'))
+  const now = 10 * 864e5
+  const passes = Array.from({ length: 16 }, (_, index) => now - (16 - index) * 6e4)
+  assert.equal(dailyPassResumeAt({ passes: passes.slice(1), exemptions: [] }, 16, now), undefined)
+  assert.equal(dailyPassResumeAt({ passes, exemptions: [] }, 16, now), passes[0] + 864e5)
+  const head = 'a'.repeat(40)
+  const s = (extra: object = {}) => ({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: true }, checks: {}, statuses: {}, threads: [], humanFeedbackGeneration: 4, ...extra })
+  assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 3, exemptions: [] }), 'human-feedback')
+  assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [] }), undefined)
+  assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [] }), `required-failure:${head}`)
+  assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [`required-failure:${head}`] }), undefined)
+  assert.equal(dailyPassExemption(s({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: false } }), 'passed', { passes, human: 4, exemptions: [] }), `conflict:${head}:${'1'.repeat(40)}`)
+  // Counted on the snapshot once per pass, right before the model starts; the park names the resume time.
+  assert.match(source, /if \(!modelDispatched && dailyPassBudget !== false\) await pullRequestInbox\.recordModelPass\(inboxClaim, /)
+  assert.match(source, /reason: "daily-pass-budget",\n\t+retryAt: resumeAt/)
+  assert.match(source, /parked: budgetParks\(queue\)/)
 })
