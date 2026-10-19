@@ -296,3 +296,12 @@ test('a main repair PR is claimed before every other PR', () => {
   // A red main fails every PR that runs the full suites, so its repair goes first.
   assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,/)
 })
+
+test('no PR stays parked until a person acts', () => {
+  // 2026-10-19: about 45 PRs sat in external waits for 13+ hours, 30 of them on a vite-doctor
+  // install error the host had already fixed, and exhausted heads waited for a human push.
+  assert.match(source, /kind: "external",\n\t+reason,\n\t+retryAt: Date\.now\(\) \+ 72e5\n/)
+  assert.match(source, /const progressCooldownMs = 3 \* 36e5;/)
+  assert.match(source, /if \(s\.wait\) s\.wait\.retryAt = s\.wait\.retryAt === void 0 \? due : Math\.min\(s\.wait\.retryAt, due\);/)
+  assert.match(source, /this\.clock\(\) - \(budget\.exhaustedAt \?\? 0\) >= progressCooldownMs\) s\.progressBudget = \{\n\t+\.\.\.budget,\n\t+count: budget\.limit - 1,/)
+})

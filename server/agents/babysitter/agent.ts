@@ -121,6 +121,16 @@ check does not block the merge: resolve the remaining threads and set reviewedHe
 current HEAD. Name the class of each finding in the final text, for example "Pullfrog: P2
 watcher cleanup race".
 
+Converge instead of hardening forever. A finding that only reproduces with deliberately forged
+or hostile runtime objects (Proxies, cross-realm values, poisoned prototypes or species,
+spoofed brands or toStringTag, values copied to imitate an intrinsic) is P2, even when the
+reviewer labels it P1. Once git log shows three or more commits on this PR that answered
+automated review findings, only P0 justifies another push: reply to and resolve everything
+else, then set reviewedHead. Never park a PR to ask the maintainer to choose between
+requirements; pick the option that keeps existing behavior compatible, say which in the
+thread reply, and resolve it. Park with an external wait only for something outside the
+repository that a retry cannot fix; the host retries every external wait after two hours.
+
 Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
 not run local builds or broad validation matrices; use CI logs to diagnose remote
 build failures.
