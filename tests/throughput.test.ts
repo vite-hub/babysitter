@@ -209,9 +209,9 @@ test('failed checks from an older base get one model-free retest on the current 
 
 test('a pass that reports its pushed head as reviewed records the feedback it inspected', () => {
   // After a repair push, the same comments otherwise needed a second 15-minute pass before the merge.
-  assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead && passResult\?\.wait\?\.kind !== "external"\) await recordAssessment\(inboxClaim\.snapshot\);/)
+  assert.match(source, /else if \(pushedHead && passResult\?\.reviewedHead === pushedHead\) await recordAssessment\(inboxClaim\.snapshot\);/)
   // The unchanged-head assessment still binds the head and its check evidence.
-  assert.match(source, /const assessed = passResult\?\.wait\?\.kind !== "external" && !pushedHead && disposition === "park"/)
+  assert.match(source, /const assessed = !pushedHead && disposition === "park"/)
 })
 
 test('an exhausted head gets one more pass for a new conflict or new bot feedback, once each', () => {
@@ -304,4 +304,18 @@ test('no PR stays parked until a person acts', () => {
   assert.match(source, /const progressCooldownMs = 3 \* 36e5;/)
   assert.match(source, /if \(s\.wait\) s\.wait\.retryAt = s\.wait\.retryAt === void 0 \? due : Math\.min\(s\.wait\.retryAt, due\);/)
   assert.match(source, /this\.clock\(\) - \(budget\.exhaustedAt \?\? 0\) >= progressCooldownMs\) s\.progressBudget = \{\n\t+\.\.\.budget,\n\t+count: budget\.limit - 1,/)
+})
+
+test('a reviewed head counts as assessed even when the pass parks on an external reason', () => {
+  // 2026-10-19: #2279 reported no P0/P1 and reviewedHead on its head three times, but parked
+  // "external" on pullfrog-approval, which cleared the assessment, so it never merged.
+  assert.match(source, /const assessed = !pushedHead && disposition === "park" && passResult\?\.reviewedHead === pullRequest\.headRefOid/)
+  assert.match(source, /\} else if \(!assessed && disposition === "park" && current\?\.pr\?\.head\?\.sha === pullRequest\.headRefOid && passResult\?\.wait\?\.kind === "external"\) \{/)
+})
+
+test('repair pushes are capped per PR except for conflict repairs', () => {
+  // Review loops reached 23-94 commits per PR (#2596, #2198, #2186).
+  assert.match(source, /const repairPushCap = 5;/)
+  assert.match(source, /if \(pushes\.length >= repairPushCap && current\.pr\?\.mergeable !== false\) throw new Error\(`Push cap reached/)
+  assert.match(source, /await pullRequestInbox\.setMeta\(`repair-pushes:\$\{repository\}#\$\{number\}`, \[/)
 })
