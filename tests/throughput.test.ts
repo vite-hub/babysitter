@@ -516,6 +516,10 @@ test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemption
   assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [] }), `assessment:${head}`)
   assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [`assessment:${head}`] }), undefined)
   assert.equal(dailyPassExemption(s(), 'pending', { passes, human: 4, exemptions: [] }), undefined)
+  // Any other conflict gets one pass per head, even with open threads or failing checks.
+  const conflicted = s({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: false }, threads: [{ isResolved: false, comments: { nodes: [] } }] })
+  assert.equal(dailyPassExemption(conflicted, 'passed', { passes, human: 4, exemptions: [] }), `conflict:${head}`)
+  assert.equal(dailyPassExemption(conflicted, 'passed', { passes, human: 4, exemptions: [`conflict:${head}`] }), undefined)
   // A failing head whose push window is open gets one pass per window, keyed by its last push.
   const failedOnce = { passes, human: 4, exemptions: [`required-failure:${head}`] }
   assert.equal(dailyPassExemption(s(), 'failed', failedOnce), undefined)
