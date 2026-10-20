@@ -962,10 +962,40 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 5d80facda1e6fd3a50876048180cd57f664d8fa6..88e2ccfd57c751f48895c6cb75e951c3aece180b 100644
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..0efecb81f86c9ac80c991f76e00e2caf7b2e65c4 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
-@@ -3101,7 +3101,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -19,7 +19,8 @@ import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, norma
+ import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata";
+ import { createHash, randomUUID } from "node:crypto";
+ import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises";
+-import { hostname, tmpdir } from "node:os";
++import { homedir, hostname, tmpdir } from "node:os";
++import { existsSync } from "node:fs";
+ import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path";
+ import { execFile, spawn } from "node:child_process";
+ import { promisify } from "node:util";
+@@ -442,6 +443,19 @@ const imageExtensions = {
+ 	"image/tiff": ".tiff",
+ 	"image/webp": ".webp"
+ };
++/**
++* Package manager caches an unattended pass writes to. Workspace-write lets commands write only inside
++* the checkout, so pnpm could not link into its store and corepack could not cache pnpm: on 2026-10-20
++* 73 of 188 passes hit EROFS, and `pnpm --version` failed whenever corepack had to download pnpm.
++*/
++function unattendedCacheRoots() {
++	const home = process.env.HOME || homedir();
++	return [
++		join(home, ".local/share/pnpm/store"),
++		join(home, ".npm"),
++		join(home, ".cache/node/corepack")
++	].filter((path) => existsSync(path));
++}
+ const providerRuntimeMode = {
+ 	"allow-all": "full-access",
+ 	"allow-edits": "auto-accept-edits",
+@@ -3101,7 +3115,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			model: options.model,
  			resumeCursor,
  			runtimeMode: providerRuntimeMode[options.permissions ?? "ask"],
@@ -977,7 +1007,8 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..88e2ccfd57c751f48895c6cb75e951c3
 +				approvalPolicy: "never",
 +				sandboxPolicy: {
 +					type: "workspaceWrite",
-+					networkAccess: true
++					networkAccess: true,
++					writableRoots: unattendedCacheRoots()
 +				}
 +			} : {},
  			threadId

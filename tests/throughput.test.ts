@@ -595,7 +595,9 @@ test('a pass the provider fails early gives its daily pass and exemption back', 
 
 test('unattended Codex passes get network access in their workspace-write sandbox', () => {
   // 2026-10-20: 22 of 120 passes failed lockfile repairs on `getaddrinfo EAI_AGAIN registry.npmjs.org`.
-  assert.match(source, /\.\.\.options\.permissions === "allow-edits-unattended" \? \{\n\t+approvalPolicy: "never",\n\t+sandboxPolicy: \{\n\t+type: "workspaceWrite",\n\t+networkAccess: true\n/)
+  assert.match(source, /\.\.\.options\.permissions === "allow-edits-unattended" \? \{\n\t+approvalPolicy: "never",\n\t+sandboxPolicy: \{\n\t+type: "workspaceWrite",\n\t+networkAccess: true,\n\t+writableRoots: unattendedCacheRoots\(\)\n/)
+  // The pnpm store, npm cache and corepack cache are writable, or every full install hits EROFS.
+  assert.match(source, /join\(home, "\.local\/share\/pnpm\/store"\),\n\t+join\(home, "\.npm"\),\n\t+join\(home, "\.cache\/node\/corepack"\)/)
   const runtime = readFileSync(join(realpathSync(dist), '../../../@t3tools/provider-runtime/dist/index.mjs'), 'utf8')
   assert.match(runtime, /\.\.\.sessionInput\.sandboxPolicy === void 0 \? \{\} : \{ sandboxPolicy: sessionInput\.sandboxPolicy \}/)
 })
