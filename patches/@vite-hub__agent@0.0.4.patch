@@ -984,7 +984,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..88e2ccfd57c751f48895c6cb75e951c3
  		}), effectiveSignal, (session) => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime());
  		if (session.resumeCursor !== void 0) pendingResumeCursor = session.resumeCursor;
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..95817e20b8e88efaa8ef483c565d6e35d8b0a0e8 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..ad54e759306119eda08fdcac4c3badde61e65bf1 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -2264,7 +2264,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..95817e20b8e88efaa8ef483c565d6e35
  					const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
  					const snapshotContext = snapshotPrompt(webhookSnapshot);
 -					const userMessage = `${prompt}\n\n${snapshotContext}`;
-+					const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest the error names until \`pnpm install --frozen-lockfile\` passes. Try \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` first; for a pkg.pr.new entry without integrity, re-resolve that dependency. Then call refreshDependencies, validate, include pnpm-lock.yaml in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
++					const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest the error names until \`pnpm install --frozen-lockfile\` passes. Resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, but finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a pkg.pr.new dependency keeps no integrity and the frozen install in CI fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include pnpm-lock.yaml in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
 +					const reviewBudgetContext = reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy) ? `\n\n<review-push-budget>\nThis PR already has ${inboxClaim.snapshot.reviewPushBudget?.count ?? 0} review-driven repair pushes (reviewPushBudget ${reviewPushBudget}). Bot feedback and review checks no longer start passes, and the host merges the PR when its required checks pass. Push only for a P0 finding, a failing non-review check, a person's request or a merge conflict. Reply to and resolve the other automated findings, then set reviewedHead to the current HEAD.\n</review-push-budget>` : "";
 +					// Say up front whether this pass can push, so a pass the push gate will refuse does not build a commit.
 +					const requiredChecksNow = await requiredCheckState(inboxClaim.snapshot);
