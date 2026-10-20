@@ -871,7 +871,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a37030d58 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..93f92dbca92d1d8704ee0a21e477e7db755c315b 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -1758,7 +1758,103 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2737,10 +3276,15 @@ function createBabysitterRuntime(options) {
+@@ -2671,52 +3210,35 @@ function createBabysitterRuntime(options) {
+ 					const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
+ 					const repairOperation = new AsyncLocalStorage();
+ 					const ownedResolutions = /* @__PURE__ */ new Map();
+-					const repairEvidenceKey = (snapshot, current = snapshot) => {
+-						const published = !!pushedHead && verifiedPushHeads.has(pushedHead);
+-						const original = published && snapshot === inboxClaim.snapshot;
+-						const checks = original ? {} : Object.fromEntries(Object.entries(snapshot.checks).filter(([key]) => ![
+-							"success",
+-							"neutral",
+-							"skipped"
+-						].includes(String(current.checks[key]?.conclusion).toLowerCase()) && (!published || verifiedPushHeads.has(snapshot.checks[key]?.head_sha ?? ""))));
+-						const statuses = original ? {} : Object.fromEntries(Object.entries(snapshot.statuses).filter(([key]) => String(current.statuses[key]?.state).toLowerCase() !== "success" && (!published || verifiedPushHeads.has(snapshot.statuses[key]?.sha ?? ""))));
+-						if (published) {
+-							for (const key of Object.keys(checks)) checks[key] = {
+-								...checks[key],
+-								head_sha: pullRequest.headRefOid
+-							};
+-							for (const key of Object.keys(statuses)) statuses[key] = {
+-								...statuses[key],
+-								sha: pullRequest.headRefOid
+-							};
+-						}
+-						return mergeReviewEvidenceKey({
+-							...snapshot,
+-							checks,
+-							statuses,
+-							threads: snapshot.threads.map((thread) => ownedResolutions.has(String(thread.node_id ?? thread.id)) ? {
+-								...thread,
+-								isResolved: true
+-							} : thread),
+-							pr: snapshot.pr && {
+-								...snapshot.pr,
+-								head: snapshot.pr.head && {
+-									...snapshot.pr.head,
+-									sha: published ? pullRequest.headRefOid : snapshot.pr.head.sha
+-								},
+-								base: snapshot.pr.base && {
+-									...snapshot.pr.base,
+-									sha: void 0
+-								}
+-							}
+-						}, waitPolicy);
++					// 2026-10-19: about half the passes lost a write to a check run, status or bot review that landed
++					// mid-pass, then kept working for nothing. Only the head, the merge target and the review threads
++					// this pass was given or resolved can invalidate its writes. Newer checks and feedback still move
++					// the claim generation, so the next pass sees them, and a merge re-reads the required checks.
++					const handledThreads = new Set(inboxClaim.snapshot.threads.filter((thread) => thread.isResolved !== true).map((thread) => String(thread.node_id ?? thread.id)));
++					const repairEvidenceKey = (snapshot) => {
++						const head = snapshot.pr?.head?.sha;
++						const base = snapshot.pr?.base;
++						return createHash("sha256").update(JSON.stringify({
++							head: head === pullRequest.headRefOid || verifiedPushHeads.has(head ?? "") ? pullRequest.headRefOid : head,
++							base: base && {
++								ref: base.ref,
++								repository: (base.repo?.full_name ?? snapshot.repository).toLowerCase()
++							},
++							threads: snapshot.threads.map((thread) => [String(thread.node_id ?? thread.id), thread.isResolved === true]).filter(([id]) => handledThreads.has(id) || ownedResolutions.has(id)).map(([id, resolved]) => [id, resolved || ownedResolutions.has(id)]).sort(([left], [right]) => left.localeCompare(right))
++						})).digest("hex");
+ 					};
+ 					let observePendingPush;
+ 					const pendingInboxHeads = /* @__PURE__ */ new Set([pullRequest.headRefOid]);
+-					const assertLease = async () => {
++					// Read-only tools only need the lease: new evidence cannot make a log or base check read unsafe.
++					const readOperation = new AsyncLocalStorage();
++					const assertLeaseHeld = async () => {
+ 						abortSignal.throwIfAborted();
+ 						const current = await pullRequestInbox.get(repository, number);
+ 						if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) throw new DOMException("Pull request lease lost.", "AbortError");
++						return current;
++					};
++					const assertLease = async () => {
++						const current = await assertLeaseHeld();
+ 						observePendingPush?.(current);
+ 						for (const [id, reopens] of ownedResolutions) if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
+ 						const observedHead = current.pr?.head?.sha;
+@@ -2727,8 +3249,17 @@ function createBabysitterRuntime(options) {
+ 							pendingInboxHeads.clear();
+ 							pendingInboxHeads.add(pushedHead);
+ 						}
+-						const selfHead = observedHead !== pullRequest.headRefOid && verifiedPushHeads.has(observedHead ?? "");
+-						if (current.generation !== inboxClaim.generation && !((selfHead || repairOperation.getStore()) && repairEvidenceKey(current) === repairEvidenceKey(inboxClaim.snapshot, current))) throw new DOMException("Pull request evidence changed.", "AbortError");
++						if (current.generation !== inboxClaim.generation && repairEvidenceKey(current) !== repairEvidenceKey(inboxClaim.snapshot)) {
++							// End the pass at once so the claim requeues on the new evidence, like a changed base.
++							const changed = new DOMException("Pull request evidence changed.", "AbortError");
++							schedulerEvent("babysitter.pass.evidence_changed", {
++								...owner,
++								head_sha: pullRequest.headRefOid,
++								observed_head: observedHead
++							});
++							passController.abort(changed);
++							throw changed;
++						}
+ 						return current;
+ 					};
+ 					let preparedMergeBase;
+@@ -2737,10 +3268,15 @@ function createBabysitterRuntime(options) {
  						if (!isRuntimeRecord(ref) || ref.ref !== `refs/heads/${pullRequest.baseRefName}` || !isRuntimeRecord(ref.object) || ref.object.type !== "commit" || !hasRuntimeType(ref.object.sha, "string") || !/^[a-f\d]{40}$/i.test(ref.object.sha)) throw new Error("Conflict repair requires the exact live base branch commit.");
  						return ref.object.sha;
  					};
@@ -1775,7 +1871,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  							await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
  							const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
  							passController.abort(changed);
-@@ -2763,9 +3307,19 @@ function createBabysitterRuntime(options) {
+@@ -2763,9 +3299,19 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -1796,7 +1892,21 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
  							}
  							preparedDirectories.add(directory);
-@@ -2798,15 +3352,18 @@ function createBabysitterRuntime(options) {
+@@ -2773,11 +3319,11 @@ function createBabysitterRuntime(options) {
+ 					};
+ 					const operations = createGitHubPullRequestOperations({
+ 						command: async (args, request) => {
+-							await assertLease();
++							await (readOperation.getStore() ? assertLeaseHeld() : assertLease());
+ 							return await github.command(args, request);
+ 						},
+ 						ensureGraphQLBudget: async (...args) => {
+-							await assertLease();
++							await (readOperation.getStore() ? assertLeaseHeld() : assertLease());
+ 							return await github.ensureGraphQLBudget(...args);
+ 						}
+ 					}, {
+@@ -2798,15 +3344,18 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							await assertRepairBase();
  							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -1818,7 +1928,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  							await assertLease();
  							return head;
  						},
-@@ -2852,6 +3409,9 @@ function createBabysitterRuntime(options) {
+@@ -2852,6 +3401,9 @@ function createBabysitterRuntime(options) {
  									beforePush: async (head) => {
  										const current = await assertLease();
  										await assertRepairBase();
@@ -1828,7 +1938,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  										if (head && !await pullRequestInbox.registerProspectivePush({
  											...inboxClaim,
  											generation: current.generation,
-@@ -2862,6 +3422,8 @@ function createBabysitterRuntime(options) {
+@@ -2862,6 +3414,8 @@ function createBabysitterRuntime(options) {
  										} : void 0;
  									},
  									afterPush: async (head) => {
@@ -1837,6 +1947,21 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..c23121240b6db81213365b348151815a
  										recordPush(head);
  										await assertLease();
  									}
+@@ -2874,6 +3428,14 @@ function createBabysitterRuntime(options) {
+ 							}
+ 						}
+ 					});
++					for (const name of [
++						"readCheckLogs",
++						"readBaseCheckEvidence",
++						"readBaseCheckLogs"
++					]) {
++						const read = operations[name];
++						operations[name] = (...args) => readOperation.run(true, () => read(...args));
++					}
+ 					const resolveThread = operations.resolveThread;
+ 					operations.resolveThread = (id) => repairOperation.run(true, async () => {
+ 						const current = await assertLease();
 @@ -2890,6 +3452,13 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");

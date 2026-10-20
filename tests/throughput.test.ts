@@ -518,3 +518,22 @@ test('a reviewed head with failing required checks waits only while the push cap
   assert.match(source, /reviewedRetryAt = pushes\.length >= repairPushCap \? Math\.min\(\.\.\.pushes\) \+ 864e5 \+ 6e4 : void 0;/)
   assert.match(source, /if \(reviewedRetryAt !== void 0 && isRuntimeRecord\(assessment\) && assessment\.version === 2/)
 })
+
+test('new checks and bot reviews do not reject a pass, and a real evidence change ends it at once', () => {
+  // 2026-10-19: about 51% of passes had a write rejected as "evidence changed" by a check run or bot
+  // review that landed mid-pass, then spent about four more tool calls before ending.
+  const key = source.slice(source.indexOf('const repairEvidenceKey = (snapshot) => {'), source.indexOf('let observePendingPush;'))
+  assert.match(key, /head: head === pullRequest\.headRefOid/)
+  assert.match(key, /base: base && \{\n\t+ref: base\.ref,/)
+  assert.match(key, /filter\(\(\[id\]\) => handledThreads\.has\(id\) \|\| ownedResolutions\.has\(id\)\)/)
+  assert.doesNotMatch(key, /checks|statuses|reviews|comments|mergeReviewEvidenceKey/)
+  assert.match(source, /const handledThreads = new Set\(inboxClaim\.snapshot\.threads\.filter\(\(thread\) => thread\.isResolved !== true\)/)
+  // The first rejection aborts the pass, so the claim requeues like a changed base.
+  assert.match(source, /const changed = new DOMException\("Pull request evidence changed\.", "AbortError"\);\n(?:[^\n]*\n){5}\t+passController\.abort\(changed\);\n\t+throw changed;/)
+  // Read-only tools only check the lease.
+  assert.match(source, /command: async \(args, request\) => \{\n\t+await \(readOperation\.getStore\(\) \? assertLeaseHeld\(\) : assertLease\(\)\);/)
+  assert.match(source, /"readCheckLogs",\n\t+"readBaseCheckEvidence",\n\t+"readBaseCheckLogs"\n\t+\]\) \{\n\t+const read = operations\[name\];\n\t+operations\[name\] = \(\.\.\.args\) => readOperation\.run\(true, \(\) => read\(\.\.\.args\)\);/)
+  // Merges still re-read required checks and the live PR before merging.
+  assert.match(source, /const evaluation = evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\);/)
+  assert.match(source, /const current = liveMergeReadiness\(live, decision\.head\);/)
+})
