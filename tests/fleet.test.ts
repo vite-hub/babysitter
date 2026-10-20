@@ -291,6 +291,64 @@ test('a fleet Box mirrors the checkout without dependency trees and round-trips 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('a fleet refresh reinstalls only when manifests, lockfile or patches changed since the last good install', async () => {
+  // 2026-10-19: every fleet refresh uploaded manifests and reinstalled, p50 30 s.
+  const { root, work } = checkout()
+  const bin = join(root, 'bin')
+  const installs = join(root, 'installs.log')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\necho "$*" >> ${JSON.stringify(installs)}\ntest ! -e ${JSON.stringify(join(root, 'fail'))}\n`, { mode: 0o755 })
+  writeFileSync(join(work, 'package.json'), '{"name":"x"}\n')
+  writeFileSync(join(work, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+  mkdirSync(join(work, 'patches'))
+  writeFileSync(join(work, 'patches', 'a.patch'), 'one\n')
+  git(work, 'add', '-A')
+  git(work, 'commit', '-qm', 'deps')
+  const runtime = createSshBoxRuntime({ host: 'test', transport: localTransport(), root: join(root, 'remote'), path: `${bin}:${process.env.PATH}` })
+  const input = { cwd: work, identity: 'i', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+  const plan = await runtime.prepare(input)
+  const session = await runtime.open(input, { executionAuthority: plan.executionAuthority }) as FleetBoxSession
+  const count = () => existsSync(installs) ? readFileSync(installs, 'utf8').trim().split('\n').length : 0
+  try {
+    assert.equal(count(), 1)
+    await session.refreshDependencies(work)
+    assert.equal(count(), 1)
+    writeFileSync(join(work, 'patches', 'a.patch'), 'two\n')
+    await session.refreshDependencies(work)
+    assert.equal(count(), 2)
+    assert.equal(readFileSync(join(session.cwd, 'patches', 'a.patch'), 'utf8'), 'two\n')
+    await session.refreshDependencies(work)
+    assert.equal(count(), 2)
+    // A failed install is not reused: the same inputs install again on the next refresh.
+    writeFileSync(join(root, 'fail'), '')
+    writeFileSync(join(work, 'package.json'), '{"name":"y"}\n')
+    await assert.rejects(session.refreshDependencies(work), /\[fleet\] Dependency install failed on test/)
+    rmSync(join(root, 'fail'))
+    const failed = count()
+    await session.refreshDependencies(work)
+    assert.equal(count(), failed + 1)
+    await session.refreshDependencies(work)
+    assert.equal(count(), failed + 1)
+  }
+  finally {
+    await session.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the patched framework caps dependency refreshes per pass', () => {
+  let modules = join(process.cwd(), 'node_modules', 'vite-hub')
+  modules = execFileSync('node', ['-e', 'console.log(require("fs").realpathSync(process.argv[1]))', modules], { encoding: 'utf8' }).trim()
+  const dist = join(modules, '..', '@vite-hub', 'agent', 'dist')
+  const source = execFileSync('ls', [dist], { encoding: 'utf8' }).split('\n').filter(name => name.endsWith('.js')).map(name => readFileSync(join(dist, name), 'utf8')).join('\n')
+  // 2026-10-19: one pass called refreshDependencies 16 times.
+  assert.match(source, /execute: \(\) => withinRepair\(async \(\) => \{\n\t+workspace\?\.admitRefresh\?\.\(\);\n\t+await workspace\?\.beforeRepair\(context\.context\);/)
+  assert.match(source, /const dependencyRefreshCap = 2;/)
+  assert.match(source, /if \(dependencyRefreshes >= dependencyRefreshCap\) throw new Error\(`refreshDependencies already ran \$\{dependencyRefreshCap\} times in this pass, the limit\. Do not call it again\./)
+  // With the cap spent, a commit of changed inputs is left to CI instead of demanding another refresh.
+  assert.match(source, /&& \(dependencyRefreshes < dependencyRefreshCap \|\| await hasCurrentGitHubDependencies\(providerDirectory\)\);/)
+})
+
 test('the patched framework accepts tunnelled Box runtimes and places passes before installing', () => {
   let modules = join(process.cwd(), 'node_modules', 'vite-hub')
   modules = execFileSync('node', ['-e', 'console.log(require("fs").realpathSync(process.argv[1]))', modules], { encoding: 'utf8' }).trim()

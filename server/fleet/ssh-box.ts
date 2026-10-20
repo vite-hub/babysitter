@@ -6,7 +6,7 @@ import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:os'
 import { createReadStream } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readlink, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, posix, relative } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -155,6 +155,22 @@ async function hostGit(checkout: string, args: string[], input?: string) {
   return (await child).stdout
 }
 
+/** Host checkout paths a dependency install reads: manifests, lockfiles and pnpm patches. */
+async function dependencyInputs(checkout: string) {
+  const paths = (await hostGit(checkout, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).toString('utf8').split('\0')
+  return [...new Set(paths.filter(path => path && (manifestNames.has(posix.basename(path)) || path.startsWith('patches/'))))].toSorted()
+}
+
+async function dependencyInputsHash(checkout: string, paths: readonly string[]) {
+  const hash = createHash('sha256')
+  for (const path of paths) {
+    const contents = await readFile(join(checkout, path)).catch(() => undefined)
+    hash.update(path).update(contents ? '\0file\0' : '\0missing\0')
+    if (contents) hash.update(contents).update('\0')
+  }
+  return hash.digest('hex')
+}
+
 async function installCommand(checkout: string) {
   const exists = (name: string) => lstat(join(checkout, name)).then(() => true, () => false)
   if (await exists('pnpm-lock.yaml')) return 'pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile'
@@ -261,6 +277,9 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   const assertOpen = () => { if (closing) throw new Error('[fleet] Box session is closed.') }
   let mirror: string | undefined
   let generatedCodexConfig = false
+  // Hash of the dependency inputs of the last successful install in this Box. A refresh with the
+  // same inputs reuses it: 2026-10-19 fleet refreshes reinstalled every time, p50 30 s.
+  let installedInputs: string | undefined
 
   const exec = async (command: string, args: readonly string[] = [], execOptions: BoxExecOptions = {}): Promise<BoxExecResult> => {
     assertOpen()
@@ -380,21 +399,28 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     }
   }
 
-  const install = async (checkout: string, abortSignal?: AbortSignal, frozen = true) => {
+  /** Whether the Box now has the dependencies its inputs describe. */
+  const install = async (checkout: string, abortSignal?: AbortSignal, frozen = true): Promise<boolean> => {
     const command = await installCommand(checkout)
-    if (!command) return
+    if (!command) return true
     const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { ${line} > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s; }`
     let result = await runScript(transport, script(command), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
     if (result.code !== 0 && !frozen) result = await runScript(transport, script(command.replace('--frozen-lockfile', '--no-frozen-lockfile')), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
     const record = (status: 'installed' | 'failed', reason?: string) => files.write(`${work}/.git/vitehub-install.json`, Buffer.from(JSON.stringify({ status, reason, at: new Date().toISOString() })), { signal: abortSignal })
-    if (result.code === 0) return await record('installed')
+    if (result.code === 0) {
+      await record('installed')
+      return true
+    }
     // A prepared conflict merge can leave lockfiles unmerged; the pass resolves them.
     const unmerged = await runScript(transport, `git -C ${q(work)} ls-files -u | head -1`, { signal: abortSignal })
-    if (unmerged.code === 0 && unmerged.stdout.length) return
+    if (unmerged.code === 0 && unmerged.stdout.length) return false
     const failure = `[fleet] Dependency install failed on ${options.host}: ${result.stderr.trim().slice(-2000)}`
     // Materializing the Box continues without dependencies: the model reads the record and repairs
     // the PR's dependency inputs or works without them. A refresh the model asked for still throws.
-    if (frozen) return await record('failed', failure)
+    if (frozen) {
+      await record('failed', failure)
+      return false
+    }
     throw new Error(failure)
   }
 
@@ -424,7 +450,8 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       const tar = spawn('tar', ['-C', checkout, ...dependencyExcludes, '-czf', '-', '.'], { stdio: ['ignore', 'pipe', 'ignore'] })
       const unpacked = await shell(`tar -C ${q(work)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: tar.stdout, signal: abortSignal })
       if (unpacked.stdout.toString().trim() !== head) throw new Error(`[fleet] Box HEAD does not match the host checkout ${head}.`)
-      await install(checkout, abortSignal)
+      const inputs = await dependencyInputsHash(checkout, await dependencyInputs(checkout))
+      if (await install(checkout, abortSignal)) installedInputs = inputs
       for (const [path, file] of Object.entries(boxInput.plan.files)) await files.write(`${home}/${path}`, await file.resolve(), { signal: abortSignal })
       if (options.codexConfig && !Object.hasOwn(boxInput.plan.files, '.codex/config.toml')) {
         await files.write(`${home}/.codex/config.toml`, Buffer.from(options.codexConfig(work)), { signal: abortSignal })
@@ -470,9 +497,12 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       }
     },
     async refreshDependencies(checkout, abortSignal) {
-      const tracked = (await hostGit(checkout, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).toString('utf8').split('\0')
-      await uploadPaths(checkout, tracked.filter(path => path && (manifestNames.has(posix.basename(path)) || path.startsWith('patches/'))), abortSignal)
-      await install(checkout, abortSignal, false)
+      const paths = await dependencyInputs(checkout)
+      const inputs = await dependencyInputsHash(checkout, paths)
+      if (inputs === installedInputs) return
+      installedInputs = undefined
+      await uploadPaths(checkout, paths, abortSignal)
+      if (await install(checkout, abortSignal, false)) installedInputs = inputs
     },
     async close() {
       return closing ??= (async () => {

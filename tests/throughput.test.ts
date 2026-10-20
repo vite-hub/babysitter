@@ -284,7 +284,7 @@ test('a failed dependency install never blocks the pass', () => {
   // 2026-10-18: install is optional. The pass continues without dependencies and the model reads
   // .git/vitehub-install.json; commits after a failed install leave validation to hosted CI.
   assert.match(source, /schedulerEvent\("babysitter\.install\.continued"/)
-  assert.match(source, /const verifyDependencies = presetOptions\.install !== false && !fleetPlacement\?\.box && !await installFailed\(providerDirectory\);/)
+  assert.match(source, /const verifyDependencies = presetOptions\.install !== false && !fleetPlacement\?\.box && !await installFailed\(providerDirectory\) && /)
 })
 
 test('a pass interrupted by provider rate limits keeps the same-head budget', () => {
