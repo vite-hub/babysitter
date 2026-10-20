@@ -516,6 +516,12 @@ test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemption
   assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [] }), `assessment:${head}`)
   assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [`assessment:${head}`] }), undefined)
   assert.equal(dailyPassExemption(s(), 'pending', { passes, human: 4, exemptions: [] }), undefined)
+  // A failing head whose push window is open gets one pass per window, keyed by its last push.
+  const failedOnce = { passes, human: 4, exemptions: [`required-failure:${head}`] }
+  assert.equal(dailyPassExemption(s(), 'failed', failedOnce), undefined)
+  assert.equal(dailyPassExemption(s(), 'failed', failedOnce, 123), `ci-repair:${head}:123`)
+  assert.equal(dailyPassExemption(s(), 'failed', { ...failedOnce, exemptions: [...failedOnce.exemptions, `ci-repair:${head}:123`] }, 123), undefined)
+  assert.match(source, /const openPushWindow = requiredChecks === "failed" && repairPushAllowance\(pushes, requiredChecks, false\)\.allowed \? Math\.max\(0, \.\.\.pushes\) : void 0;/)
   assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [] }), `required-failure:${head}`)
   assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [`required-failure:${head}`] }), undefined)
   assert.equal(dailyPassExemption(s({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: false } }), 'passed', { passes, human: 4, exemptions: [] }), `conflict:${head}:${'1'.repeat(40)}`)
