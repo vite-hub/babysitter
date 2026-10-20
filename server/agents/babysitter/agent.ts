@@ -135,9 +135,14 @@ requirements; pick the option that keeps existing behavior compatible, say which
 thread reply, and resolve it. Park with an external wait only for something outside the
 repository that a retry cannot fix; the host retries every external wait after two hours.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck. Do
-not run local builds or broad validation matrices; use CI logs to diagnose remote
-build failures.
+Make at most one repair commit per pass. Run focused tests, lint and typecheck the way the
+repository's CONTRIBUTING.md or AGENTS.md says. In a monorepo, run the changed package's own
+scripts (pnpm --dir packages/<pkg> run typecheck, pnpm --dir packages/<pkg> exec vitest run
+test/<file>); never run vitest from the repository root. When a typecheck cannot find a
+workspace package, build only that dependency with the repository's documented build command
+and retry. Do not run full builds or broad validation matrices; use CI logs to diagnose remote
+build failures. List instruction files with git ls-files '*AGENTS.md' '*CONTRIBUTING.md', and
+never search outside the checkout (find .., /, ~).
 
 Do not create direction-validation markers. Preserve the PR description when
 removing obsolete generated direction or blocker notes. Keep detailed evidence in
