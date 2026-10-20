@@ -961,6 +961,28 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const memoryConcurrency = context.active + additional;
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
+diff --git a/dist/provider-agent.js b/dist/provider-agent.js
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..88e2ccfd57c751f48895c6cb75e951c3aece180b 100644
+--- a/dist/provider-agent.js
++++ b/dist/provider-agent.js
+@@ -3101,7 +3101,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 			model: options.model,
+ 			resumeCursor,
+ 			runtimeMode: providerRuntimeMode[options.permissions ?? "ask"],
+-			...options.permissions === "allow-edits-unattended" ? { approvalPolicy: "never" } : {},
++			// Unattended edits run Codex in workspace-write, whose network access defaults to off. The
++			// Babysitter's instructions promise network access, and on 2026-10-20 22 of 120 passes failed
++			// lockfile repairs on `getaddrinfo EAI_AGAIN registry.npmjs.org` (#2390).
++			...options.permissions === "allow-edits-unattended" ? {
++				approvalPolicy: "never",
++				sandboxPolicy: {
++					type: "workspaceWrite",
++					networkAccess: true
++				}
++			} : {},
+ 			threadId
+ 		}), effectiveSignal, (session) => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime());
+ 		if (session.resumeCursor !== void 0) pendingResumeCursor = session.resumeCursor;
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
 index 3d014e275480bea4581de5d945ae89a8131f4ccc..95817e20b8e88efaa8ef483c565d6e35d8b0a0e8 100644
 --- a/dist/server-DZOuXkga.js

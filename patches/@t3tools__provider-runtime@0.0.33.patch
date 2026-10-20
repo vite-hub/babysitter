@@ -1,0 +1,14 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 6823e621c512b976bad5cfc26bf4fe290241fe93..2793383d116ad52e7a05f08dd6d09346d90818f3 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -51136,7 +51136,8 @@ async function createProviderRuntime(options) {
+ 				runtimeMode: runtimeMode ?? "full-access",
+ 				interactionMode: "default",
+ 				cwd: sessionInput.cwd ?? cwd,
+-				...sessionInput.approvalPolicy === void 0 ? {} : { approvalPolicy: sessionInput.approvalPolicy }
++				...sessionInput.approvalPolicy === void 0 ? {} : { approvalPolicy: sessionInput.approvalPolicy },
++				...sessionInput.sandboxPolicy === void 0 ? {} : { sandboxPolicy: sessionInput.sandboxPolicy }
+ 			};
+ 			const providerSessionId = await run(idAllocator.allocate.providerSession({
+ 				providerInstanceId: identity.instanceId,

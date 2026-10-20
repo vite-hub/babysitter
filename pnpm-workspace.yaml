@@ -25,4 +25,5 @@ overrides:
   "@vite-hub/workflow": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workflow@1ba6ed37a895e63d77e74695c7f7602fa96ffa7c"
   "@vite-hub/workspace": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/workspace@1ba6ed37a895e63d77e74695c7f7602fa96ffa7c"
 patchedDependencies:
+  '@t3tools/provider-runtime@0.0.33': patches/@t3tools__provider-runtime@0.0.33.patch
   '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch
