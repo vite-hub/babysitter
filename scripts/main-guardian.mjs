@@ -40,8 +40,40 @@ const log = (message, fields = {}) => console.log(JSON.stringify({ event: `main-
 
 const { token } = await api(`app/installations/${process.env.GITHUB_APP_INSTALLATION_ID}/access_tokens`, { token: appJwt(), method: 'POST' })
 const head = (await api(`repos/${repository}/commits/${base}`, { token })).sha
+
+// A push run on main waits behind the one in progress. On 2026-10-20 a job whose runner vanished kept
+// a ci run "in progress" for 9.5 h, and every later main run stayed pending. No job may run past 60
+// minutes, so a job running for longer is stuck: force-cancel its run.
+const stuckJobMs = Number(process.env.MAIN_GUARDIAN_STUCK_JOB_MINUTES ?? 90) * 60_000
+for (const run of (await api(`repos/${repository}/actions/runs?branch=${base}&event=push&status=in_progress&per_page=20`, { token })).workflow_runs.filter(run => workflowNames.includes(run.name))) {
+  const stuck = (await api(`repos/${repository}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`, { token })).jobs.filter(job => job.status === 'in_progress' && Date.now() - Date.parse(job.started_at) > stuckJobMs)
+  if (!stuck.length) continue
+  if (dryRun) {
+    log('would-cancel-stuck', { run: run.id, head_sha: run.head_sha, jobs: stuck.map(job => job.name) })
+    continue
+  }
+  try {
+    await api(`repos/${repository}/actions/runs/${run.id}/force-cancel`, { token, method: 'POST' })
+    log('cancelled-stuck', { run: run.id, head_sha: run.head_sha, jobs: stuck.map(job => job.name) })
+  }
+  catch (error) {
+    log('cancel-stuck-failed', { run: run.id, error: String(error).slice(0, 300) })
+  }
+}
+
 const runs = (await api(`repos/${repository}/actions/runs?branch=${base}&event=push&head_sha=${head}&per_page=20`, { token })).workflow_runs.filter(run => workflowNames.includes(run.name))
-const failed = runs.find(run => run.status === 'completed' && run.conclusion === 'failure')
+let failed = runs.find(run => run.status === 'completed' && run.conclusion === 'failure')
+// Main moves faster than its CI finishes, and a newer push cancels the queued run, so the tip rarely
+// has a finished run. The guardian then never saw a red main. Fall back to the newest finished run
+// of each watched workflow, if it finished after the last repair merged.
+if (!failed) {
+  const repairs = (await api(`repos/${repository}/pulls?state=closed&base=${base}&sort=updated&direction=desc&per_page=50`, { token })).filter(pull => pull.head.ref.startsWith(branchPrefix) && pull.merged_at)
+  const repairedAt = Math.max(0, ...repairs.map(pull => Date.parse(pull.merged_at)))
+  const finished = (await api(`repos/${repository}/actions/runs?branch=${base}&event=push&status=completed&per_page=100`, { token })).workflow_runs
+    .filter(run => workflowNames.includes(run.name) && !['cancelled', 'skipped'].includes(run.conclusion) && Date.parse(run.created_at) > repairedAt)
+  const latest = workflowNames.map(name => finished.find(run => run.name === name)).filter(Boolean)
+  failed = latest.find(run => run.conclusion === 'failure')
+}
 if (!failed && (!runs.length || runs.some(run => run.status !== 'completed'))) {
   log('waiting', { head, reason: runs.length ? 'ci-running' : 'no-ci-run' })
   process.exit(0)
@@ -57,15 +89,16 @@ if (open) {
   log('repair-open', { head, pull_request: open.number })
   process.exit(0)
 }
-const branch = `${branchPrefix}${head.slice(0, 8)}`
+const red = failed.head_sha
+const branch = `${branchPrefix}${red.slice(0, 8)}`
 if (await api(`repos/${repository}/git/ref/heads/${branch}`, { token })) {
   // This head already had a repair PR; wait for main to move instead of reopening the same one.
-  log('already-attempted', { head, branch })
+  log('already-attempted', { head, red, branch })
   process.exit(0)
 }
 
 const jobs = (await api(`repos/${repository}/actions/runs/${failed.id}/jobs?filter=latest&per_page=100`, { token })).jobs.filter(job => job.conclusion === 'failure')
-const body = `${base} is red at ${head}: the \`${failed.name}\` run ${failed.html_url} failed.
+const body = `${base} is red at ${red}: the \`${failed.name}\` run ${failed.html_url} failed.
 
 Failed jobs:
 ${jobs.map(job => `- [${job.name}](${job.html_url})`).join('\n') || '- (see the run)'}
@@ -79,7 +112,7 @@ if (dryRun) {
   process.exit(0)
 }
 const tree = (await api(`repos/${repository}/git/commits/${head}`, { token })).tree.sha
-const commit = await api(`repos/${repository}/git/commits`, { token, method: 'POST', body: { message: `chore: start main repair for ${head.slice(0, 8)}`, tree, parents: [head] } })
+const commit = await api(`repos/${repository}/git/commits`, { token, method: 'POST', body: { message: `chore: start main repair for ${red.slice(0, 8)}`, tree, parents: [head] } })
 await api(`repos/${repository}/git/refs`, { token, method: 'POST', body: { ref: `refs/heads/${branch}`, sha: commit.sha } })
-const pull = await api(`repos/${repository}/pulls`, { token, method: 'POST', body: { title: `fix: repair ${base} after ${head.slice(0, 8)}`, head: branch, base, body } })
+const pull = await api(`repos/${repository}/pulls`, { token, method: 'POST', body: { title: `fix: repair ${base} after ${red.slice(0, 8)}`, head: branch, base, body } })
 log('opened', { head, branch, pull_request: pull.number, jobs: jobs.map(job => job.name) })

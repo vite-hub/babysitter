@@ -341,11 +341,31 @@ test('a reviewed head counts as assessed even when the pass parks on an external
   assert.match(source, /\} else if \(!assessed && disposition === "park" && current\?\.pr\?\.head\?\.sha === pullRequest\.headRefOid && passResult\?\.wait\?\.kind === "external"\) \{/)
 })
 
-test('repair pushes are capped per PR except for conflict repairs', () => {
+test('repair pushes are capped per PR except for conflict repairs and spaced CI repairs', async () => {
   // Review loops reached 23-94 commits per PR (#2596, #2198, #2186).
   assert.match(source, /const repairPushCap = 5;/)
-  assert.match(source, /if \(pushes\.length >= repairPushCap && current\.pr\?\.mergeable !== false\) throw new Error\(`Push cap reached/)
+  assert.match(source, /const allowance = repairPushAllowance\(await pullRequestInbox\.meta\(`repair-pushes:\$\{repository\}#\$\{number\}`\) \?\? \[\], await requiredCheckState\(inboxClaim\.snapshot\), current\.pr\?\.mergeable === false\);\n\t+if \(!allowance\.allowed\) throw new Error\(`Push cap reached/)
   assert.match(source, /await pullRequestInbox\.setMeta\(`repair-pushes:\$\{repository\}#\$\{number\}`, \[/)
+  // 2026-10-20: twelve PRs had a validated CI repair refused by the cap. Failing required checks
+  // still get one push every two hours past the cap.
+  const { r: repairPushAllowance } = await import(join(dist, 'server-DZOuXkga.js'))
+  const now = 10 * 864e5
+  const hour = 36e5
+  const five = [10, 8, 6, 4, 3].map(hours => now - hours * hour)
+  assert.deepEqual(repairPushAllowance(five.slice(1), 'passed', false, now), { allowed: true, count: 4 })
+  assert.deepEqual(repairPushAllowance(five, 'passed', false, now), { allowed: false, count: 5, nextAt: five[0] + 864e5 })
+  assert.deepEqual(repairPushAllowance(five, 'passed', true, now), { allowed: true, count: 5 })
+  assert.deepEqual(repairPushAllowance(five, 'failed', false, now), { allowed: true, count: 5, spaced: true })
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 'failed', false, now), { allowed: false, count: 6, nextAt: now + hour })
+  // Pushes older than a day do not count.
+  assert.deepEqual(repairPushAllowance([now - 25 * hour, ...five.slice(1)], 'passed', false, now), { allowed: true, count: 4 })
+})
+
+test('a pass that could not push its CI repair does not start, and the prompt says whether it can push', () => {
+  assert.match(source, /if \(await requiredCheckState\(snapshot\) !== "failed"\) return false;\n\t+const allowance = repairPushAllowance\(/)
+  assert.match(source, /reason: "push-window",\n\t+retryAt: allowance\.nextAt \+ 6e4/)
+  assert.match(source, /const userMessage = `\$\{prompt\}\\n\\n\$\{snapshotContext\}\$\{installContext\}\$\{reviewBudgetContext\}\$\{pushContext\}`;/)
+  assert.match(source, /<required-checks-failing>/)
 })
 
 test('a green PR behind a strict base is updated instead of skipped', () => {
@@ -432,7 +452,7 @@ test('after the review push budget, bot feedback and review checks stop waking p
   // A spent PR with only bot work left parks; a head someone else pushed still gets a pass.
   assert.deepEqual(reviewPushBudgetWork(snapshot(3, { ...botReview, ...approvalFailed }), policy, new Set()), [])
   assert.deepEqual(reviewPushBudgetWork({ ...snapshot(3), reviewPushBudget: { count: 3, heads: [] } }, policy, new Set()), ['new-head'])
-  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkSpentReviewPushBudget\(\) \|\| await parkSpentDailyPassBudget\(\);/)
+  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkSpentReviewPushBudget\(\) \|\| await parkClosedPushWindow\(\) \|\| await parkSpentDailyPassBudget\(\);/)
   assert.match(source, /reason: "review-push-budget"\n/)
   // Pushes are counted on the snapshot in finish(), once per head, even when the wait is rejected.
   assert.match(source, /this\.recordReviewPush\(s, claim, result\.progress\);\n\t+const pinnedHead = result\.wait\?\.headSha;/)
@@ -492,7 +512,10 @@ test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemption
   const head = 'a'.repeat(40)
   const s = (extra: object = {}) => ({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: true }, checks: {}, statuses: {}, threads: [], humanFeedbackGeneration: 4, ...extra })
   assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 3, exemptions: [] }), 'human-feedback')
-  assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [] }), undefined)
+  // A head whose required checks pass gets one assessment pass, so an optional failing check cannot hold its merge.
+  assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [] }), `assessment:${head}`)
+  assert.equal(dailyPassExemption(s(), 'passed', { passes, human: 4, exemptions: [`assessment:${head}`] }), undefined)
+  assert.equal(dailyPassExemption(s(), 'pending', { passes, human: 4, exemptions: [] }), undefined)
   assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [] }), `required-failure:${head}`)
   assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [`required-failure:${head}`] }), undefined)
   assert.equal(dailyPassExemption(s({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: false } }), 'passed', { passes, human: 4, exemptions: [] }), `conflict:${head}:${'1'.repeat(40)}`)
@@ -520,7 +543,7 @@ test('a reviewed head with failing required checks waits only while the push cap
   // 2026-10-19: five PRs had a repair refused by the push cap, reported the head as reviewed, and
   // then took the reviewed-head shortcut every two minutes without ever getting the repair pass.
   assert.match(source, /if \(await requiredCheckState\(inboxClaim\.snapshot\) === "failed"\) \{/)
-  assert.match(source, /reviewedRetryAt = pushes\.length >= repairPushCap \? Math\.min\(\.\.\.pushes\) \+ 864e5 \+ 6e4 : void 0;/)
+  assert.match(source, /reviewedRetryAt = allowance\.allowed \? void 0 : allowance\.nextAt \+ 6e4;/)
   assert.match(source, /if \(reviewedRetryAt !== void 0 && isRuntimeRecord\(assessment\) && assessment\.version === 2/)
 })
 
@@ -541,4 +564,12 @@ test('new checks and bot reviews do not reject a pass, and a real evidence chang
   // Merges still re-read required checks and the live PR before merging.
   assert.match(source, /const evaluation = evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\);/)
   assert.match(source, /const current = liveMergeReadiness\(live, decision\.head\);/)
+})
+
+test('inherited base failures and retests reach a base tested more than 100 pushes ago', () => {
+  // 2026-10-20: main moved 120 commits past #2575's checks. The activity page missed the tested
+  // base, so no retest ran, and main's tip never had a finished run, so the base-failing park missed it.
+  assert.match(source, /commits\?sha=\$\{encodeURIComponent\(baseRef\)\}&until=\$\{new Date\(ranAt - 12e4\)\.toISOString\(\)\}&per_page=1/)
+  assert.match(source, /const tested = await checksTestedBase\(snapshot, pr\.head\.sha, baseRef, failed, signal\);/)
+  assert.match(source, /for \(const name of testedFailing\.map\(String\)\) if \(!passedOnTip\.has\(name\)\) inherited\.add\(name\);/)
 })

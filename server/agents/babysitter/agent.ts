@@ -135,6 +135,12 @@ requirements; pick the option that keeps existing behavior compatible, say which
 thread reply, and resolve it. Park with an external wait only for something outside the
 repository that a retry cannot fix; the host retries every external wait after two hours.
 
+Failing required checks come before review findings. When a required check fails in setup,
+install, lint, typecheck, build or tests, that failure is the repair for this pass, even when
+the PR also has open P1 findings: a broken lockfile or a duplicate declaration left by a merge
+blocks the merge, and review findings do not. A failing required check that also fails on the
+base is not this PR's to fix; say so and set reviewedHead.
+
 Make at most one repair commit per pass. Run focused tests, lint and typecheck the way the
 repository's CONTRIBUTING.md or AGENTS.md says. In a monorepo, run the changed package's own
 scripts (pnpm --dir packages/<pkg> run typecheck, pnpm --dir packages/<pkg> exec vitest run
