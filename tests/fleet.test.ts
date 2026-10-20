@@ -232,6 +232,8 @@ test('a fleet Box mirrors the checkout without dependency trees and round-trips 
     assert.equal(existsSync(join(session.cwd, 'node_modules')), false)
     assert.equal(readFileSync(join(session.cwd, 'untracked.txt'), 'utf8'), 'host only\n')
     assert.equal((await session.exec('sh', ['-c', 'printf %s "$EXTRA:$HOME"'])).stdout, `yes:${join(session.cwd, '..', 'home')}`)
+    // Temporary files stay in the Box directory, which close removes.
+    assert.equal((await session.exec('sh', ['-c', 'test -d "$TMPDIR" && printf %s "$TMPDIR"'], { env: { TMPDIR: '/host/tmp' } })).stdout, join(session.cwd, '..', 'tmp'))
     assert.equal(readFileSync(join(session.cwd, '..', 'home', '.codex', 'AGENTS.md'), 'utf8'), 'rules')
     assert.match(readFileSync(join(session.cwd, '..', 'home', '.codex', 'config.toml'), 'utf8'), /model_provider = "x"/)
 

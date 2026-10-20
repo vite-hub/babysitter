@@ -118,7 +118,7 @@ async function must(transport: FleetTransport, script: string, what: string, opt
 
 const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** The runtime owns these. Host values name host paths and never apply remotely. */
-const runtimeEnvironment = new Set(['CODEX_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
+const runtimeEnvironment = new Set(['CODEX_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'TEMP', 'TMP', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
 const exportsOf = (environment: Readonly<Record<string, string>>) =>
   Object.entries(environment).filter(([name]) => environmentName.test(name)).map(([name, value]) => `export ${name}=${q(value)}\n`).join('')
 
@@ -254,12 +254,17 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   const home = `${directory}/home`
   const work = `${directory}/work`
   const run = `${directory}/run`
+  // Tests, Node's compile cache and gh write here; the Box directory is removed on close, the host /tmp never is.
+  const tmp = `${directory}/tmp`
   const base: Record<string, string> = {
     HOME: home,
     INIT_CWD: work,
     OLDPWD: work,
     PWD: work,
     PATH: options.path,
+    TEMP: tmp,
+    TMP: tmp,
+    TMPDIR: tmp,
     XDG_CACHE_HOME: `${home}/.cache`,
     XDG_CONFIG_HOME: `${home}/.config`,
     XDG_STATE_HOME: `${home}/.local/state`,
@@ -443,7 +448,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     spawn: spawnProcess,
     async materialize(boxInput, abortSignal) {
       const checkout = boxInput.cwd!
-      await shell(`mkdir -p ${q(home)} ${q(work)} && umask 077 && mkdir -p ${q(run)}`, 'Box directory creation', { signal: abortSignal })
+      await shell(`mkdir -p ${q(home)} ${q(work)} ${q(tmp)} && umask 077 && mkdir -p ${q(run)}`, 'Box directory creation', { signal: abortSignal })
       await syncObjects(checkout, abortSignal)
       const head = (await hostGit(checkout, ['rev-parse', 'HEAD'])).toString().trim()
       // The source tree and Git metadata, without objects or dependency trees.
