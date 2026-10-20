@@ -530,7 +530,7 @@ test('a PR gets at most dailyPassBudget model passes in 24 hours, with exemption
   assert.equal(dailyPassExemption(s(), 'failed', { passes, human: 4, exemptions: [`required-failure:${head}`] }), undefined)
   assert.equal(dailyPassExemption(s({ pr: { head: { sha: head }, base: { sha: '1'.repeat(40) }, mergeable: false } }), 'passed', { passes, human: 4, exemptions: [] }), `conflict:${head}:${'1'.repeat(40)}`)
   // Counted on the snapshot once per pass, right before the model starts; the park names the resume time.
-  assert.match(source, /if \(!modelDispatched && dailyPassBudget !== false\) await pullRequestInbox\.recordModelPass\(inboxClaim, /)
+  assert.match(source, /if \(!modelDispatched && dailyPassBudget !== false\) \{\n\t+const exemption = dailyPassExemptionUsed === humanFeedbackExemption \? void 0 : dailyPassExemptionUsed;\n\t+const at = await pullRequestInbox\.recordModelPass\(inboxClaim, exemption\);/)
   assert.match(source, /reason: "daily-pass-budget",\n\t+retryAt: resumeAt/)
   assert.match(source, /parked: budgetParks\(queue\)/)
 })
@@ -582,4 +582,13 @@ test('inherited base failures and retests reach a base tested more than 100 push
   assert.match(source, /commits\?sha=\$\{encodeURIComponent\(baseRef\)\}&until=\$\{new Date\(ranAt - 12e4\)\.toISOString\(\)\}&per_page=1/)
   assert.match(source, /const tested = await checksTestedBase\(snapshot, pr\.head\.sha, baseRef, failed, signal\);/)
   assert.match(source, /for \(const name of testedFailing\.map\(String\)\) if \(!passedOnTip\.has\(name\)\) inherited\.add\(name\);/)
+})
+
+test('a pass the provider fails early gives its daily pass and exemption back', () => {
+  // 2026-10-20: #2390's one CI-repair pass died on a stream disconnect before any tool call, and the
+  // PR then waited 5 h for its daily budget. 12 such disconnects happened in 6 h.
+  assert.match(source, /return isProviderRateLimit\(error\) \|\| \/stream disconnected before completion\|stream closed before response\\\.completed\/i\.test\(text\);/)
+  assert.match(source, /if \(recordedPass && isProviderFailure\(error\) && Date\.now\(\) - recordedPass\.at < providerFailureReleaseMs\) \{/)
+  assert.match(source, /passResult = await releaseProviderFailedPass\(\(\) => runWithProviderRetry\(async \(\) => \{/)
+  assert.match(source, /passes: s\.dailyPassBudget\.passes\.filter\(\(pass\) => pass !== at\),/)
 })
