@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Like deploy.sh, but stops the service after the drain and compacts the state DB before starting the
-# new release (ops/compact-state-db.mjs). The previous DB stays next to it as a backup.
+# new release (ops/compact-state-db.mjs). The previous DB stays next to it as a backup. It also prunes
+# the worker Codex home (ops/prune-codex-home.mjs).
 # Usage: scripts/deploy-compact.sh   (run from a clean, committed checkout; needs sudo)
 set -euo pipefail
 unit=babysitter-vitehub.service
@@ -45,6 +46,7 @@ sudo sh -c "mv '$data/agent-state.db' '$backup' && for s in -wal -shm; do [ -e '
 sudo chown svc-babysitter:codex-workspace "$data/agent-state.db"
 sudo chmod 0644 "$data/agent-state.db"
 echo "compacted at $(date -u +%T)Z: $(sudo stat -c %s "$data/agent-state.db") bytes (backup $backup)"
+sudo node ops/prune-codex-home.mjs /home/agents/.codex
 trap - ERR
 sudo systemctl start "$unit"
 until curl -s -m 5 "localhost:$port/api/health" | grep -q "\"release\":\"$sha\""; do sleep 3; done
