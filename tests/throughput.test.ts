@@ -610,3 +610,10 @@ test('stack children repair in parallel but never merge into their open parent',
   assert.match(source, /if \(stackParent === void 0 && await mergeReadyPullRequest\(inboxClaim, owner, passSignal\) !== "not-ready"\) return;/)
   assert.match(source, /if \(stackParent !== void 0 && !requiredChecksFailed\) \{\n\t+await parkOnStackParent\(\);/)
 })
+
+test('unknown GitHub mergeability delays a pass by at most 10 minutes per head', () => {
+  // 2026-10-21: 15 Content stack PRs stayed UNKNOWN for hours and rechecked every 30 s without a pass.
+  assert.match(source, /const unknownKey = `mergeability-unknown:\$\{repository\}#\$\{number\}`;/)
+  assert.match(source, /if \(unknownMergeability && Date\.now\(\) - unknownSince\.at >= 6e5\) schedulerEvent\("babysitter\.mergeability\.unknown_proceeding"/)
+  assert.match(source, /else if \(unknownMergeability\) \{\n\t+const reason = "GitHub is still calculating mergeability for this PR head\.";/)
+})
