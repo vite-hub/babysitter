@@ -52,6 +52,8 @@ export default defineAgent({
       // commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
       // repair PRs (scripts/main-guardian.mjs).
       author: { allow: ['onmax', 'renovate[bot]', 'renovate', 'vitehub-bot[bot]', 'vitehub-bot'] },
+      // A person working a PR by hand labels it so no pass pushes over their work.
+      labels: { deny: ['babysitter:skip'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
