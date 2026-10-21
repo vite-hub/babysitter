@@ -250,6 +250,11 @@ test('an exhausted head gets one more pass for a new conflict or new bot feedbac
   assert.match(source, /resetReason: previous\?\.resetReason,\n\t+\.\.\.previous\?\.grants \? \{ grants: previous\.grants \} : \{\}/)
 })
 
+test('a repair-main PR never exhausts its no-progress budget', () => {
+  // vite-hub/vitehub#2678 spent its 3 passes on one head and every PR waited 4 h on a red main.
+  assert.match(source, /const exhausted = count >= limit && !String\(s\.pr\?\.head\?\.ref \?\? ""\)\.startsWith\("babysitter\/repair-main-"\);\n\t+s\.progressBudget = \{\n\t+head,\n\t+limit,\n\t+count,\n\t+exhausted,/)
+})
+
 test('a pass whose wait loses to new bot evidence still counts', () => {
   // vite-hub/vitehub#2531
   assert.match(source, /this\.recordRejectedProgress\(s, claim, result\.progress\);\n\t+await this\.put\(tx, s\);\n\t+return false;/)

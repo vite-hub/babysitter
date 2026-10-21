@@ -469,7 +469,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3c6cedbcc3adcdb2e9c3dea0ec9ab9dbaa8b3c5a 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab231604238f2d0 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,14 +26,76 @@ const progressBudgetSchema = v.object({
@@ -891,11 +891,20 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3c6cedbcc3adcdb2e9c3dea0ec9ab9db
  	recordProgress(s, claim, progress) {
  		const head = s.pr?.head?.sha;
  		if (progress?.kind === "verified") requireEvidence(progress.evidence);
-@@ -1836,9 +2043,11 @@ var PullRequestInbox = class {
+@@ -1831,14 +2038,19 @@ var PullRequestInbox = class {
+ 			const creditedEvidence = previous?.creditedEvidence ?? [];
+ 			const verified = progress.kind === "verified" && !creditedEvidence.includes(progress.evidence);
+ 			const count = verified ? 0 : (previous?.count ?? 0) + 1;
++			// A repair-main PR gates every PR that inherits main's failures, so only the daily pass budget
++			// caps it. On 2026-10-21 #2678 spent its 3 passes and vitehub merged nothing for 4 h.
++			const exhausted = count >= limit && !String(s.pr?.head?.ref ?? "").startsWith("babysitter/repair-main-");
+ 			s.progressBudget = {
+ 				head,
  				limit,
  				count,
- 				exhausted: count >= limit,
-+				...count >= limit ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
+-				exhausted: count >= limit,
++				exhausted,
++				...exhausted ? { exhaustedAt: previous?.exhausted ? previous.exhaustedAt : this.clock() } : {},
  				evidence: verified ? progress.evidence : previous?.evidence,
  				creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
 -				resetReason: previous?.resetReason
@@ -904,7 +913,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3c6cedbcc3adcdb2e9c3dea0ec9ab9db
  			};
  		}
  	}
-@@ -1871,6 +2080,14 @@ var PullRequestInbox = class {
+@@ -1871,6 +2083,14 @@ var PullRequestInbox = class {
  				evidenceKey
  			});
  			if (s.wait.evidenceKey === evidenceKey) return false;
@@ -919,7 +928,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3c6cedbcc3adcdb2e9c3dea0ec9ab9db
  			if (options.recovery) {
  				s.recoveryHead = s.pr?.head?.sha;
  				s.refresh = true;
-@@ -2209,7 +2426,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
+@@ -2209,7 +2429,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
  			repository: { full_name: s.repository },
  			...payload
  		};
@@ -939,7 +948,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3c6cedbcc3adcdb2e9c3dea0ec9ab9db
  		await inbox.ingest(id, event, full);
  	};
  	await ingest("pull_request", {
-@@ -2668,4 +2896,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
+@@ -2668,4 +2899,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
  	};
  }
  //#endregion
