@@ -601,3 +601,12 @@ test('unattended Codex passes get network access in their workspace-write sandbo
   const runtime = readFileSync(join(realpathSync(dist), '../../../@t3tools/provider-runtime/dist/index.mjs'), 'utf8')
   assert.match(runtime, /\.\.\.sessionInput\.sandboxPolicy === void 0 \? \{\} : \{ sandboxPolicy: sessionInput\.sandboxPolicy \}/)
 })
+
+test('stack children repair in parallel but never merge into their open parent', () => {
+  // 2026-10-21: a 22-PR stack ran one PR at a time because claims skipped every child of an open PR.
+  assert.doesNotMatch(source, /AND state='open' AND head_ref=\?\n\s+AND json_extract\(value, '\$\.pr\.head\.repo\.full_name'\) = \? COLLATE NOCASE LIMIT 1`/)
+  assert.match(source, /const stackParent = retargeted && "parent" in retargeted \? retargeted\.parent : void 0;/)
+  assert.match(source, /if \(stackParent !== void 0 && merge\.mode !== "direct"\) \{\n\t+await parkOnStackParent\(\);/)
+  assert.match(source, /if \(stackParent === void 0 && await mergeReadyPullRequest\(inboxClaim, owner, passSignal\) !== "not-ready"\) return;/)
+  assert.match(source, /if \(stackParent !== void 0 && !requiredChecksFailed\) \{\n\t+await parkOnStackParent\(\);/)
+})
