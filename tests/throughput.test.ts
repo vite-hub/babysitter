@@ -345,7 +345,7 @@ test('a reviewed head counts as assessed even when the pass parks on an external
 test('repair pushes are capped per PR except for conflict repairs and spaced CI repairs', async () => {
   // Review loops reached 23-94 commits per PR (#2596, #2198, #2186).
   assert.match(source, /const repairPushCap = 5;/)
-  assert.match(source, /const allowance = repairPushAllowance\(await pullRequestInbox\.meta\(`repair-pushes:\$\{repository\}#\$\{number\}`\) \?\? \[\], await requiredCheckState\(inboxClaim\.snapshot\), current\.pr\?\.mergeable === false\);\n\t+if \(!allowance\.allowed\) throw new Error\(`Push cap reached/)
+  assert.match(source, /const allowance = repairPushAllowance\(await pullRequestInbox\.meta\(`repair-pushes:\$\{repository\}#\$\{number\}`\) \?\? \[\], await requiredCheckState\(inboxClaim\.snapshot\), current\.pr\?\.mergeable === false, Date\.now\(\), pullRequestInbox\.isPriority\(current\.pr\)\);\n\t+if \(!allowance\.allowed\) throw new Error\(`Push cap reached/)
   assert.match(source, /await pullRequestInbox\.setMeta\(`repair-pushes:\$\{repository\}#\$\{number\}`, \[/)
   // 2026-10-20: twelve PRs had a validated CI repair refused by the cap. Failing required checks
   // still get one push every two hours past the cap.
@@ -360,6 +360,8 @@ test('repair pushes are capped per PR except for conflict repairs and spaced CI 
   assert.deepEqual(repairPushAllowance([...five, now - hour], 'failed', false, now), { allowed: false, count: 6, nextAt: now + hour })
   // Pushes older than a day do not count.
   assert.deepEqual(repairPushAllowance([now - 25 * hour, ...five.slice(1)], 'passed', false, now), { allowed: true, count: 4 })
+  // A priority-labelled PR pushes past the cap, with or without required checks.
+  assert.deepEqual(repairPushAllowance([...five, now - hour], 'unknown', false, now, true), { allowed: true, count: 6 })
 })
 
 test('a pass that could not push its CI repair does not start, and the prompt says whether it can push', () => {
@@ -632,4 +634,12 @@ test('a priority label puts a PR first after main repairs and lifts its daily pa
 test('host installs accept a project blockExoticSubdeps setting', () => {
   // 2026-10-21: onmax/comark-plugins#45 sets blockExoticSubdeps: false, so every pass ran without dependencies.
   assert.match(source, /"install-links",\n\t"block-exotic-subdeps"\n\]\);/)
+})
+
+test('a priority-labelled PR is not refused by the repair push cap', () => {
+  // 2026-10-21: comark-plugins#45 had 7 pushes in 24 h; its fix was refused and the head reported as reviewed.
+  assert.match(source, /function repairPushAllowance\(pushes, requiredChecks, conflicted, now = Date\.now\(\), priority = false\) \{/)
+  assert.match(source, /if \(conflicted \|\| priority \|\| recent\.length < repairPushCap\) return \{/)
+  assert.match(source, /current\.pr\?\.mergeable === false, Date\.now\(\), pullRequestInbox\.isPriority\(current\.pr\)\);/)
+  assert.match(source, /conflictedSnapshot\(inboxClaim\.snapshot\), Date\.now\(\), pullRequestInbox\.isPriority\(inboxClaim\.snapshot\.pr\)\);/)
 })
