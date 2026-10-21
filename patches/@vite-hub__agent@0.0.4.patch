@@ -211,7 +211,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955748b85c2 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0573ee172 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
 @@ -9,12 +9,13 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -229,7 +229,17 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  import { parseSyml } from "@yarnpkg/parsers";
  import html from "comark/plugins/html";
  //#region src/server/github-install-inputs.ts
-@@ -97,6 +98,9 @@ const workspaceFields = /* @__PURE__ */ new Set([
+@@ -88,7 +89,8 @@ const booleanSettings = /* @__PURE__ */ new Set([
+ 	"shared-workspace-lockfile",
+ 	"package-manager-strict",
+ 	"legacy-peer-deps",
+-	"install-links"
++	"install-links",
++	"block-exotic-subdeps"
+ ]);
+ const patternSettings = /* @__PURE__ */ new Set(["hoist-pattern", "public-hoist-pattern"]);
+ const workspaceFields = /* @__PURE__ */ new Set([
+@@ -97,6 +99,9 @@ const workspaceFields = /* @__PURE__ */ new Set([
  	"catalogs",
  	"catalogMode",
  	"overrides",
@@ -239,7 +249,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  	"packageExtensions",
  	"patchedDependencies",
  	"onlyBuiltDependencies",
-@@ -123,6 +127,16 @@ function validateNpmConfig(source) {
+@@ -123,6 +128,16 @@ function validateNpmConfig(source) {
  	}
  }
  var GitHubDependencyConflictError = class extends Error {};
@@ -256,7 +266,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  /** Validate decoded manifests and lockfiles before a package manager can read host paths. */
  async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  	const hash = createHash("sha256");
-@@ -177,7 +191,11 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -177,7 +192,11 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  	async function selectPatch(value, base) {
  		await checkPath(value, base);
  		const path = resolve(base, decodeURIComponent(value));
@@ -269,7 +279,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  		dependencyFiles.add(path);
  	}
  	async function inspectYarnPatch(value, base) {
-@@ -195,9 +213,12 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -195,9 +214,12 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  		}
  		return true;
  	}
@@ -283,7 +293,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  			const path = hasRuntimeType(entry, "string") ? entry : isRuntimeRecord(entry) ? entry.path : void 0;
  			if (!hasRuntimeType(path, "string")) throw new Error("Dependency patches must reference checkout files.");
  			await selectPatch(path, base);
-@@ -238,7 +259,7 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -238,7 +260,7 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  		for (const [key, entry] of Object.entries(value)) {
  			if (npmLink && key === "resolved") continue;
  			if (key === "workspaces" && pnpm) continue;
@@ -292,7 +302,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  			else if (npm && ["package-lock.json", "npm-shrinkwrap.json"].includes(field) && key === "packages" && isRuntimeRecord(entry)) for (const [location, contents] of Object.entries(entry)) await inspect(contents, base, false, location, true);
  			else if (key === "importers" && isRuntimeRecord(entry)) for (const [importer, contents] of Object.entries(entry)) {
  				await checkPath(importer, base);
-@@ -297,8 +318,9 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -297,8 +319,9 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  				if (entry.name === "yarn.lock") {
  					data = parseSyml(/^__metadata:/m.test(source) ? source : `# yarn lockfile v1\n${source}`);
  					if (!isRuntimeRecord(data) || Object.values(data).some((value) => !isRuntimeRecord(value))) throw new Error("Invalid Yarn lockfile stanza; dependency fields must be structured.");
@@ -304,7 +314,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  				if (entry.name === "package.json" && !pnpm && isRuntimeRecord(data)) await selectWorkspaces(Array.isArray(data.workspaces) ? data.workspaces : isRuntimeRecord(data.workspaces) ? data.workspaces.packages : void 0, directory);
  				if (entry.name === "pnpm-workspace.yaml" && isRuntimeRecord(data)) {
  					for (const [key, value] of Object.entries(data)) if (!workspaceFields.has(key) && !supportedSetting(key, value)) throw new Error(`Unsupported project pnpm configuration: ${key}. Host-local configuration paths and package-manager extensions are not allowed.`);
-@@ -519,39 +541,65 @@ var GitHubWorkspaceInstallError = class extends Error {
+@@ -519,39 +542,65 @@ var GitHubWorkspaceInstallError = class extends Error {
  		this.retryable = retryable;
  	}
  };
@@ -394,7 +404,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  	}
  }
  async function installWorkspace(target, signal, run) {
-@@ -689,7 +737,7 @@ async function installWorkspace(target, signal, run) {
+@@ -689,7 +738,7 @@ async function installWorkspace(target, signal, run) {
  			reason
  		})).catch(() => void 0);
  		if (signal?.aborted) throw error;
@@ -403,7 +413,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  	} finally {
  		try {
  			try {
-@@ -1259,6 +1307,26 @@ function isGraphQLCommand(args) {
+@@ -1259,6 +1308,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -430,7 +440,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1498,10 +1566,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1567,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -443,7 +453,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1516,7 +1584,7 @@ function createGitHubHost(options) {
+@@ -1516,7 +1585,7 @@ function createGitHubHost(options) {
  				signal: operation.signal
  			};
  			if (input.cwd) execOptions.cwd = input.cwd;
@@ -452,7 +462,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..d900c59c694e28c19a692ae21b901955
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -3190,4 +3258,4 @@ function combine(states) {
+@@ -3190,4 +3259,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion

@@ -628,3 +628,8 @@ test('a priority label puts a PR first after main repairs and lifts its daily pa
   assert.match(source, /options\.includeBlocked \? 1 : 0,\n\t+\.\.\.this\.priorityLabels\n/)
   assert.match(source, /if \(pullRequestInbox\.isPriority\(inboxClaim\.snapshot\.pr\)\) \{\n\t+schedulerEvent\("babysitter\.daily_pass_budget\.exempt"/)
 })
+
+test('host installs accept a project blockExoticSubdeps setting', () => {
+  // 2026-10-21: onmax/comark-plugins#45 sets blockExoticSubdeps: false, so every pass ran without dependencies.
+  assert.match(source, /"install-links",\n\t"block-exotic-subdeps"\n\]\);/)
+})
