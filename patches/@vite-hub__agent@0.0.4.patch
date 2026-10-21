@@ -1035,7 +1035,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 5d80facda1e6fd3a50876048180cd57f664d8fa6..0efecb81f86c9ac80c991f76e00e2caf7b2e65c4 100644
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..248fee8b292096695e19003bc25288a86a2d91f6 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
 @@ -19,7 +19,8 @@ import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, norma
@@ -1081,12 +1081,33 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..0efecb81f86c9ac80c991f76e00e2caf
 +				sandboxPolicy: {
 +					type: "workspaceWrite",
 +					networkAccess: true,
-+					writableRoots: unattendedCacheRoots()
++					writableRoots: providerBox ? providerBox.writableRoots ?? [] : unattendedCacheRoots()
 +				}
 +			} : {},
  			threadId
  		}), effectiveSignal, (session) => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime());
  		if (session.resumeCursor !== void 0) pendingResumeCursor = session.resumeCursor;
+diff --git a/dist/provider-box-DPG-jyBA.js b/dist/provider-box-DPG-jyBA.js
+index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d077c44d98 100644
+--- a/dist/provider-box-DPG-jyBA.js
++++ b/dist/provider-box-DPG-jyBA.js
+@@ -76,10 +76,16 @@ async function openProviderBox(options) {
+ 		const home = await session.exec("sh", ["-c", "printf %s \"$HOME\""], { signal: options.signal });
+ 		if (!home.ok || !home.stdout.startsWith("/")) throw agentDiagnostics.AGENT_R0952({ message: "[vitehub] Agent Box did not report an absolute HOME path." });
+ 		const omitDiagnosticOutput = Object.keys(declared).length > 0 || Object.keys(options.definition.home?.state ?? {}).length > 0;
++		// Package-manager caches as the Box sees them. An unattended Codex sandbox may write only to its
++		// workspace and these roots; the host's own cache paths do not exist in a remote Box, so pnpm's
++		// shared store stayed read-only there (2026-10-21: "SQLite store error" on fleet passes).
++		const caches = await session.exec("sh", ["-c", "for d in \"${npm_config_store_dir:-}\" \"${npm_config_cache_dir:-}\" \"$HOME/.local/share/pnpm\" \"$HOME/.cache\" \"$HOME/.npm\"; do [ -n \"$d\" ] && mkdir -p \"$d\" 2>/dev/null && printf '%s\\n' \"$d\"; done; true"], { signal: options.signal });
++		const writableRoots = caches.ok ? caches.stdout.split("\n").filter((path) => path.startsWith("/")) : [];
+ 		return {
+ 			localWorkspace: box.plan.runtime === "trusted-host",
+ 			environment,
+ 			omitDiagnosticOutput,
++			writableRoots,
+ 			home: home.stdout,
+ 			session,
+ 			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
 index 3d014e275480bea4581de5d945ae89a8131f4ccc..e01bc2bc61550e56530f16cf99659156bff838a0 100644
 --- a/dist/server-DZOuXkga.js

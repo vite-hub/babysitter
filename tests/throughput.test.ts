@@ -598,7 +598,7 @@ test('a pass the provider fails early gives its daily pass and exemption back', 
 
 test('unattended Codex passes get network access in their workspace-write sandbox', () => {
   // 2026-10-20: 22 of 120 passes failed lockfile repairs on `getaddrinfo EAI_AGAIN registry.npmjs.org`.
-  assert.match(source, /\.\.\.options\.permissions === "allow-edits-unattended" \? \{\n\t+approvalPolicy: "never",\n\t+sandboxPolicy: \{\n\t+type: "workspaceWrite",\n\t+networkAccess: true,\n\t+writableRoots: unattendedCacheRoots\(\)\n/)
+  assert.match(source, /\.\.\.options\.permissions === "allow-edits-unattended" \? \{\n\t+approvalPolicy: "never",\n\t+sandboxPolicy: \{\n\t+type: "workspaceWrite",\n\t+networkAccess: true,\n\t+writableRoots: providerBox \? providerBox\.writableRoots \?\? \[\] : unattendedCacheRoots\(\)\n/)
   // The pnpm store, npm cache and corepack cache are writable, or every full install hits EROFS.
   assert.match(source, /join\(home, "\.local\/share\/pnpm\/store"\),\n\t+join\(home, "\.npm"\),\n\t+join\(home, "\.cache\/node\/corepack"\)/)
   const runtime = readFileSync(join(realpathSync(dist), '../../../@t3tools/provider-runtime/dist/index.mjs'), 'utf8')
@@ -664,4 +664,11 @@ test('in a repository without required checks, failing own CI blocks the merge',
     run(5, 'Workers Builds: comark-annotate', 'failure', { app: { slug: 'cloudflare-workers-and-pages' }, html_url: 'https://dash.cloudflare.com/x' }),
     run(6, 'check / check', 'failure', { head_sha: 'b'.repeat(40) }),
   ]), review), [])
+})
+
+test('a fleet Box gives its own package-manager caches to the unattended Codex sandbox', () => {
+  // 2026-10-21: ServaRICA Boxes keep the pnpm store at ${root}/pnpm-store, but the sandbox got the host's
+  // ~/.local/share/pnpm/store, which does not exist there, so pnpm 11's SQLite store index was read-only.
+  assert.match(source, /for d in \\"\$\{npm_config_store_dir:-\}\\" \\"\$\{npm_config_cache_dir:-\}\\" \\"\$HOME\/\.local\/share\/pnpm\\" \\"\$HOME\/\.cache\\" \\"\$HOME\/\.npm\\"; do/)
+  assert.match(source, /writableRoots: providerBox \? providerBox\.writableRoots \?\? \[\] : unattendedCacheRoots\(\)/)
 })
