@@ -575,7 +575,7 @@ test('new checks and bot reviews do not reject a pass, and a real evidence chang
   assert.match(source, /command: async \(args, request\) => \{\n\t+await \(readOperation\.getStore\(\) \? assertLeaseHeld\(\) : assertLease\(\)\);/)
   assert.match(source, /"readCheckLogs",\n\t+"readBaseCheckEvidence",\n\t+"readBaseCheckLogs"\n\t+\]\) \{\n\t+const read = operations\[name\];\n\t+operations\[name\] = \(\.\.\.args\) => readOperation\.run\(true, \(\) => read\(\.\.\.args\)\);/)
   // Merges still re-read required checks and the live PR before merging.
-  assert.match(source, /const evaluation = evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\);/)
+  assert.match(source, /const evaluation = withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\)\);/)
   assert.match(source, /const current = liveMergeReadiness\(live, decision\.head\);/)
 })
 
@@ -642,4 +642,26 @@ test('a priority-labelled PR is not refused by the repair push cap', () => {
   assert.match(source, /if \(conflicted \|\| priority \|\| recent\.length < repairPushCap\) return \{/)
   assert.match(source, /current\.pr\?\.mergeable === false, Date\.now\(\), pullRequestInbox\.isPriority\(current\.pr\)\);/)
   assert.match(source, /conflictedSnapshot\(inboxClaim\.snapshot\), Date\.now\(\), pullRequestInbox\.isPriority\(inboxClaim\.snapshot\.pr\)\);/)
+})
+
+test('in a repository without required checks, failing own CI blocks the merge', async () => {
+  // 2026-10-21: comark-plugins#45 had red check and e2e, and its assessed head was about to merge.
+  assert.match(source, /function withOwnActionFailures\(snapshot, evaluation\) \{\n\t+if \(evaluation\.state !== "passed" \|\| evaluation\.checks\.length\) return evaluation;/)
+  assert.match(source, /const evaluation = withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\)\);/)
+  assert.match(source, /return withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(await requiredChecks\.read\(snapshot\.repository, base\), snapshotCheckEvidence\(snapshot\)\)\);/)
+  const { fa: failedOwnActions } = await import(join(dist, 'server-DZOuXkga.js'))
+  const head = 'a'.repeat(40)
+  const run = (id: number, name: string, conclusion: string, extra = {}) => ({ id, name, head_sha: head, status: 'completed', conclusion,
+    app: { slug: 'github-actions' }, html_url: `https://github.com/o/r/actions/runs/${id}/job/${id + 1}`, ...extra })
+  const snapshot = (checks: object[]) => ({ repository: 'o/r', pr: { head: { sha: head } }, checks: Object.fromEntries(checks.map((c: any) => [String(c.id), c])) })
+  const review = new Set(['pullfrog'])
+  assert.deepEqual(failedOwnActions(snapshot([run(1, 'check / e2e', 'failure'), run(2, 'check / check', 'success')]), review), ['check / e2e'])
+  // A newer successful rerun of the same check wins.
+  assert.deepEqual(failedOwnActions(snapshot([run(1, 'check / e2e', 'failure'), run(3, 'check / e2e', 'success')]), review), [])
+  // Review checks, third-party apps and older heads do not count.
+  assert.deepEqual(failedOwnActions(snapshot([
+    run(4, 'pullfrog', 'failure'),
+    run(5, 'Workers Builds: comark-annotate', 'failure', { app: { slug: 'cloudflare-workers-and-pages' }, html_url: 'https://dash.cloudflare.com/x' }),
+    run(6, 'check / check', 'failure', { head_sha: 'b'.repeat(40) }),
+  ]), review), [])
 })
