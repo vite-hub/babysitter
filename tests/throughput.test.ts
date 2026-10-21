@@ -616,4 +616,6 @@ test('unknown GitHub mergeability delays a pass by at most 10 minutes per head',
   assert.match(source, /const unknownKey = `mergeability-unknown:\$\{repository\}#\$\{number\}`;/)
   assert.match(source, /if \(unknownMergeability && Date\.now\(\) - unknownSince\.at >= 6e5\) schedulerEvent\("babysitter\.mergeability\.unknown_proceeding"/)
   assert.match(source, /else if \(unknownMergeability\) \{\n\t+const reason = "GitHub is still calculating mergeability for this PR head\.";/)
+  // A 30 s retry on 15 PRs spent the GitHub App's hourly quota within five minutes.
+  assert.match(source, /reason,\n\t+retryAt: Date\.now\(\) \+ 12e4\n\t+\}\n\t+\}\);\n\t+schedulerEvent\("babysitter\.mergeability\.waiting"/)
 })
