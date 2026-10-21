@@ -77,6 +77,8 @@ export default defineAgent({
     // Defaults, written out because they gate most model passes (2026-10-19 pass-volume review).
     reviewPushBudget: 3,
     dailyPassBudget: 16,
+    // Add this label to a PR to have it claimed first (after main repairs) without the daily cap.
+    priorityLabels: ['babysitter:priority'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],

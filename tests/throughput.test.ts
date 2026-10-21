@@ -78,7 +78,8 @@ test('a pass that runs out of provider retries waits for the cooldown instead of
 
 test('PRs with a reviewed current head are claimed before model passes', () => {
   // Their claim is a host merge check, so it must not wait behind every model pass.
-  assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,\n\t*\s*EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
+  // Only main repairs and an optional priority label come before them.
+  assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,(\$\{this\.priorityLabels\.length \? `\n[^`]*` : ""\})?\n\t*\s*EXISTS \(SELECT 1 FROM \$\{t\.meta\} m WHERE m\.scope=p\.scope AND m\.key='review-assessment:' \|\| p\.repository \|\| '#' \|\| p\.number AND json_extract\(m\.value, '\$\.head'\)=p\.head_sha\) DESC,/)
 })
 
 test('a new main commit does not reopen an assessed review', async () => {
@@ -618,4 +619,12 @@ test('unknown GitHub mergeability delays a pass by at most 10 minutes per head',
   assert.match(source, /else if \(unknownMergeability\) \{\n\t+const reason = "GitHub is still calculating mergeability for this PR head\.";/)
   // A 30 s retry on 15 PRs spent the GitHub App's hourly quota within five minutes.
   assert.match(source, /reason,\n\t+retryAt: Date\.now\(\) \+ 12e4\n\t+\}\n\t+\}\);\n\t+schedulerEvent\("babysitter\.mergeability\.waiting"/)
+})
+
+test('a priority label puts a PR first after main repairs and lifts its daily pass budget', () => {
+  // 2026-10-21: Maxi wanted onmax/comark-plugins#45 first and had no way to say so.
+  assert.match(source, /priorityLabels: \["babysitter:priority"\],/)
+  assert.match(source, /ORDER BY \(p\.head_ref LIKE 'babysitter\/repair-main-%'\) DESC,\$\{this\.priorityLabels\.length \? `\n\s+EXISTS \(SELECT 1 FROM json_each\(p\.value, '\$\.pr\.labels'\) l WHERE lower\(json_extract\(l\.value, '\$\.name'\)\) IN/)
+  assert.match(source, /options\.includeBlocked \? 1 : 0,\n\t+\.\.\.this\.priorityLabels\n/)
+  assert.match(source, /if \(pullRequestInbox\.isPriority\(inboxClaim\.snapshot\.pr\)\) \{\n\t+schedulerEvent\("babysitter\.daily_pass_budget\.exempt"/)
 })
