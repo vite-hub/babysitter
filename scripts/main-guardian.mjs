@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Opens one "repair main" pull request when one of main's watched workflows fails, so the Babysitter
 // repairs main the same way it repairs any PR. PR CI runs only fast checks and the full suites run
-// on main, so PRs that each pass can break main together, and nothing else fixes it.
+// on main, so PRs that each pass can break main together, and nothing else fixes it. vitehub's ci.yml
+// runs the full suite on repair-main branches: a repair that passed only the fast checks left main red.
 //
 // Runs from a systemd timer with the Babysitter's GitHub App environment:
 // GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY.
@@ -103,7 +104,7 @@ const body = `${base} is red at ${red}: the \`${failed.name}\` run ${failed.html
 Failed jobs:
 ${jobs.map(job => `- [${job.name}](${job.html_url})`).join('\n') || '- (see the run)'}
 
-This PR starts with an empty commit. Read the failures with readBaseCheckEvidence and readBaseCheckLogs, reproduce them with focused tests, fix them on this branch, and push the repair. PR CI runs only the fast checks, so verify the failing suites locally. Do not report reviewedHead while the branch has no changes.
+This PR starts with an empty commit. Read the failures with readBaseCheckEvidence and readBaseCheckLogs, reproduce them with focused tests, fix every failed job on this branch, and push the repair. PR CI runs main's full suite on this branch, so it merges only once every job that failed on main passes here. Do not report reviewedHead while the branch has no changes.
 
 Opened automatically by the Babysitter main guardian.`
 
