@@ -223,7 +223,7 @@ test('failures that the base tip shares park without a model pass until the base
   assert.match(gate, /if \(conflictedSnapshot\(snapshot\) \|\| checksStillRunning\(snapshot\)\) return \[\];/)
   assert.match(gate, /if \(\(snapshot\.humanFeedbackGeneration \?\? 0\) > \(snapshot\.handled \?\? 0\)\) return \[\];/)
   assert.match(gate, /hasHumanComment\(thread, waitPolicy\.workerAuthors, snapshot\)\)\) return \[\];/)
-  assert.match(gate, /return failing\.every\(\(name\) => inherited\.has\(name\)\) \? failing : \[\];/)
+  assert.match(gate, /return failing\.every\(\(name\) => inherited\.has\(name\)\) && await sameFailures\(\) \? failing : \[\];/)
   // An optional inherited failure still gets the pass that assesses it, so the PR can merge.
   assert.match(gate, /if \(!failing\.length \|\| await requiredCheckState\(snapshot\) !== "failed"\) return \[\];/)
   assert.match(source, /reason: "base-failing",/)
@@ -232,6 +232,24 @@ test('failures that the base tip shares park without a model pass until the base
   const call = source.indexOf('await inheritedBaseFailures(inboxClaim.snapshot')
   assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < call)
   assert.ok(call < source.indexOf('if (await parkBlockedModelWork()) return;'))
+})
+
+test('a failure parks behind the base only when its failed step prints nothing the base lacks', () => {
+  // vite-hub/drop: main's one `checks` job failed knip; #42 (its own unused file) and #24 (type
+  // errors) failed the same job name and parked for 19 h.
+  const gate = source.slice(source.indexOf('async function inheritedBaseFailures('), source.indexOf('async function staleBaseOverlap('))
+  assert.match(gate, /if \(failing\.every\(\(name\) => inherited\.has\(name\)\)\) return await sameFailures\(\) \? failing : \[\];/)
+  assert.match(gate, /return own\.step === base\.step && \[\.\.\.own\.lines\]\.every\(\(line\) => base\.lines\.has\(line\)\);/)
+  assert.match(gate, /repos\/\$\{repository\}\/actions\/jobs\/\$\{jobId\}\/logs/)
+  assert.match(gate, /line\.startsWith\("##\[error\]Process completed with exit code"\)/)
+})
+
+test('a cancelled check run does not replace a finished run of the same check', () => {
+  // onmax/comark-plugins#87 and #103: the pull_request run was cancelled beside a passing push run.
+  assert.match(source, /return cancelled\(newer\) && !cancelled\(older\) && older\.status === "completed" \? older : newer;/)
+  assert.match(source, /latest\.set\(key, newestCheckRun\(latest\.get\(key\), signal\)\);/)
+  assert.match(source, /newest\.set\(name, newestCheckRun\(newest\.get\(name\), check\)\);/)
+  assert.match(source, /else if \(check\.id > previous\.id \? !\(check\.conclusion === "cancelled"/)
 })
 
 test('a pass that reports its pushed head as reviewed records the feedback it inspected', () => {
@@ -589,7 +607,7 @@ test('inherited base failures and retests reach a base tested more than 100 push
   // base, so no retest ran, and main's tip never had a finished run, so the base-failing park missed it.
   assert.match(source, /commits\?sha=\$\{encodeURIComponent\(baseRef\)\}&until=\$\{new Date\(ranAt - 12e4\)\.toISOString\(\)\}&per_page=1/)
   assert.match(source, /const tested = await checksTestedBase\(snapshot, pr\.head\.sha, baseRef, failed, signal\);/)
-  assert.match(source, /for \(const name of testedFailing\.map\(String\)\) if \(!passedOnTip\.has\(name\)\) inherited\.add\(name\);/)
+  assert.match(source, /for \(const check of testedFailing\) if \(!passedOnTip\.has\(String\(check\?\.name\)\) && !inherited\.has\(String\(check\?\.name\)\)\) inherited\.set\(String\(check\?\.name\), check\);/)
 })
 
 test('a pass the provider fails early gives its daily pass and exemption back', () => {
