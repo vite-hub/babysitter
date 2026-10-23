@@ -9,7 +9,8 @@ port=$(systemctl show "$unit" -p Environment | grep -oP 'PORT=\K\d+')
 cd "$(dirname "$0")/.."
 [ -z "$(git status --porcelain -- patches pnpm-lock.yaml server package.json)" ] || { echo "commit first: the build bakes in the git SHA" >&2; exit 1; }
 sha=$(git rev-parse HEAD)
-CI=1 BABYSITTER_PUBLIC_URL=https://babysitter.vitehub.dev pnpm build >/tmp/babysitter-build.log 2>&1
+# Only the build takes the shared heavy lock; the drain below can take half an hour.
+CI=1 BABYSITTER_PUBLIC_URL=https://babysitter.vitehub.dev HEAVY_WAIT=0 heavy pnpm build >/tmp/babysitter-build.log 2>&1
 grep -q "$sha" .output/server/index.mjs || { echo "build does not contain $sha" >&2; exit 1; }
 
 previous=$(grep -oE '/home/workspace/babysitter-release-[^/]+' "$dropin" | head -1)
