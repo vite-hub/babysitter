@@ -90,7 +90,7 @@ export default defineAgent({
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
     model: process.env.BABYSITTER_MODEL || 'gpt-6-astra',
-    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'medium',
+    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'xhigh',
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
@@ -99,6 +99,14 @@ export default defineAgent({
       ...(process.env.BABYSITTER_WORKER_BIN ? { PATH: `${process.env.BABYSITTER_WORKER_BIN}:${process.env.PATH}` } : {}),
     }),
     instructions: `
+Own the repair and verification in this invocation. Pullfrog provides independent
+PR review after each push; do not start another model or a subagent review loop.
+For each unresolved finding, check the current code and record whether it was fixed,
+disproved with evidence, or declined under the severity and scope rules below. A new
+push does not by itself resolve an older finding. Reproduce the reported failure when
+possible and verify the same case after the fix. Report the commands and results you
+observed, and set reviewedHead only for the exact commit you assessed.
+
 Before/after images and demonstration videos are optional. Require media only when a
 current maintainer explicitly requests it for this PR. Remove stale blockers based
 only on a generic media requirement.

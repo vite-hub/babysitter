@@ -43,6 +43,11 @@ Set `merge: false` to keep repairs and disable merging. Merge checks verify the 
 head, required checks, reviews, feedback and default branch. Open stack children wait
 for their parent. Source branches remain intact.
 
+The worker uses Astra at `xhigh` by default. It repairs and verifies the change in one
+invocation; Pullfrog provides independent review after each push. There is no second
+model review stage. Findings stay unresolved until assessed against the current code,
+and the worker records its evidence and exact reviewed commit for the host's merge gate.
+
 Tuples are supported too: `extends: ['babysitter', { concurrency: 2, merge: false }]`.
 Preset defaults merge with the `babysitter` block, then tuple settings. Arrays replace.
 External presets use an explicit package import.
