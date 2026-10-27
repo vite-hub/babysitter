@@ -1059,7 +1059,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 5d80facda1e6fd3a50876048180cd57f664d8fa6..248fee8b292096695e19003bc25288a86a2d91f6 100644
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..2575ebaa07d149ab587fc9f6fd9768f244f0bdc9 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
 @@ -19,7 +19,8 @@ import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, norma
@@ -1072,7 +1072,48 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..248fee8b292096695e19003bc25288a8
  import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path";
  import { execFile, spawn } from "node:child_process";
  import { promisify } from "node:util";
-@@ -442,6 +443,19 @@ const imageExtensions = {
+@@ -30,6 +31,10 @@ import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspect
+ //#region src/internal/generated-provider-git-files.ts
+ const execute = promisify(execFile);
+ /** Keep invocation-owned files out of ordinary `git add -A` without changing the index content. */
++async function unmergedProviderGitFiles(root) {
++ const { stdout } = await execute("git", ["-C", root, "diff", "--name-only", "--diff-filter=U", "-z"], { env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1" } });
++ return new Set(stdout.split("\0").filter(Boolean));
++}
+ async function protectGeneratedProviderGitFiles(root, paths) {
+ 	if (!paths.length) return async () => void 0;
+ 	const git = async (args) => (await execute("git", [
+@@ -45,13 +50,16 @@ async function protectGeneratedProviderGitFiles(root, paths) {
+ 	if (await realpath(top) !== await realpath(root)) throw new Error("Generated provider files require the pull request repository root.");
+ 	const names = [...new Set(paths.map((path) => relative(root, path).replaceAll("\\", "/")))];
+ 	if (names.some((name) => /[\r\n]/.test(name))) throw new Error("Generated provider Git paths must not contain line breaks.");
+-	const trackedEntries = (await git([
++	const entries = (await git([
+ 		"ls-files",
+ 		"-v",
+ 		"-z",
+ 		"--",
+ 		...names
+-	])).split("\0").filter(Boolean).filter((entry) => entry[0]?.toUpperCase() !== "S");
++	] )).split("\0").filter(Boolean);
++ const conflicts = entries.filter(entry => entry[0]?.toUpperCase() === "M");
++ if (conflicts.length) throw new Error(`Cannot overwrite conflicted generated provider files: ${[...new Set(conflicts.map(entry => entry.slice(2)))].join(", ")}`);
++ const trackedEntries = entries.filter(entry => entry[0]?.toUpperCase() !== "S");
+ 	const originalSkipWorktree = new Map(trackedEntries.map((entry) => [entry.slice(2), entry[0] === "S"]));
+ 	const excludePath = resolve(root, (await git([
+ 		"rev-parse",
+@@ -68,7 +76,9 @@ async function protectGeneratedProviderGitFiles(root, paths) {
+ 	let excluded = false;
+ 	const restore = async () => {
+ 		try {
+-			for (const [name, skipWorktree] of originalSkipWorktree) await git([
++            const currentEntries = (await git(["ls-files", "-v", "-z", "--", ...originalSkipWorktree.keys()])).split("\0");
++            const restorable = new Set(currentEntries.filter(entry => /^[HhSs] /.test(entry)).map(entry => entry.slice(2)));
++            for (const [name, skipWorktree] of originalSkipWorktree) if (restorable.has(name)) await git([
+ 				"update-index",
+ 				skipWorktree ? "--skip-worktree" : "--no-skip-worktree",
+ 				"--",
+@@ -442,6 +452,19 @@ const imageExtensions = {
  	"image/tiff": ".tiff",
  	"image/webp": ".webp"
  };
@@ -1092,7 +1133,28 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..248fee8b292096695e19003bc25288a8
  const providerRuntimeMode = {
  	"allow-all": "full-access",
  	"allow-edits": "auto-accept-edits",
-@@ -3101,7 +3115,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -2967,14 +2990,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 				providerBoxHomeFiles[claudeBoxPromptFile] = instructions;
+ 			} else providerBoxHomeFiles[".codex/AGENTS.md"] = instructions;
+ 		} else if (instructions && materializeInstructions) {
++        const unmergedInstructions = pullRequestRoot || preparedWorkspace?.projectRoot ? await unmergedProviderGitFiles(providerCwd) : new Set();
+ 			const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions ? provenanceInstructions : instructions;
+ 			if (options.provider === "claude-code") {
+-				if (!preserveNativeInstructions) generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "CLAUDE.md"), ""));
++				if (!preserveNativeInstructions && !unmergedInstructions.has("CLAUDE.md")) generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "CLAUDE.md"), ""));
+ 				claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md");
+ 				generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions));
+ 			} else {
+-				const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), instructions);
+-				if (preserveNativeInstructions && provenanceInstructions && generated.content !== void 0) generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`;
++                const instructionName = unmergedInstructions.has("AGENTS.md") ? "AGENTS.override.md" : "AGENTS.md";
++                if (unmergedInstructions.has(instructionName)) throw new Error(`Cannot replace conflicted provider instructions: ${instructionName}`);
++				const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, instructionName), instructions);
++				if (instructionName === "AGENTS.md" && preserveNativeInstructions && provenanceInstructions && generated.content !== void 0) generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`;
+ 				generatedProviderFiles.push(generated);
+ 			}
+ 		}
+@@ -3101,7 +3127,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			model: options.model,
  			resumeCursor,
  			runtimeMode: providerRuntimeMode[options.permissions ?? "ask"],
@@ -1133,7 +1195,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed3c2daa9a 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..5e988ee10fb0d986dc213af27df366c1c7c28529 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -1653,11 +1715,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
 +				signal
 +			});
 +			return true;
- 		} catch (error) {
--			if (isAbortError(error) || !isProviderRateLimit(error)) throw error;
--			if (attempt === 3) {
--				await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
--				throw error;
++		} catch (error) {
 +			const message = error instanceof Error ? error.message : String(error);
 +			// GitHub refuses update-branch for a PR it treats as part of a stack. Merging the base into a
 +			// same-repository head through the merges API does the same update without a model pass;
@@ -1689,9 +1747,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
 +					reason: `merges API fallback: ${(fallback instanceof Error ? fallback.message : String(fallback)).slice(0, 180)}`
 +				});
 +				return false;
- 			}
--			await new Promise((resolve) => setTimeout(resolve, providerRetryDelayMs));
--			signal.throwIfAborted();
++			}
 +			schedulerEvent("babysitter.branch.update_failed", {
 +				...owner,
 +				reason: (error instanceof Error ? error.message : String(error)).slice(0, 200)
@@ -1839,8 +1895,14 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
 +			const lastBlockedUntil = await pullRequestInbox.metaNumber("provider-quota-blocked-until") ?? 0;
 +			if (strikes > 0 && Date.now() - lastBlockedUntil > 18e5) await pullRequestInbox.setMeta("provider-quota-strikes", strikes - 1);
 +			return result;
-+		} catch (error) {
-+			if (isAbortError(error) || !isProviderRateLimit(error)) throw error;
+ 		} catch (error) {
+ 			if (isAbortError(error) || !isProviderRateLimit(error)) throw error;
+-			if (attempt === 3) {
+-				await pullRequestInbox.setMeta("provider-quota-blocked-until", Date.now() + 36e5);
+-				throw error;
+-			}
+-			await new Promise((resolve) => setTimeout(resolve, providerRetryDelayMs));
+-			signal.throwIfAborted();
 +			onRateLimit?.();
 +			await blockProvider();
 +			throw error;
@@ -2771,7 +2833,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3152,6 +4032,26 @@ function createBabysitterRuntime(options) {
+@@ -3152,18 +4032,40 @@ function createBabysitterRuntime(options) {
  						reason: "github-rate-limit",
  						...owner
  					});
@@ -2798,7 +2860,14 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
  				} else {
  					outcome = "failed";
  					if (/AGENT_R0767|head.*(?:mismatch|changed)|expected.*head/i.test(String(error))) await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
-@@ -3164,6 +4064,7 @@ function createBabysitterRuntime(options) {
+ 					await pullRequestInbox.finish(inboxClaim, {
+ 						text: error instanceof Error ? error.message : String(error),
+-						retry: !pushSucceeded
++						retry: !pushSucceeded,
++                        ...!pushSucceeded ? { progress: { kind: "no-progress" } } : {}
+ 					});
+ 					schedulerError("babysitter.owner.failed", error, owner);
+ 				}
  			} finally {
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();
@@ -2806,7 +2875,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..1ffa9d965185c070097be6ac38ade0ed
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +4097,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +4098,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
