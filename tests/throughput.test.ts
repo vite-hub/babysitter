@@ -153,6 +153,13 @@ test('provider breaker ignores malformed JSON and recognizes HTTP rate limits', 
   assert.equal(isProviderRateLimit(new Error('GitHub API returned HTTP 429 Too Many Requests')), true)
 })
 
+test('Codex usage limits enter quota recovery without failing the PR', () => {
+  const message = 'You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 2nd, 2026 7:49 AM.'
+  assert.equal(isProviderRateLimit(new Error(message)), true)
+  assert.equal(isProviderRateLimit(new Error('Provider invocation failed', { cause: new Error(message) })), true)
+  assert.equal(isProviderRateLimit(new DOMException(message, 'AbortError')), false)
+})
+
 test('dependency installs share a few slots and wait instead of discarding the checkout', () => {
   // One serial installer of about 70 s made every third pass fail after two minutes and redo its checkout.
   assert.match(source, /const installSlots = Math\.max\(1, Number\.parseInt\(process\.env\.VITEHUB_INSTALL_CONCURRENCY \?\? "", 10\) \|\| 2\);/)

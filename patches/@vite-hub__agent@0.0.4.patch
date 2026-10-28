@@ -1458,7 +1458,8 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..5e988ee10fb0d986dc213af27df366c1
  function isProviderRateLimit(error) {
  	if (error instanceof Error && error.name === "AbortError") return false;
  	const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? "")}` : String(error);
- 	return /\b429\b|too many requests|rate limit/i.test(text);
+-	return /\b429\b|too many requests|rate limit/i.test(text);
++	return /\b429\b|too many requests|rate limit|\busage limit\b/i.test(text);
  }
 +const repairPushCap = 5;
 +const repairPushSpacing = 72e5;
