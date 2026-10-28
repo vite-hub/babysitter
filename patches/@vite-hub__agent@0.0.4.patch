@@ -179,10 +179,19 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..07a4cf741acdfa92e7532db664249240
 -export { createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u };
 +export { botAuthor as b, createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u, matchesMergeReviewEvidence as v };
 diff --git a/dist/channels-CHMum11Z.js b/dist/channels-CHMum11Z.js
-index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382cb4e2dbe9 100644
+index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0fb044c763 100644
 --- a/dist/channels-CHMum11Z.js
 +++ b/dist/channels-CHMum11Z.js
-@@ -3957,6 +3957,14 @@ function githubActivityAnswer(entry) {
+@@ -3791,6 +3791,8 @@ async function githubAppIdentity(app, context, signal) {
+ 	}
+ }
+ async function githubActivityIdentity(provider, token, app, context, signal) {
++	const configured = githubAppOptions(app)?.identity;
++	if (configured?.appId) return configured;
+ 	try {
+ 		return await codeHostIdentity(provider, { kind: "token" });
+ 	} catch (error) {
+@@ -3957,6 +3959,14 @@ function githubActivityAnswer(entry) {
  	if (!entry.summary?.trim()) return;
  	return githubActivityText(entry.summary, 2e3);
  }
@@ -197,7 +206,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  /** Saved PR projections and invocation events can describe the same linked session. */
  function githubActivitySessions(state) {
  	const sessions = [];
-@@ -3976,7 +3984,7 @@ function renderGithubActivity(activity, state) {
+@@ -3976,7 +3986,7 @@ function renderGithubActivity(activity, state) {
  	state = githubActivitySessions(state);
  	const sections = [encodeGithubActivityState(state)];
  	const current = state.current;
@@ -206,7 +215,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	const labels = {
  		queued: "Starting",
  		running: "Running",
-@@ -3999,13 +4007,14 @@ function renderGithubActivity(activity, state) {
+@@ -3999,13 +4009,14 @@ function renderGithubActivity(activity, state) {
  			}))) || "Pending"} | ${entry !== current && entry.status === "running" ? "Last seen running" : entry.status ? labels[entry.status] : "Unknown"} | ${entry.startedAt ? githubActivityTime(entry.startedAt) : "Not started"} | ${githubActivityDuration(entry, entry === current)} |`;
  		})
  	].join("\n"));
@@ -228,8 +237,59 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..3dc7c79ac60051efcf0c67f98c17382c
  	if (activity.tasks.length) sections.push(activity.tasks.slice(0, githubActivityTaskLimit).map(githubActivityTask).join("\n"));
  	if (activity.error) sections.push(`Agent stopped: ${githubActivityText(activity.error, 1e3)}`);
  	const answers = [current, ...state.history].filter((entry) => !!entry).flatMap((entry) => {
+@@ -4096,10 +4107,11 @@ function githubAgentActivity(app, mode = "lifecycle", services) {
+ 					const raw = known && (services ? codeHostActivityComment(known) : known.raw);
+ 					if (known && isOwnedGithubActivityComment(raw, identity)) existing = raw;
+ 				}
+-				existing ||= owned[0];
++				existing ||= owned.at(-1);
+ 				if (knownCommentId && !existing) commentIds.delete(activityKey);
+ 				if (mode === "initialize" && existing) return;
+-				const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : void 0);
++				const latest = owned.reduce((latest, comment) => (githubActivityDate(comment.updated_at) ?? "") > (githubActivityDate(latest?.updated_at) ?? "") ? comment : latest, existing);
++				const previous = decodeGithubActivityState(isRecord(latest) ? latest.body : void 0);
+ 				const sameRun = previous.current?.runId === runId ? previous.current : void 0;
+ 				const current = {
+ 					links: githubActivityLinksState(context.activity.links),
+@@ -4110,18 +4122,11 @@ function githubAgentActivity(app, mode = "lifecycle", services) {
+ 					updatedAt: githubActivityDate(context.activity.updatedAt) ?? (/* @__PURE__ */ new Date()).toISOString(),
+ 					summary: terminal || context.activity.status === "waiting" ? context.activity.summary?.replace(/<!--[^]*?-->/g, "").trim().slice(0, 2e3) : void 0
+ 				};
+-				const reconcileDuplicates = async () => {
+-					for (const duplicate of owned.filter((comment) => comment !== existing)) {
+-						const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : void 0;
+-						if (!duplicateId) continue;
+-						await activityComments.edit(duplicateId, "This Agent activity was superseded by a newer managed comment.");
+-					}
+-				};
++
+ 				if (previous.current?.runId !== current.runId && (knownActiveRun || previous.previousRunIds.includes(current.runId) || owned.filter((comment) => comment !== existing).some((comment) => {
+ 					const state = decodeGithubActivityState(isRecord(comment) ? comment.body : void 0);
+ 					return state.current?.runId === current.runId || state.previousRunIds.includes(current.runId);
+ 				}))) {
+-					await reconcileDuplicates();
+ 					if (terminal) activeRuns.delete(runId);
+ 					if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey);
+ 					return;
+@@ -4153,7 +4158,6 @@ function githubAgentActivity(app, mode = "lifecycle", services) {
+ 					activeRuns.add(runId);
+ 					githubActivityActiveRuns.set(activityKey, activeRuns);
+ 				}
+-				await reconcileDuplicates();
+ 				if (terminal) activeRuns.delete(runId);
+ 				if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey);
+ 			};
+@@ -5101,7 +5105,7 @@ function github(options = {}) {
+ 	const identity = isAgentGitHub(appInput) ? appInput : void 0;
+ 	const appOptions = isAgentGitHub(appInput) ? {
+ 		token: async (_context, scope) => (await appInput.access(scope)).token,
+-		...appInput.identity?.() ? { identity: { login: appInput.identity() } } : {}
++		...appInput.identity?.() ? { identity: { login: appInput.identity(), appId: appInput.appId?.() } } : {}
+ 	} : appInput;
+ 	const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : void 0;
+ 	const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : void 0;
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0573ee172 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..7adab841e438fca06c48788e973c036755ef7a0d 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
 @@ -9,12 +9,13 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -431,7 +491,24 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0
  	} finally {
  		try {
  			try {
-@@ -1259,6 +1308,26 @@ function isGraphQLCommand(args) {
+@@ -1186,7 +1235,7 @@ function createGitHubAppCredentials(app) {
+ 		/** The App bot's login and noreply email, used as the commit author. */
+ 		async identity() {
+ 			identity ??= (async () => {
+-				const { login } = await client.app().catch((error) => {
++				const { id: appId, login } = await client.app().catch((error) => {
+ 					const status = codeHostErrorStatus(error);
+ 					if (status !== void 0) throw agentDiagnostics.AGENT_R0757({
+ 						message: `GitHub App request /app failed with ${status}.`,
+@@ -1203,6 +1252,7 @@ function createGitHubAppCredentials(app) {
+ 					userAgent: app.userAgent
+ 				})).users.get(login).catch(() => void 0);
+ 				return {
++					appId,
+ 					login,
+ 					email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
+ 				};
+@@ -1259,6 +1309,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -458,7 +535,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1498,10 +1567,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1568,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -471,7 +548,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1516,7 +1585,7 @@ function createGitHubHost(options) {
+@@ -1516,7 +1586,7 @@ function createGitHubHost(options) {
  				signal: operation.signal
  			};
  			if (input.cwd) execOptions.cwd = input.cwd;
@@ -480,14 +557,36 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..c106a5b84d75a3a1ce7e5a4e776e70f0
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -3190,4 +3259,4 @@ function combine(states) {
+@@ -1975,6 +2045,9 @@ function createGitHubHost(options) {
+ 		identity() {
+ 			return identity.login?.trim() || void 0;
+ 		},
++		appId() {
++			return identity.appId;
++		},
+ 		channel(channelOptions = {}) {
+ 			return github({
+ 				...channelOptions,
+@@ -3190,4 +3263,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
 +export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
+diff --git a/dist/github-inbox-DrLajlGT.d.ts b/dist/github-inbox-DrLajlGT.d.ts
+index ce7c68397e0361716d349c8b8be4df739c4aeeaa..7a9e2aafb5300317092a0a19c6ab1c7282faadd3 100644
+--- a/dist/github-inbox-DrLajlGT.d.ts
++++ b/dist/github-inbox-DrLajlGT.d.ts
+@@ -363,6 +363,7 @@ interface PullRequestInboxOptions {
+   filter?: GitHubPullRequestFilter;
+   clock?: () => number;
+   activityAuthors?: readonly string[];
++  activityAppId?: number;
+   budgets?: InboxBudgets;
+ }
+ declare function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext;
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab231604238f2d0 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..f16196080ca1ab3cb34bf9752f45af3bc9f720d8 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,14 +26,76 @@ const progressBudgetSchema = v.object({
@@ -679,24 +778,69 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  	};
  }
  /**
-@@ -560,7 +676,7 @@ var PullRequestInbox = class {
+@@ -559,8 +675,9 @@ var PullRequestInbox = class {
+ 	clock;
  	filter;
  	activityAuthors;
++	activityAppId;
  	budgets;
 -	constructor({ path, storage, scope = "", repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [] }) {
-+	constructor({ path, storage, scope = "", repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], priorityLabels = [] }) {
++	constructor({ path, storage, scope = "", repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [] }) {
  		validateBudgets(budgets);
  		if (path === void 0 === (storage === void 0)) throw new Error("PullRequestInbox requires exactly one of path or storage.");
  		this.budgets = { ...budgets };
-@@ -568,6 +684,7 @@ var PullRequestInbox = class {
+@@ -568,6 +685,8 @@ var PullRequestInbox = class {
  		this.clock = clock;
  		this.filter = filter;
  		this.activityAuthors = new Set(activityAuthors.map((author) => author.trim().toLowerCase()));
++		this.activityAppId = activityAppId === void 0 ? void 0 : v.parse(v.pipe(v.number(), v.integer(), v.minValue(1)), activityAppId);
 +		this.priorityLabels = [...new Set(priorityLabels.map((label) => label.trim().toLowerCase()).filter(Boolean))];
  		this.storage = storage ?? createNodeSqliteInboxStorage(path);
  		this.ownsStorage = !storage;
  		this.scope = scope;
-@@ -1247,7 +1364,8 @@ var PullRequestInbox = class {
+@@ -620,13 +739,23 @@ var PullRequestInbox = class {
+ 			args: this.repositories
+ 		};
+ 	}
++	ownsComment(comment) {
++		return this.activityAppId !== void 0 ? comment?.performed_via_github_app?.id === this.activityAppId : this.activityAuthors.has(String(comment?.user?.login ?? comment?.author?.login ?? "").trim().toLowerCase());
++	}
++	isActivityComment(comment) {
++		return this.ownsComment(comment) && String(comment?.body ?? "").startsWith("<!-- vitehub-agent-activity:");
++	}
++	cleanSnapshot(snapshot) {
++		snapshot.comments = Object.fromEntries(Object.entries(snapshot.comments).filter(([, comment]) => !this.isActivityComment(comment)));
++		return snapshot;
++	}
+ 	async getIn(tx, repository, number) {
+ 		const [row] = await tx.execute(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND repository=? AND number=?`, [
+ 			this.scope,
+ 			repository,
+ 			number
+ 		]);
+-		return row ? parseSnapshot(JSON.parse(stringValue(row.value))) : void 0;
++		return row ? this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value)))) : void 0;
+ 	}
+ 	async get(repository, number) {
+ 		await this.init();
+@@ -635,7 +764,7 @@ var PullRequestInbox = class {
+ 	async all() {
+ 		if (!this.repositories.length) return [];
+ 		const repositories = this.repositoryFilter();
+-		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value))));
++		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])).map((row) => this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value)))));
+ 	}
+ 	compactTerminal(s) {
+ 		if (s.status !== "terminal") return;
+@@ -651,6 +780,7 @@ var PullRequestInbox = class {
+ 		s.feedbackRefresh = true;
+ 	}
+ 	async put(tx, s) {
++		this.cleanSnapshot(s);
+ 		let reopened = false;
+ 		let resumed = false;
+ 		let wasWorking = false;
+@@ -1247,7 +1377,8 @@ var PullRequestInbox = class {
  				exhausted: false,
  				evidence: previous?.evidence,
  				creditedEvidence: previous?.creditedEvidence ?? [],
@@ -706,7 +850,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  			};
  			this.dirty(s, "progress-budget:reset");
  			await this.put(tx, s);
-@@ -1295,6 +1413,7 @@ var PullRequestInbox = class {
+@@ -1295,6 +1426,7 @@ var PullRequestInbox = class {
  			...previous,
  			...pr
  		};
@@ -714,7 +858,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  		if (newHead) {
  			delete s.ciEvidence;
  			s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha));
-@@ -1312,6 +1431,11 @@ var PullRequestInbox = class {
+@@ -1312,6 +1444,11 @@ var PullRequestInbox = class {
  		}
  		return true;
  	}
@@ -726,7 +870,34 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  	eligible(repository, pr) {
  		return Boolean(pr && pr.state === "open" && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, "pull-request"));
  	}
-@@ -1551,8 +1675,18 @@ var PullRequestInbox = class {
+@@ -1373,7 +1510,7 @@ var PullRequestInbox = class {
+ 			const commentBody = String(payload.comment?.body ?? "");
+ 			const marked = commentBody.startsWith("<!-- vitehub-agent-activity:");
+ 			const repairMarked = commentBody.startsWith("<!-- vitehub-babysitter-repair:");
+-			const activity = marked && this.activityAuthors.has(commentAuthor);
++			const activity = marked && this.ownsComment(payload.comment);
+ 			if (event === "issue_comment" && !payload.issue?.pull_request) return await finish("issue is not a PR");
+ 			if (event === "issue_comment" && !activity && !isFeedback(payload.comment)) return await finish("irrelevant comment");
+ 			if (![
+@@ -1423,7 +1560,7 @@ var PullRequestInbox = class {
+ 			if (sha && (check || event === "status")) {
+ 				const pending = await tx.execute(`SELECT number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository]);
+ 				for (const row of pending) {
+-					const snapshot = parseSnapshot(JSON.parse(stringValue(row.value)));
++					const snapshot = this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value))));
+ 					if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number));
+ 				}
+ 			}
+@@ -1468,7 +1605,7 @@ var PullRequestInbox = class {
+ 				};
+ 				if (event === "issue_comment") {
+ 					if (!activity) upsert(s.comments, payload.comment);
+-					if (activity || repairMarked && this.activityAuthors.has(commentAuthor)) changed = false;
++					if (activity || repairMarked && this.ownsComment(payload.comment)) changed = false;
+ 				}
+ 				if (event === "pull_request_review_comment") {
+ 					upsert(s.reviewComments, payload.comment);
+@@ -1551,8 +1688,18 @@ var PullRequestInbox = class {
  					exhausted: false,
  					resetReason: `${event}:${payload.sender?.login ?? "unknown"}`
  				};
@@ -745,7 +916,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  				const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha;
  				const eligible = this.eligible(repository, s.pr);
  				if (s.pr && !eligible) {
-@@ -1579,26 +1713,24 @@ var PullRequestInbox = class {
+@@ -1579,26 +1726,24 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
@@ -781,12 +952,13 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  				const s = await this.getIn(tx, repository, number);
  				if (!s) continue;
  				if (s.pr && !this.eligible(s.repository, s.pr)) continue;
-@@ -1631,10 +1763,15 @@ var PullRequestInbox = class {
+@@ -1631,10 +1776,16 @@ var PullRequestInbox = class {
  					pr
  				};
  			}
 +			const before = s.pr;
  			Object.assign(s, patch);
++			if (patch.comments) patch = { ...patch, comments: this.cleanSnapshot(s).comments };
 +			if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, "conflict");
  			if (s.pr && !this.eligible(s.repository, s.pr)) s.status = "terminal";
  			await this.put(tx, s);
@@ -798,7 +970,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  			return true;
  		});
  	}
-@@ -1723,6 +1860,50 @@ var PullRequestInbox = class {
+@@ -1723,6 +1874,50 @@ var PullRequestInbox = class {
  			return true;
  		});
  	}
@@ -849,7 +1021,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  	/** Checks the durable claim fence immediately before an irreversible provider action. */
  	async isClaimCurrent(claim) {
  		return await this.transaction(async (tx) => {
-@@ -1739,6 +1920,8 @@ var PullRequestInbox = class {
+@@ -1739,6 +1934,8 @@ var PullRequestInbox = class {
  		return await this.transaction(async (tx) => {
  			const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number);
  			if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false;
@@ -858,7 +1030,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  			const pinnedHead = result.wait?.headSha;
  			if (result.wait && pinnedHead) {
  				if (result.retry || result.terminal) throw new Error("A wait cannot also retry or terminate work");
-@@ -1752,6 +1935,7 @@ var PullRequestInbox = class {
+@@ -1752,6 +1949,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -866,7 +1038,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1781,6 +1965,7 @@ var PullRequestInbox = class {
+@@ -1781,6 +1979,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -874,7 +1046,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1816,12 +2001,34 @@ var PullRequestInbox = class {
+@@ -1816,12 +2015,34 @@ var PullRequestInbox = class {
  				s.status = "waiting";
  				s.nextAt = 0;
  				s.reasons = ["no-progress-budget-exhausted"];
@@ -909,7 +1081,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  	recordProgress(s, claim, progress) {
  		const head = s.pr?.head?.sha;
  		if (progress?.kind === "verified") requireEvidence(progress.evidence);
-@@ -1831,14 +2038,19 @@ var PullRequestInbox = class {
+@@ -1831,14 +2052,19 @@ var PullRequestInbox = class {
  			const creditedEvidence = previous?.creditedEvidence ?? [];
  			const verified = progress.kind === "verified" && !creditedEvidence.includes(progress.evidence);
  			const count = verified ? 0 : (previous?.count ?? 0) + 1;
@@ -931,7 +1103,16 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  			};
  		}
  	}
-@@ -1871,6 +2083,14 @@ var PullRequestInbox = class {
+@@ -1847,7 +2073,7 @@ var PullRequestInbox = class {
+ 		if (!this.repositories.length) return [];
+ 		const repositories = this.repositoryFilter();
+ 		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
+-      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => parseSnapshot(JSON.parse(stringValue(row.value)))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== void 0) || includeIdle && !snapshot.wait?.wake);
++      AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? "" : "AND generation>handled"} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])).map((row) => this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value))))).filter((snapshot) => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== void 0) || includeIdle && !snapshot.wait?.wake);
+ 	}
+ 	/** Records that the host evaluated a wait's new events and the wait still holds. */
+ 	async acknowledgeWait(observed) {
+@@ -1871,6 +2097,14 @@ var PullRequestInbox = class {
  				evidenceKey
  			});
  			if (s.wait.evidenceKey === evidenceKey) return false;
@@ -946,7 +1127,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  			if (options.recovery) {
  				s.recoveryHead = s.pr?.head?.sha;
  				s.refresh = true;
-@@ -2209,7 +2429,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
+@@ -2209,7 +2443,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
  			repository: { full_name: s.repository },
  			...payload
  		};
@@ -966,7 +1147,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..de982c4d3d896f5a815f93913ab23160
  		await inbox.ingest(id, event, full);
  	};
  	await ingest("pull_request", {
-@@ -2668,4 +2899,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
+@@ -2668,4 +2913,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
  	};
  }
  //#endregion
@@ -1214,7 +1395,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131eb9a06fd 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..22f74bdcb60febeb09d10762a5e657647236bfd7 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -1605,11 +1786,12 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  	const pullRequestInbox = new PullRequestInbox({
  		...options.inboxStorage ? {
  			storage: options.inboxStorage,
-@@ -1650,15 +1890,22 @@ function createBabysitterRuntime(options) {
+@@ -1650,15 +1890,23 @@ function createBabysitterRuntime(options) {
  		repositories: options.repositories,
  		filter,
  		activityAuthors,
 -		budgets: noProgressBudget === false ? {} : { noProgress: noProgressBudget }
++		activityAppId: github.appId?.(),
 +		priorityLabels,
 +		budgets: {
 +			...noProgressBudget === false ? {} : { noProgress: noProgressBudget },
@@ -1630,7 +1812,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  	};
  	const schedulerEvent = (name, properties = {}) => options.event?.(name, properties);
  	const schedulerError = (name, error, properties = {}) => options.error?.(name, error, properties);
-@@ -1911,7 +2158,7 @@ function createBabysitterRuntime(options) {
+@@ -1911,7 +2159,7 @@ function createBabysitterRuntime(options) {
  		}
  		if (signal.aborted) return "blocked";
  		const policy = await requiredChecks.read(repository, base);
@@ -1639,7 +1821,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
  		const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : void 0;
  		const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : void 0;
-@@ -1919,7 +2166,9 @@ function createBabysitterRuntime(options) {
+@@ -1919,7 +2167,9 @@ function createBabysitterRuntime(options) {
  		let decision = directMergeReadiness(snapshot, evaluation.state, {
  			...waitPolicy,
  			assessedFeedback,
@@ -1650,7 +1832,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		});
  		if (decision.ready && merge.ready) {
  			const callback = merge.ready;
-@@ -1945,10 +2194,32 @@ function createBabysitterRuntime(options) {
+@@ -1945,10 +2195,32 @@ function createBabysitterRuntime(options) {
  			return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
  		}
  		let mergeStarted = false;
@@ -1685,7 +1867,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			if (!current.ready) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
  					...owner,
-@@ -1956,6 +2227,22 @@ function createBabysitterRuntime(options) {
+@@ -1956,6 +2228,22 @@ function createBabysitterRuntime(options) {
  				});
  				return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
  			}
@@ -1708,7 +1890,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
  			const branchSafety = directMergeBranchSafety(repositorySettings, live, await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal));
  			if (branchSafety !== true) {
-@@ -1972,6 +2259,19 @@ function createBabysitterRuntime(options) {
+@@ -1972,6 +2260,19 @@ function createBabysitterRuntime(options) {
  				});
  				return "not-ready";
  			}
@@ -1728,7 +1910,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			signal.throwIfAborted();
  			if (!pending && !await pullRequestInbox.beginDirectMerge(claim, decision.head, true)) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
-@@ -1980,8 +2280,18 @@ function createBabysitterRuntime(options) {
+@@ -1980,8 +2281,18 @@ function createBabysitterRuntime(options) {
  				});
  				return "blocked";
  			}
@@ -1748,7 +1930,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			if (response.status === "pending") {
  				if (!await pullRequestInbox.recordDirectMergeRequest(repository, number, mergeToken, response.details.uuid)) throw new Error("Merge attempt changed before its UUID could be recorded.");
  				return await parkMerge(`Waiting for GitHub merge request ${response.details.uuid}.`);
-@@ -2002,7 +2312,7 @@ function createBabysitterRuntime(options) {
+@@ -2002,7 +2313,7 @@ function createBabysitterRuntime(options) {
  		}
  		await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
  		await pullRequestInbox.finish(claim, {
@@ -1757,7 +1939,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			terminal: true
  		});
  		schedulerEvent("babysitter.owner.merged", {
-@@ -2013,10 +2323,22 @@ function createBabysitterRuntime(options) {
+@@ -2013,10 +2324,22 @@ function createBabysitterRuntime(options) {
  		return "merged";
  	}
  	const postPushGraceMs = options.postPushGraceMs ?? 18e4;
@@ -1781,7 +1963,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			threads: claim.snapshot.threads.map((thread) => {
  				const latest = current?.threads.find((value) => String(value.node_id ?? value.id) === String(thread.node_id ?? thread.id));
  				return latest?.resolutionSource === "worker" && latest.isResolved === true ? {
-@@ -2049,10 +2371,7 @@ function createBabysitterRuntime(options) {
+@@ -2049,10 +2372,7 @@ function createBabysitterRuntime(options) {
  		}
  		return await pullRequestInbox.finish(claim, {
  			text,
@@ -1793,7 +1975,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			verifiedPushHeads,
  			wait: {
  				...waiting,
-@@ -2060,25 +2379,318 @@ function createBabysitterRuntime(options) {
+@@ -2060,25 +2380,318 @@ function createBabysitterRuntime(options) {
  			}
  		});
  	}
@@ -2124,7 +2306,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  	}
  	async function requiredCheckState(snapshot) {
  		return (await requiredCheckEvaluation(snapshot))?.state ?? "unknown";
-@@ -2099,11 +2711,18 @@ function createBabysitterRuntime(options) {
+@@ -2099,11 +2712,18 @@ function createBabysitterRuntime(options) {
  			feedback: [.../* @__PURE__ */ new Set([...known, ...feedbackFingerprints(snapshot, waitPolicy)])].slice(-2e3)
  		});
  	}
@@ -2145,7 +2327,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
  		const evaluation = await requiredCheckEvaluation(snapshot);
  		return evaluation?.state === "pending" && !evaluation.missing.length ? "required checks" : void 0;
-@@ -2149,6 +2768,15 @@ function createBabysitterRuntime(options) {
+@@ -2149,6 +2769,15 @@ function createBabysitterRuntime(options) {
  			};
  		});
  	}
@@ -2161,7 +2343,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  	/** A ready event may wake a direct merge, but must not start a model pass when
  	* the user supplied merge predicate still blocks that merge. */
  	async function directMergeWakeAllowed(snapshot, requiredChecks) {
-@@ -2188,19 +2816,27 @@ function createBabysitterRuntime(options) {
+@@ -2188,19 +2817,27 @@ function createBabysitterRuntime(options) {
  	}
  	async function externalWait(observed, wake, reason) {
  		if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
@@ -2191,7 +2373,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		};
  	}
  	async function recoverFailedCiWaits() {
-@@ -2307,6 +2943,14 @@ function createBabysitterRuntime(options) {
+@@ -2307,6 +2944,14 @@ function createBabysitterRuntime(options) {
  		};
  		const { publicUrl, repositories } = options;
  		if (!isAccepting()) return;
@@ -2206,7 +2388,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2358,18 +3002,21 @@ function createBabysitterRuntime(options) {
+@@ -2358,18 +3003,21 @@ function createBabysitterRuntime(options) {
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -2228,7 +2410,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
  		}
  		await pullRequestInbox.recoverLeases();
-@@ -2380,6 +3027,7 @@ function createBabysitterRuntime(options) {
+@@ -2380,6 +3028,7 @@ function createBabysitterRuntime(options) {
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -2236,7 +2418,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2387,13 +3035,34 @@ function createBabysitterRuntime(options) {
+@@ -2387,13 +3036,34 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
@@ -2273,7 +2455,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  		const jobs = [...lane, ...regular];
  		if (!jobs.length) return;
  		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
-@@ -2444,23 +3113,24 @@ function createBabysitterRuntime(options) {
+@@ -2444,23 +3114,24 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
@@ -2303,7 +2485,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						verifiedPushHeads: [...verifiedPushHeads]
  					} : {},
  					wait: {
-@@ -2471,7 +3141,167 @@ function createBabysitterRuntime(options) {
+@@ -2471,7 +3142,167 @@ function createBabysitterRuntime(options) {
  				});
  				return true;
  			};
@@ -2471,7 +2653,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  			const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => pushedHead);
  			try {
  				if (!await hydrateSnapshot(pullRequestInbox, inboxClaim, (path, projection) => readRest(path, projection, passSignal), (repository, number) => readThreads(repository, number, passSignal), activityAuthors)) {
-@@ -2486,22 +3316,30 @@ function createBabysitterRuntime(options) {
+@@ -2486,22 +3317,30 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				const retargeted = await retargetMergedStackBase(inboxClaim, passSignal);
@@ -2507,7 +2689,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					await pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${retargeted.from} to ${retargeted.to} after the parent pull request merged.` });
  					schedulerEvent("babysitter.stack.retargeted", {
  						...owner,
-@@ -2510,14 +3348,28 @@ function createBabysitterRuntime(options) {
+@@ -2510,14 +3349,28 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				if (merge.mode === "direct") {
@@ -2539,7 +2721,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  							}
  						});
  						schedulerEvent("babysitter.wait.kept", {
-@@ -2529,6 +3381,20 @@ function createBabysitterRuntime(options) {
+@@ -2529,6 +3382,20 @@ function createBabysitterRuntime(options) {
  						return;
  					}
  				}
@@ -2560,7 +2742,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  				const deferral = await pendingGateDeferral(inboxClaim.snapshot);
  				if (deferral) {
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -2565,10 +3431,10 @@ function createBabysitterRuntime(options) {
+@@ -2565,10 +3432,10 @@ function createBabysitterRuntime(options) {
  					await pullRequestInbox.release(inboxClaim);
  					return;
  				}
@@ -2573,7 +2755,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2624,15 +3490,35 @@ function createBabysitterRuntime(options) {
+@@ -2624,15 +3491,35 @@ function createBabysitterRuntime(options) {
  					});
  					return;
  				}
@@ -2611,7 +2793,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						}
  					});
  					schedulerEvent("babysitter.mergeability.waiting", {
-@@ -2671,52 +3557,35 @@ function createBabysitterRuntime(options) {
+@@ -2671,52 +3558,35 @@ function createBabysitterRuntime(options) {
  					const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
  					const repairOperation = new AsyncLocalStorage();
  					const ownedResolutions = /* @__PURE__ */ new Map();
@@ -2687,7 +2869,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						observePendingPush?.(current);
  						for (const [id, reopens] of ownedResolutions) if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
  						const observedHead = current.pr?.head?.sha;
-@@ -2727,8 +3596,17 @@ function createBabysitterRuntime(options) {
+@@ -2727,8 +3597,17 @@ function createBabysitterRuntime(options) {
  							pendingInboxHeads.clear();
  							pendingInboxHeads.add(pushedHead);
  						}
@@ -2707,7 +2889,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						return current;
  					};
  					let preparedMergeBase;
-@@ -2737,10 +3615,15 @@ function createBabysitterRuntime(options) {
+@@ -2737,10 +3616,15 @@ function createBabysitterRuntime(options) {
  						if (!isRuntimeRecord(ref) || ref.ref !== `refs/heads/${pullRequest.baseRefName}` || !isRuntimeRecord(ref.object) || ref.object.type !== "commit" || !hasRuntimeType(ref.object.sha, "string") || !/^[a-f\d]{40}$/i.test(ref.object.sha)) throw new Error("Conflict repair requires the exact live base branch commit.");
  						return ref.object.sha;
  					};
@@ -2724,7 +2906,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  							await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
  							const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
  							passController.abort(changed);
-@@ -2763,9 +3646,19 @@ function createBabysitterRuntime(options) {
+@@ -2763,9 +3647,19 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -2745,7 +2927,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  								if (!preparedMergeBase || abortSignal.aborted || !(error instanceof GitHubWorkspaceInstallError) || !(error.cause instanceof GitHubDependencyConflictError)) throw error;
  							}
  							preparedDirectories.add(directory);
-@@ -2773,11 +3666,11 @@ function createBabysitterRuntime(options) {
+@@ -2773,11 +3667,11 @@ function createBabysitterRuntime(options) {
  					};
  					const operations = createGitHubPullRequestOperations({
  						command: async (args, request) => {
@@ -2759,7 +2941,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  							return await github.ensureGraphQLBudget(...args);
  						}
  					}, {
-@@ -2798,15 +3691,19 @@ function createBabysitterRuntime(options) {
+@@ -2798,15 +3692,19 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							await assertRepairBase();
  							const customInstaller = isRuntimeRecord(installOption) && Boolean(installOption.command);
@@ -2782,7 +2964,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  							await assertLease();
  							return head;
  						},
-@@ -2852,6 +3749,10 @@ function createBabysitterRuntime(options) {
+@@ -2852,6 +3750,10 @@ function createBabysitterRuntime(options) {
  									beforePush: async (head) => {
  										const current = await assertLease();
  										await assertRepairBase();
@@ -2793,7 +2975,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  										if (head && !await pullRequestInbox.registerProspectivePush({
  											...inboxClaim,
  											generation: current.generation,
-@@ -2862,6 +3763,8 @@ function createBabysitterRuntime(options) {
+@@ -2862,6 +3764,8 @@ function createBabysitterRuntime(options) {
  										} : void 0;
  									},
  									afterPush: async (head) => {
@@ -2802,7 +2984,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  										recordPush(head);
  										await assertLease();
  									}
-@@ -2874,6 +3777,14 @@ function createBabysitterRuntime(options) {
+@@ -2874,6 +3778,14 @@ function createBabysitterRuntime(options) {
  							}
  						}
  					});
@@ -2817,7 +2999,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					const resolveThread = operations.resolveThread;
  					operations.resolveThread = (id) => repairOperation.run(true, async () => {
  						const current = await assertLease();
-@@ -2890,6 +3801,13 @@ function createBabysitterRuntime(options) {
+@@ -2890,6 +3802,13 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -2831,7 +3013,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					if (workerSettings.box) providerDirectory = checkout;
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-@@ -2907,6 +3825,10 @@ function createBabysitterRuntime(options) {
+@@ -2907,6 +3826,10 @@ function createBabysitterRuntime(options) {
  						if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
  					}, {
  						runRepair: (execute) => repairOperation.run(true, execute),
@@ -2842,7 +3024,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						beforeRepair: async (context, paths) => {
  							if (!workerSettings.box) return;
  							await assertLease();
-@@ -2916,6 +3838,7 @@ function createBabysitterRuntime(options) {
+@@ -2916,6 +3839,7 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -2850,7 +3032,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  								else await importBoxRepairWorkspace(box.session, checkout, abortSignal);
  							}
  							await assertLease();
-@@ -2925,7 +3848,7 @@ function createBabysitterRuntime(options) {
+@@ -2925,7 +3849,7 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -2859,7 +3041,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  							await assertLease();
  						}
  					});
-@@ -3005,7 +3928,13 @@ function createBabysitterRuntime(options) {
+@@ -3005,7 +3929,13 @@ function createBabysitterRuntime(options) {
  					});
  					const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
  					const snapshotContext = snapshotPrompt(webhookSnapshot);
@@ -2874,7 +3056,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					assertPromptFits(userMessage);
  					schedulerEvent("babysitter.context.prepared", {
  						repository,
-@@ -3020,8 +3949,18 @@ function createBabysitterRuntime(options) {
+@@ -3020,8 +3950,18 @@ function createBabysitterRuntime(options) {
  					});
  					githubRun.threadId = `${githubRun.threadId}:${runId}`;
  					inboxClaim.activity = githubRun.activity;
@@ -2894,7 +3076,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						return await runAgent(agent, {
  							runtime: "vite",
  							run: githubRun,
-@@ -3041,7 +3980,9 @@ function createBabysitterRuntime(options) {
+@@ -3041,7 +3981,9 @@ function createBabysitterRuntime(options) {
  							},
  							output: "drained"
  						});
@@ -2905,7 +3087,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", {
  						...owner,
  						reviewed_head: passResult.reviewedHead,
-@@ -3055,11 +3996,20 @@ function createBabysitterRuntime(options) {
+@@ -3055,11 +3997,20 @@ function createBabysitterRuntime(options) {
  				});
  				if (modelWorkParked) return;
  				const current = await pullRequestInbox.get(repository, number);
@@ -2927,7 +3109,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  				let recorded = false;
  				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
  					text: resultText,
-@@ -3067,12 +4017,13 @@ function createBabysitterRuntime(options) {
+@@ -3067,12 +4018,13 @@ function createBabysitterRuntime(options) {
  				});
  				else if (pushedHead) {
  					outcome = "waiting";
@@ -2943,7 +3125,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason)
  					});
  				} else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
-@@ -3090,6 +4041,7 @@ function createBabysitterRuntime(options) {
+@@ -3090,6 +4042,7 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					recorded = await pullRequestInbox.finish(inboxClaim, {
  						text: resultText,
@@ -2951,7 +3133,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  						wait: {
  							...createCheckWait(inboxClaim.snapshot, waitPolicy),
  							headSha: pullRequest.headRefOid,
-@@ -3120,6 +4072,7 @@ function createBabysitterRuntime(options) {
+@@ -3120,6 +4073,7 @@ function createBabysitterRuntime(options) {
  					wait.kind = "external";
  					wait.reason = error.message;
  					if (error.retryable) wait.retryAt = Date.now() + 3e5;
@@ -2959,7 +3141,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  					await pullRequestInbox.finish(inboxClaim, {
  						text: error.message,
  						wait
-@@ -3129,19 +4082,42 @@ function createBabysitterRuntime(options) {
+@@ -3129,19 +4083,42 @@ function createBabysitterRuntime(options) {
  				}
  				if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
  					outcome = "waiting";
@@ -3004,7 +3186,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3152,18 +4128,40 @@ function createBabysitterRuntime(options) {
+@@ -3152,18 +4129,40 @@ function createBabysitterRuntime(options) {
  						reason: "github-rate-limit",
  						...owner
  					});
@@ -3046,7 +3228,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..8764e76acb3c9ac9d6782c4411fab131
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +4194,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +4195,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
@@ -3093,3 +3275,32 @@ index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..1023e76eb030c999ecbafc93dcc6629c
  		});
  	}
  	async migrate() {
+diff --git a/dist/types-B067Gzm7.d.ts b/dist/types-B067Gzm7.d.ts
+index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6b10247e1 100644
+--- a/dist/types-B067Gzm7.d.ts
++++ b/dist/types-B067Gzm7.d.ts
+@@ -1321,6 +1321,7 @@ interface GitHubHostOptions {
+   credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>;
+   graphQLCheckTimeout?: number;
+   identity?: {
++    appId?: number;
+     email?: string;
+     login?: string;
+   };
+@@ -1386,6 +1387,8 @@ interface GitHubHost {
+   channel(options?: Omit<GitHubChannelOptions, "app">): AgentChannelDefinition;
+   /** Return the verified login configured for this host, when available. */
+   identity(): string | undefined;
++  /** Immutable GitHub App ID for managed activity ownership. */
++  appId?(): number | undefined;
+   /** Resolve credentials and Git binding for the current checkout callback. */
+   environment(): Promise<Record<string, string>>;
+   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>;
+@@ -1425,6 +1428,7 @@ declare function createGitHubAppCredentials(app: GitHubAppEnvironment): {
+   credentials(context: GitHubHostCredentialContext): Promise<GitHubHostCredentials>;
+   /** The App bot's login and noreply email, used as the commit author. */
+   identity(): Promise<{
++    appId: number;
+     login: string;
+     email: string;
+   }>;
