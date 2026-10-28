@@ -135,7 +135,7 @@ test('an assessed bot thread left open does not block a green PR', async () => {
 test('a direct merge first updates a branch whose files changed on main after its checks ran', () => {
   // PR checks test the base of that moment. Two PRs that both added the same import passed
   // separately and broke main together, so overlapping PRs are retested on the current base.
-  assert.match(source, /const overlap = await staleBaseOverlap\(snapshot, live, signal\);/)
+  assert.match(source, /const overlap = await staleBaseOverlap\(snapshot, live, signal, inheritedBypass \? new Set\(\["success", \.\.\.failed\]\) : void 0\);/)
   assert.match(source, /if \(!await updateBranch\(owner, repository, number, decision\.head, signal, live\)\) return "not-ready";/)
   assert.match(source, /`repos\/\$\{repository\}\/pulls\/\$\{number\}\/update-branch`,\n\t+"-f",\n\t+`expected_head_sha=\$\{head\}`/)
   // The tested base comes from the push history, not commit dates, and the lookups read one page.
@@ -222,33 +222,14 @@ test('failed checks from an older base get one model-free retest on the current 
   assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < source.indexOf('if (await parkBlockedModelWork()) return;'))
 })
 
-test('failures that the base tip shares park without a model pass until the base passes', () => {
-  // On 2026-10-19 main's preview build failed for 4 h; 47 of 69 open PRs inherited the failure and
-  // each still took a 1-4M token pass to assess it.
-  const gate = source.slice(source.indexOf('async function inheritedBaseFailures('), source.indexOf('async function staleBaseOverlap('))
+test('inherited Actions failures are evaluated per run instead of parking behind main', () => {
+  const gate = source.slice(source.indexOf('async function readInheritedBaseFailures('), source.indexOf('async function staleBaseOverlap('))
   assert.match(gate, /startsWith\("babysitter\/repair-main-"\)\) return \[\];/)
   assert.match(gate, /if \(conflictedSnapshot\(snapshot\) \|\| checksStillRunning\(snapshot\)\) return \[\];/)
-  assert.match(gate, /if \(\(snapshot\.humanFeedbackGeneration \?\? 0\) > \(snapshot\.handled \?\? 0\)\) return \[\];/)
-  assert.match(gate, /hasHumanComment\(thread, waitPolicy\.workerAuthors, snapshot\)\)\) return \[\];/)
-  assert.match(gate, /return failing\.every\(\(name\) => inherited\.has\(name\)\) && await sameFailures\(\) \? failing : \[\];/)
-  // An optional inherited failure still gets the pass that assesses it, so the PR can merge.
-  assert.match(gate, /if \(!failing\.length \|\| await requiredCheckState\(snapshot\) !== "failed"\) return \[\];/)
-  assert.match(source, /reason: "base-failing",/)
-  assert.match(source, /wait\.retryAt = Date\.now\(\) \+ 9e5;/)
-  // After the retest (which updates the branch once the base is green) and before model admission.
-  const call = source.indexOf('await inheritedBaseFailures(inboxClaim.snapshot')
-  assert.ok(source.indexOf('await retestOnCurrentBase(inboxClaim.snapshot') < call)
-  assert.ok(call < source.indexOf('if (await parkBlockedModelWork()) return;'))
-})
-
-test('a failure parks behind the base only when its failed step prints nothing the base lacks', () => {
-  // vite-hub/drop: main's one `checks` job failed knip; #42 (its own unused file) and #24 (type
-  // errors) failed the same job name and parked for 19 h.
-  const gate = source.slice(source.indexOf('async function inheritedBaseFailures('), source.indexOf('async function staleBaseOverlap('))
-  assert.match(gate, /if \(failing\.every\(\(name\) => inherited\.has\(name\)\)\) return await sameFailures\(\) \? failing : \[\];/)
-  assert.match(gate, /return own\.step === base\.step && \[\.\.\.own\.lines\]\.every\(\(line\) => base\.lines\.has\(line\)\);/)
-  assert.match(gate, /repos\/\$\{repository\}\/actions\/jobs\/\$\{jobId\}\/logs/)
-  assert.match(gate, /line\.startsWith\("##\[error\]Process completed with exit code"\)/)
+  assert.match(gate, /if \(await sameFailedOutput\(repository, check, inherited\.get\(String\(check\.name\)\), signal\)\) ids\.push\(check\.id\);/)
+  assert.doesNotMatch(source, /reason: "base-failing",/)
+  assert.match(source, /inheritedCheckIds: new Set\(evaluation\.inheritedCheckIds \?\? \[\]\)/)
+  assert.match(source, /cached\?\.expiresAt > Date\.now\(\)/)
 })
 
 test('a cancelled check run does not replace a finished run of the same check', () => {
@@ -605,8 +586,8 @@ test('new checks and bot reviews do not reject a pass, and a real evidence chang
   assert.match(source, /command: async \(args, request\) => \{\n\t+await \(readOperation\.getStore\(\) \? assertLeaseHeld\(\) : assertLease\(\)\);/)
   assert.match(source, /"readCheckLogs",\n\t+"readBaseCheckEvidence",\n\t+"readBaseCheckLogs"\n\t+\]\) \{\n\t+const read = operations\[name\];\n\t+operations\[name\] = \(\.\.\.args\) => readOperation\.run\(true, \(\) => read\(\.\.\.args\)\);/)
   // Merges still re-read required checks and the live PR before merging.
-  assert.match(source, /const evaluation = withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\)\);/)
-  assert.match(source, /const current = liveMergeReadiness\(live, decision\.head\);/)
+  assert.match(source, /const evaluation = await withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\), signal, policy\);/)
+  assert.match(source, /const current = liveMergeReadiness\(inheritedBypass && live\.mergeable === true && live\.mergeable_state === "blocked" \? \{ \.\.\.live, mergeable_state: "unstable" \} : live, decision\.head\);/)
 })
 
 test('inherited base failures and retests reach a base tested more than 100 pushes ago', () => {
@@ -614,7 +595,7 @@ test('inherited base failures and retests reach a base tested more than 100 push
   // base, so no retest ran, and main's tip never had a finished run, so the base-failing park missed it.
   assert.match(source, /commits\?sha=\$\{encodeURIComponent\(baseRef\)\}&until=\$\{new Date\(ranAt - 12e4\)\.toISOString\(\)\}&per_page=1/)
   assert.match(source, /const tested = await checksTestedBase\(snapshot, pr\.head\.sha, baseRef, failed, signal\);/)
-  assert.match(source, /for \(const check of testedFailing\) if \(!passedOnTip\.has\(String\(check\?\.name\)\) && !inherited\.has\(String\(check\?\.name\)\)\) inherited\.set\(String\(check\?\.name\), check\);/)
+  assert.match(source, /for \(const \[name, check\] of testedNewest\) if \(newest\.get\(name\)\?\.status !== "completed" && failed\.has\(String\(check\.conclusion\)\)\) inherited\.set\(name, check\);/)
 })
 
 test('a pass the provider fails early gives its daily pass and exemption back', () => {
@@ -676,9 +657,9 @@ test('a priority-labelled PR is not refused by the repair push cap', () => {
 
 test('in a repository without required checks, failing own CI blocks the merge', async () => {
   // 2026-10-21: comark-plugins#45 had red check and e2e, and its assessed head was about to merge.
-  assert.match(source, /function withOwnActionFailures\(snapshot, evaluation\) \{\n\t+if \(evaluation\.state !== "passed" \|\| evaluation\.checks\.length\) return evaluation;/)
-  assert.match(source, /const evaluation = withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\)\);/)
-  assert.match(source, /return withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(await requiredChecks\.read\(snapshot\.repository, base\), snapshotCheckEvidence\(snapshot\)\)\);/)
+  assert.match(source, /async function withOwnActionFailures\(snapshot, evaluation, signal, policy\) \{\n\t+if \(evaluation\.state === "unknown" \|\| !failedOwnActions\(snapshot, waitPolicy\.pendingReviewChecks\)\.length\) return evaluation;/)
+  assert.match(source, /const evaluation = await withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\), signal, policy\);/)
+  assert.match(source, /return withOwnActionFailures\(snapshot, evaluateGitHubRequiredChecks\(policy, snapshotCheckEvidence\(snapshot\)\), void 0, policy\);/)
   const { fa: failedOwnActions } = await import(join(dist, 'server-DZOuXkga.js'))
   const head = 'a'.repeat(40)
   const run = (id: number, name: string, conclusion: string, extra = {}) => ({ id, name, head_sha: head, status: 'completed', conclusion,

@@ -90,6 +90,14 @@ GitHub delivers signed webhooks to `/api/webhooks/github`. Health is at `/api/he
 and drain state is at `/api/drain`. The standard ViteHub host routes remain available.
 The Console is served at `/_vitehub`.
 
+For `vite-hub/vitehub` PRs targeting `main`, Babysitter can bypass failed `ci` and
+`publish preview packages` checks when their failure output is already present on
+the current `main` commit. Before requesting a merge, it refreshes the PR checks,
+branch protections, reviews and conversations. PR-specific failures, other required
+checks and unsupported protections still block merging. Missing logs do not prove
+an inherited failure. The exact head, base and ignored check IDs are recorded in
+the durable `inherited-merge-proof:<repository>#<number>` entry.
+
 For the installed systemd service, signal admission to stop before restarting:
 
 ```sh
