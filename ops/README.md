@@ -57,3 +57,49 @@ Set these in a `babysitter-vitehub.service.d` drop-in. The defaults are in paren
 `pnpm release <sha>` builds, tests, stages, smoke-boots, switches `release.conf`, drains,
 restarts, and watches for 15 minutes before it finishes. `--smoke-only` stops before it
 touches the live service.
+
+The release also runs `scripts/install-host-files.sh` (`deploy.sh` and `deploy-compact.sh` do too).
+It installs the files the service uses from outside its release directory, from the released commit:
+
+| File | Installed at |
+| --- | --- |
+| `scripts/heavy-command-gate.cjs` | `/home/workspace/babysitter-data/bin/worker/heavy-command-gate.cjs` (root-owned) |
+| `scripts/worker-bin/*` | `/home/workspace/babysitter-data/bin/worker/worker-bin/` |
+| one empty lock per `BABYSITTER_HEAVY_SLOTS` | `heavy-command.lock`, `heavy-command.lock.1`, … next to the gate (root-owned, created once) |
+| `scripts/main-guardian.mjs` | `/home/workspace/babysitter-data/bin/main-guardian.mjs` |
+| `ops/tmp-retention.mjs` | `/home/workspace/babysitter-data/bin/tmp-retention.mjs` (root-owned) |
+
+A rollback switches only `release.conf`; these files stay, and they work with older releases.
+
+The build, typecheck and tests run through `heavy`.
+
+## Heavy-command gate
+
+The service's `PATH` and every worker's `PATH` start with `BABYSITTER_WORKER_BIN`, whose `node`
+preloads the gate. A Node process that runs `tsc`, `vitest`, `vp`, or a dependency install
+(`pnpm install|i|add`, `npm install|ci`, directly or through Corepack) first takes one of
+`BABYSITTER_HEAVY_SLOTS` host-wide `flock` slots, and waits while all are held. That includes
+the host installs the service runs before a pass. Child processes inherit the lease, so a gated
+command that runs another one does not wait again. Both settings are in `worker-gate.conf`.
+A host install that waits more than its 10-minute timeout fails, and the pass starts without
+dependencies, as it does for any failed install.
+
+## TMPDIR retention (`babysitter-tmp-retention.*`)
+
+`babysitter-tmp-retention.timer` runs `ops/tmp-retention.mjs` daily at 04:30 as `svc-babysitter`,
+at idle IO and CPU priority. In `/home/workspace/babysitter-data/tmp` only, it removes:
+
+- Node compile-cache files older than 48 hours, then the oldest ones until the cache is under 2 GiB
+  (`BABYSITTER_COMPILE_CACHE_BUDGET_MB`). Corepack's shims turn the cache on for every pnpm run.
+- Pass workspaces (the names the service's startup sweep uses) untouched for 48 hours, unless the
+  state DB has an unfinished, non-waiting PR with that number or a process has its cwd or an open
+  file inside. If it can't read the state DB, it keeps every workspace.
+
+It never follows symlinks and refuses any root that is not a `tmp` directory, so the state
+databases, backups, `bin/` and credentials are out of its reach. Check it with
+`sudo -u svc-babysitter node /home/workspace/babysitter-data/bin/tmp-retention.mjs --dry-run`
+and `sudo journalctl -u babysitter-tmp-retention`.
+
+| File | Installed at |
+| --- | --- |
+| `babysitter-tmp-retention.service`, `.timer` | `/etc/systemd/system/` (enable the timer) |

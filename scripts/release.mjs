@@ -29,7 +29,8 @@ const DISK_MIN_FREE = 20 * 2 ** 30
 // Other sessions share this disk, so only an absolute floor is a Babysitter signal.
 // The token guard is a per-window cap. Usage well past it means the cap is not enforced.
 const TOKEN_CAP_FACTOR = 1.5
-const FLEET_QUEUE = '/home/maxi/.local/bin/fleet-queue'
+// Installs, builds, typechecks and tests take one of Slimbook's shared heavy slots.
+const HEAVY = join(homedir(), '.local/bin/heavy')
 
 const args = process.argv.slice(2)
 const smokeOnly = args.includes('--smoke-only')
@@ -47,8 +48,9 @@ function run(command, argv, options = {}) {
   return result
 }
 function queued(command, argv, options = {}) {
-  if (!existsSync(FLEET_QUEUE)) return run(command, argv, options)
-  return run(FLEET_QUEUE, [command, ...argv], options)
+  if (!existsSync(HEAVY)) return run(command, argv, options)
+  // HEAVY_WAIT=0 waits for a slot as long as it takes.
+  return run(HEAVY, [command, ...argv], { ...options, env: { ...(options.env ?? process.env), HEAVY_WAIT: '0' } })
 }
 const sudo = (argv, options) => run('sudo', argv, options)
 const out = (command, argv) => execFileSync(command, argv, { encoding: 'utf8' }).trim()
@@ -123,7 +125,7 @@ mkdirSync(cache, { recursive: true })
 run('git', ['-C', repo, 'worktree', 'add', '--detach', '--force', source, sha])
 const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cache, 'tmp'), BABYSITTER_PUBLIC_URL: publicUrl } }
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
-run('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
+queued('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
 // The build generates the #vitehub/env types that typecheck needs.
 queued('corepack', ['pnpm', 'build'], inSource)
 queued('corepack', ['pnpm', 'typecheck'], inSource)
@@ -140,7 +142,7 @@ sudo(['cp', '-a', join(source, '.output'), release])
 sudo(['chown', '-R', 'svc-babysitter:codex-workspace', release])
 const entry = join(release, '.output/server/index.mjs')
 sudo(['-u', 'svc-babysitter', '/usr/local/bin/node', '--check', entry])
-run('git', ['-C', repo, 'worktree', 'remove', '--force', source])
+const removeSource = () => run('git', ['-C', repo, 'worktree', 'remove', '--force', source], { allowFailure: true })
 
 // 3. Smoke-boot the release with scratch data and a forced zero token budget.
 let port = 3128
@@ -196,13 +198,19 @@ try {
 catch (error) {
   sudo(['journalctl', '-u', smokeUnit, '-n', '40', '--no-pager'], { allowFailure: true })
   stopSmoke()
+  removeSource()
   fail(`smoke boot failed: ${error.message}`)
 }
 stopSmoke()
 if (smokeOnly) {
+  removeSource()
   log(`--smoke-only: staged ${release}; live service untouched`)
   process.exit(0)
 }
+// The worker gate, its slot locks and the timer scripts live outside the release directory.
+// They work with the previous release too, so a rollback leaves them in place.
+run('bash', [join(source, 'scripts/install-host-files.sh')])
+removeSource()
 
 // 4. Switch release.conf atomically, then drain and restart.
 const previousConf = out('sudo', ['cat', RELEASE_CONF])
