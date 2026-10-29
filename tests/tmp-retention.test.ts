@@ -137,6 +137,22 @@ test('an unreadable state DB keeps every workspace but still prunes the compile 
   } finally { fixture.cleanup() }
 })
 
+test('symlinked cache directories and roots are never traversed', async () => {
+  const fixture = dataDirectory()
+  try {
+    const outside = file(join(fixture.data, 'backups', 'v24', 'state.db'), 10, 600)
+    mkdirSync(fixture.root, { recursive: true })
+    symlinkSync(join(fixture.data, 'backups'), join(fixture.root, 'node-compile-cache'))
+    const report = await retain({ root: fixture.root, stateDb: fixture.stateDb, now, compileCacheBudgetBytes: 0 })
+    assert.equal(report.compileCache.removed, 0)
+    assert.equal(existsSync(outside), true)
+    const linkedRoot = join(fixture.data, 'linked', 'tmp')
+    mkdirSync(join(linkedRoot, '..'), { recursive: true })
+    symlinkSync(fixture.root, linkedRoot)
+    await assert.rejects(retain({ root: linkedRoot, stateDb: fixture.stateDb, now }), /is a symlink/)
+  } finally { fixture.cleanup() }
+})
+
 test('retention refuses any root that is not a service tmp directory', async () => {
   const fixture = dataDirectory()
   try {

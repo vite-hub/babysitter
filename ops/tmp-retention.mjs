@@ -27,15 +27,18 @@ export const defaults = {
 // The names @vite-hub/agent gives pass workspaces (sweepBabysitterWorkspaces in the agent bundle).
 const passWorkspace = /^(?:vitehub-provider-(?:launch-)?[A-Za-z0-9]{6}|vitehub-baseline-[A-Za-z0-9]{6}|vitehub-[\w.-]+-pr-\d+-[A-Za-z0-9]{6}(?:\.meta\.json)?|t3-provider-runtime-[A-Za-z0-9]{6})$/
 
-function assertSafeRoot(root) {
+async function assertSafeRoot(root) {
   if (basename(root) !== 'tmp' || resolve(root) === '/tmp') throw new Error(`refusing to clean ${root}: not a service tmp directory`)
+  if ((await lstat(root).catch(() => undefined))?.isSymbolicLink()) throw new Error(`refusing to clean ${root}: it is a symlink`)
 }
 const inside = (path, root) => resolve(path).startsWith(`${resolve(root)}${sep}`)
 
 /** Removes compile-cache files past `maxAgeMs`, then the oldest until the rest fit the budget. */
 export async function pruneCompileCache(root, { now = Date.now(), maxAgeMs = defaults.maxAgeMs, budgetBytes = defaults.compileCacheBudgetBytes, dryRun = false } = {}) {
-  assertSafeRoot(root)
+  await assertSafeRoot(root)
   const cache = join(root, 'node-compile-cache')
+  // readdir follows a symlinked directory; only a real one is the cache.
+  if (!(await lstat(cache).catch(() => undefined))?.isDirectory()) return { removed: 0, freedBytes: 0, keptBytes: 0 }
   const files = []
   const directories = []
   // Node keeps one directory per version, architecture and uid, with flat cache files inside.
@@ -135,7 +138,7 @@ async function removeTree(path) {
 
 /** Removes abandoned pass workspaces. Returns what it removed and why it kept the rest. */
 export async function sweepWorkspaces(root, { now = Date.now(), maxAgeMs = defaults.maxAgeMs, activePrefixes, busy, dryRun = false }) {
-  assertSafeRoot(root)
+  await assertSafeRoot(root)
   const result = { removed: [], kept: { recent: 0, queued: 0, busy: 0 }, failed: [] }
   for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
     if (!passWorkspace.test(entry.name) || entry.isSymbolicLink()) continue
@@ -160,7 +163,7 @@ export async function sweepWorkspaces(root, { now = Date.now(), maxAgeMs = defau
 }
 
 export async function retain({ root = defaults.root, stateDb = defaults.stateDb, now = Date.now(), maxAgeMs = defaults.maxAgeMs, compileCacheBudgetBytes = defaults.compileCacheBudgetBytes, dryRun = false, proc = '/proc' } = {}) {
-  assertSafeRoot(root)
+  await assertSafeRoot(root)
   const compileCache = await pruneCompileCache(root, { now, maxAgeMs, budgetBytes: compileCacheBudgetBytes, dryRun })
   let workspaces
   try {
