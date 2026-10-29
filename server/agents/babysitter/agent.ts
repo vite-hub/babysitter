@@ -21,6 +21,12 @@ const telemetry = createAgentEvlog({
   } : {}),
 })
 
+// The worker bin wraps node with the shared heavy-command gate (scripts/heavy-command-gate.cjs).
+// Host dependency installs that this server starts resolve node on PATH too, so they queue on
+// the same slots as the workers' typecheck, test and install commands.
+const workerBin = process.env.BABYSITTER_WORKER_BIN
+if (workerBin && !process.env.PATH?.split(':').includes(workerBin)) process.env.PATH = `${workerBin}:${process.env.PATH ?? ''}`
+
 // Passes beyond BABYSITTER_FLEET_LOCAL_SLOTS run in remote Boxes on BABYSITTER_FLEET_HOSTS.
 registerFleetFromEnvironment()
 
@@ -95,8 +101,8 @@ export default defineAgent({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
       NODE_OPTIONS: '--max-old-space-size=4096',
-      // The worker bin wraps node with the shared typecheck/test slot gate.
-      ...(process.env.BABYSITTER_WORKER_BIN ? { PATH: `${process.env.BABYSITTER_WORKER_BIN}:${process.env.PATH}` } : {}),
+      // PATH starts with the worker bin (see above).
+      ...(workerBin ? { PATH: process.env.PATH } : {}),
     }),
     instructions: `
 Own the repair and verification in this invocation. Pullfrog provides independent

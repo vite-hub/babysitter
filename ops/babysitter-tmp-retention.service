@@ -1,0 +1,19 @@
+[Unit]
+Description=Prune old Node compile cache and abandoned pass workspaces in the Babysitter TMPDIR
+
+[Service]
+Type=oneshot
+User=svc-babysitter
+Group=codex-workspace
+UMask=0002
+# Run behind every other disk and CPU user; the workspace disk is slow and shared.
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/workspace/babysitter-data/tmp
+MemoryMax=1G
+TimeoutStartSec=2h
+ExecStart=/usr/local/bin/node /home/workspace/babysitter-data/bin/tmp-retention.mjs

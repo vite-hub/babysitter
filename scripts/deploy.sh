@@ -20,8 +20,7 @@ sudo install -d -o "${owner%:*}" -g "${owner#*:}" "$release"
 sudo cp -a .output "$release/"
 sudo chown -R "$owner" "$release"
 sudo -u "${owner%:*}" /usr/local/bin/node --check "$release/.output/server/index.mjs"
-# The main guardian timer runs this stable copy (see ops/main-guardian.*).
-sudo install -o "${owner%:*}" -g "${owner#*:}" -m 0755 scripts/main-guardian.mjs /home/workspace/babysitter-data/bin/main-guardian.mjs
+scripts/install-host-files.sh
 sudo cp "$dropin" "/tmp/release.conf.$(basename "$previous")"
 sed "s#$previous#$release#g" "$dropin" | sudo tee "$dropin.new" >/dev/null
 sudo mv "$dropin.new" "$dropin"
