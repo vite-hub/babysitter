@@ -11,7 +11,7 @@
 //
 // The smoke boot forces a zero token budget, so it reads GitHub but never claims a PR.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, statfsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -125,6 +125,10 @@ mkdirSync(cache, { recursive: true })
 run('git', ['-C', repo, 'worktree', 'add', '--detach', '--force', source, sha])
 const inSource = { cwd: source, env: { ...process.env, CI: '1', TMPDIR: join(cache, 'tmp'), BABYSITTER_PUBLIC_URL: publicUrl } }
 mkdirSync(inSource.env.TMPDIR, { recursive: true })
+// Corepack runs the exact pnpm that package.json pins; say so if anything overrides it.
+const pinnedPnpm = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).packageManager?.match(/^pnpm@([^+]+)/)?.[1]
+const usedPnpm = execFileSync('corepack', ['pnpm', '--version'], { ...inSource, encoding: 'utf8' }).trim()
+if (!pinnedPnpm || usedPnpm !== pinnedPnpm) fail(`package.json pins pnpm ${pinnedPnpm ?? '(nothing)'}, but Corepack runs ${usedPnpm}`)
 queued('corepack', ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], inSource)
 // The build generates the #vitehub/env types that typecheck needs.
 queued('corepack', ['pnpm', 'build'], inSource)

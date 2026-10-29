@@ -71,7 +71,11 @@ It installs the files the service uses from outside its release directory, from 
 
 A rollback switches only `release.conf`; these files stay, and they work with older releases.
 
-The build, typecheck and tests run through `heavy`.
+The build, typecheck and tests run through `heavy`, and Corepack runs the pnpm that `package.json`
+pins with its hash; the release stops if Corepack would run another one. Babysitter stays on pnpm
+10.33.0: pnpm 12 rejects this lockfile, because its `pkg.pr.new` URL dependencies have no
+integrity field (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`). Worker installs of target repos follow
+each target's own `packageManager`.
 
 ## Heavy-command gate
 
