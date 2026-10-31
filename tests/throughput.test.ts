@@ -683,3 +683,19 @@ test('a fleet Box gives its own package-manager caches to the unattended Codex s
   assert.match(source, /for d in \\"\$\{npm_config_store_dir:-\}\\" \\"\$\{npm_config_cache_dir:-\}\\" \\"\$HOME\/\.local\/share\/pnpm\\" \\"\$HOME\/\.cache\\" \\"\$HOME\/\.npm\\"; do/)
   assert.match(source, /writableRoots: providerBox \? providerBox\.writableRoots \?\? \[\] : unattendedCacheRoots\(\)/)
 })
+
+test('a ready PR that cannot reach the default branch parks, and a parked stack child learns its parent merged', () => {
+  // 2026-10-31: #3001 (base pilot/comark-ui-comments, no parent PR) retried a refused direct merge every
+  // two minutes for two days, and #2972 stayed parked on feat/comments-d1 after its parent #2909 merged.
+  assert.match(source, /const lockedBase = stackParent === void 0 && !requiredChecksFailed && inboxClaim\.snapshot\.pr \? nonDefaultBase\(inboxClaim\.snapshot\.pr\) : void 0;/)
+  assert.match(source, /kind: "external",\n\t+reason: "non-default-base"/)
+  assert.match(source, /if \(snapshot\.wait\?\.reason === "non-default-base" && snapshot\.pr && !nonDefaultBase\(snapshot\.pr\)\) reasons\.push\("base-retargeted"\);/)
+  assert.match(source, /const parentMerged = await stackParentMerged\(snapshot\);\n\t+if \(!parentMerged && snapshot\.generation <= snapshot\.handled/)
+  assert.match(source, /return stackRetargetBase\(snapshot\.pr, parents\) !== void 0;/)
+})
+
+test('CI recovery leaves a head with a spent repair budget to its cooldown wake', () => {
+  // 2026-10-31: #2998, #2999 and #3046 were woken every ten minutes only to park on the same spent budget.
+  const recovery = source.slice(source.indexOf('async function recoverFailedCiWaits() {'), source.indexOf('async function stackParentMerged('))
+  assert.match(recovery, /if \(snapshot\.progressBudget\?\.exhausted && snapshot\.progressBudget\.head === head && \(snapshot\.wait\?\.retryAt \?\? 0\) > Date\.now\(\)\) continue;\n\t+const recoveryKey/)
+})
