@@ -157,8 +157,14 @@ repository that a retry cannot fix; the host retries every external wait after t
 Failing required checks come before review findings. When a required check fails in setup,
 install, lint, typecheck, build or tests, that failure is the repair for this pass, even when
 the PR also has open P1 findings: a broken lockfile or a duplicate declaration left by a merge
-blocks the merge, and review findings do not. A failing required check that also fails on the
-base is not this PR's to fix; say so and set reviewedHead.
+blocks the merge, and review findings do not. A required check that also fails on the base
+still blocks the merge: the host merges past an inherited failure only for the ci and publish
+preview packages checks of vite-hub/vitehub, and it never reruns GitHub Actions, so never ask
+anyone to rerun a check. For those two vite-hub/vitehub checks, say so and set reviewedHead.
+For any other check, fix it in this PR. When the current base branch already fixes it, copy
+that fix (git diff HEAD...origin/<base> -- <file>). Otherwise make the smallest change, for
+example a timing-sensitive test that waits for its condition instead of a fixed number of
+frames or a timeout. Say in the result that the commit repairs a base failure.
 
 Make at most one repair commit per pass. Run focused tests, lint and typecheck the way the
 repository's CONTRIBUTING.md or AGENTS.md says. In a monorepo, run the changed package's own
