@@ -692,6 +692,8 @@ test('a ready PR that cannot reach the default branch parks, and a parked stack 
   assert.match(source, /if \(snapshot\.wait\?\.reason === "non-default-base" && snapshot\.pr && !nonDefaultBase\(snapshot\.pr\)\) reasons\.push\("base-retargeted"\);/)
   assert.match(source, /const parentMerged = await stackParentMerged\(snapshot\);\n\t+if \(!parentMerged && snapshot\.generation <= snapshot\.handled/)
   assert.match(source, /return stackRetargetBase\(snapshot\.pr, parents\) !== void 0;/)
+  // An idle budget park has no event, wake or retryAt, so only the idle listing reaches the parent check.
+  assert.match(source, /async function evaluateWaits\(\) \{\n[^\n]*\n\t+for \(const snapshot of await pullRequestInbox\.waitsToEvaluate\(true, true\)\) \{/)
 })
 
 test('CI recovery leaves a head with a spent repair budget to its cooldown wake', () => {
