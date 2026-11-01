@@ -696,6 +696,12 @@ test('a ready PR that cannot reach the default branch parks, and a parked stack 
   assert.match(source, /async function evaluateWaits\(\) \{\n[^\n]*\n\t+for \(const snapshot of await pullRequestInbox\.waitsToEvaluate\(true, true\)\) \{/)
 })
 
+test('a reviewed draft waits for ready_for_review instead of retrying every two minutes', () => {
+  // 2026-11-01: drafts #3024, #3029 and drop#63 had their direct merge refused as "draft" every two
+  // minutes; #3029 reached generation 1929.
+  assert.match(source, /if \(!requiredChecksFailed && inboxClaim\.snapshot\.pr\?\.draft === true\) \{\n\t+await pullRequestInbox\.finish\(inboxClaim, \{\n[^\n]*\n\t+wait: \{\n\t+\.\.\.createCheckWait\(inboxClaim\.snapshot, waitPolicy\),\n\t+kind: "external",\n\t+reason: "draft"/)
+})
+
 test('CI recovery leaves a head with a spent repair budget to its cooldown wake', () => {
   // 2026-10-31: #2998, #2999 and #3046 were woken every ten minutes only to park on the same spent budget.
   const recovery = source.slice(source.indexOf('async function recoverFailedCiWaits() {'), source.indexOf('async function stackParentMerged('))
