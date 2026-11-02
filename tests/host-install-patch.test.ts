@@ -108,3 +108,23 @@ test('a manifest that names a missing patch file fails with a clear reason', asy
     (error: Error & { retryable?: boolean }) => /Dependency patch patches\/left-pad@1\.3\.0\.patch does not exist in this checkout/.test(error.message) && error.retryable === false,
   )
 })
+
+test('pnpm supply-chain trust settings pass validation', async t => {
+  const root = await workspace()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(join(root, 'pnpm-workspace.yaml'), 'trustPolicy: no-downgrade\ntrustPolicyExclude:\n  - semver@6.3.1\ntrustPolicyIgnoreAfter: 1440\npatchedDependencies:\n  left-pad@1.3.0: patches/left-pad@1.3.0.patch\n')
+  let runs = 0
+  await install(root, undefined, async ({ cwd }) => {
+    runs++
+    await mkdir(join(cwd, 'node_modules', 'left-pad'), { recursive: true })
+    return {}
+  })
+  assert.equal(runs, 1)
+})
+
+test('an unknown trust policy value is still rejected', async t => {
+  const root = await workspace()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(join(root, 'pnpm-workspace.yaml'), 'trustPolicy: /etc/passwd\n')
+  await assert.rejects(install(root, undefined, async () => ({})), /Unsupported project pnpm configuration: trustPolicy/)
+})
