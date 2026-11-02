@@ -289,7 +289,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0f
  	const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : void 0;
  	const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : void 0;
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e0f045e92 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e03947844489931e 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
 @@ -9,12 +9,13 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -307,17 +307,23 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  import { parseSyml } from "@yarnpkg/parsers";
  import html from "comark/plugins/html";
  //#region src/server/github-install-inputs.ts
-@@ -88,7 +89,8 @@ const booleanSettings = /* @__PURE__ */ new Set([
+@@ -88,15 +89,23 @@ const booleanSettings = /* @__PURE__ */ new Set([
  	"shared-workspace-lockfile",
  	"package-manager-strict",
  	"legacy-peer-deps",
 -	"install-links"
 +	"install-links",
 +	"block-exotic-subdeps"
++]);
++const patternSettings = /* @__PURE__ */ new Set([
++	"hoist-pattern",
++	"public-hoist-pattern",
++	"trust-policy-exclude"
  ]);
- const patternSettings = /* @__PURE__ */ new Set(["hoist-pattern", "public-hoist-pattern"]);
+-const patternSettings = /* @__PURE__ */ new Set(["hoist-pattern", "public-hoist-pattern"]);
  const workspaceFields = /* @__PURE__ */ new Set([
-@@ -97,6 +99,9 @@ const workspaceFields = /* @__PURE__ */ new Set([
+ 	"packages",
+ 	"catalog",
  	"catalogs",
  	"catalogMode",
  	"overrides",
@@ -327,7 +333,17 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  	"packageExtensions",
  	"patchedDependencies",
  	"onlyBuiltDependencies",
-@@ -123,6 +128,16 @@ function validateNpmConfig(source) {
+@@ -109,6 +118,9 @@ function supportedSetting(key, value) {
+ 	if (normalized === "link-workspace-packages" && value === "deep") return true;
+ 	if (booleanSettings.has(normalized)) return value === true || value === false || value === "true" || value === "false";
+ 	if (normalized === "node-linker") return value === "isolated" || value === "hoisted" || value === "pnp";
++	// Supply-chain checks only refuse packages, so the install still reads nothing outside the checkout.
++	if (normalized === "trust-policy") return value === "no-downgrade" || value === "off";
++	if (normalized === "trust-policy-ignore-after") return /^\d+$/.test(String(value));
+ 	if (patternSettings.has(normalized)) return Array.isArray(value) ? value.every((item) => hasRuntimeType(item, "string")) : hasRuntimeType(value, "string");
+ 	return false;
+ }
+@@ -123,6 +135,16 @@ function validateNpmConfig(source) {
  	}
  }
  var GitHubDependencyConflictError = class extends Error {};
@@ -344,7 +360,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  /** Validate decoded manifests and lockfiles before a package manager can read host paths. */
  async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  	const hash = createHash("sha256");
-@@ -177,7 +192,11 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -177,7 +199,11 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  	async function selectPatch(value, base) {
  		await checkPath(value, base);
  		const path = resolve(base, decodeURIComponent(value));
@@ -357,7 +373,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  		dependencyFiles.add(path);
  	}
  	async function inspectYarnPatch(value, base) {
-@@ -195,9 +214,12 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -195,9 +221,12 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  		}
  		return true;
  	}
@@ -371,7 +387,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  			const path = hasRuntimeType(entry, "string") ? entry : isRuntimeRecord(entry) ? entry.path : void 0;
  			if (!hasRuntimeType(path, "string")) throw new Error("Dependency patches must reference checkout files.");
  			await selectPatch(path, base);
-@@ -238,7 +260,7 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -238,7 +267,7 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  		for (const [key, entry] of Object.entries(value)) {
  			if (npmLink && key === "resolved") continue;
  			if (key === "workspaces" && pnpm) continue;
@@ -380,7 +396,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  			else if (npm && ["package-lock.json", "npm-shrinkwrap.json"].includes(field) && key === "packages" && isRuntimeRecord(entry)) for (const [location, contents] of Object.entries(entry)) await inspect(contents, base, false, location, true);
  			else if (key === "importers" && isRuntimeRecord(entry)) for (const [importer, contents] of Object.entries(entry)) {
  				await checkPath(importer, base);
-@@ -297,8 +319,9 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
+@@ -297,8 +326,9 @@ async function validateGitHubInstallInputs(target, prepareLinkedBins) {
  				if (entry.name === "yarn.lock") {
  					data = parseSyml(/^__metadata:/m.test(source) ? source : `# yarn lockfile v1\n${source}`);
  					if (!isRuntimeRecord(data) || Object.values(data).some((value) => !isRuntimeRecord(value))) throw new Error("Invalid Yarn lockfile stanza; dependency fields must be structured.");
@@ -392,7 +408,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  				if (entry.name === "package.json" && !pnpm && isRuntimeRecord(data)) await selectWorkspaces(Array.isArray(data.workspaces) ? data.workspaces : isRuntimeRecord(data.workspaces) ? data.workspaces.packages : void 0, directory);
  				if (entry.name === "pnpm-workspace.yaml" && isRuntimeRecord(data)) {
  					for (const [key, value] of Object.entries(data)) if (!workspaceFields.has(key) && !supportedSetting(key, value)) throw new Error(`Unsupported project pnpm configuration: ${key}. Host-local configuration paths and package-manager extensions are not allowed.`);
-@@ -519,39 +542,65 @@ var GitHubWorkspaceInstallError = class extends Error {
+@@ -519,39 +549,65 @@ var GitHubWorkspaceInstallError = class extends Error {
  		this.retryable = retryable;
  	}
  };
@@ -482,7 +498,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  	}
  }
  async function installWorkspace(target, signal, run) {
-@@ -689,7 +738,7 @@ async function installWorkspace(target, signal, run) {
+@@ -689,7 +745,7 @@ async function installWorkspace(target, signal, run) {
  			reason
  		})).catch(() => void 0);
  		if (signal?.aborted) throw error;
@@ -491,7 +507,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  	} finally {
  		try {
  			try {
-@@ -1186,7 +1235,7 @@ function createGitHubAppCredentials(app) {
+@@ -1186,7 +1242,7 @@ function createGitHubAppCredentials(app) {
  		/** The App bot's login and noreply email, used as the commit author. */
  		async identity() {
  			identity ??= (async () => {
@@ -500,7 +516,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  					const status = codeHostErrorStatus(error);
  					if (status !== void 0) throw agentDiagnostics.AGENT_R0757({
  						message: `GitHub App request /app failed with ${status}.`,
-@@ -1203,6 +1252,7 @@ function createGitHubAppCredentials(app) {
+@@ -1203,6 +1259,7 @@ function createGitHubAppCredentials(app) {
  					userAgent: app.userAgent
  				})).users.get(login).catch(() => void 0);
  				return {
@@ -508,7 +524,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  					login,
  					email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
  				};
-@@ -1259,6 +1309,26 @@ function isGraphQLCommand(args) {
+@@ -1259,6 +1316,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -535,7 +551,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1304,6 +1374,81 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
+@@ -1304,6 +1381,81 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
  		resetAt: reset * 1e3
  	};
  }
@@ -617,7 +633,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  function createGitHubHost(options) {
  	const checkoutScope = new AsyncLocalStorage();
  	const reserve = options.reserve ?? 1500;
-@@ -1498,10 +1643,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1650,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -630,7 +646,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1512,11 +1657,11 @@ function createGitHubHost(options) {
+@@ -1512,11 +1664,11 @@ function createGitHubHost(options) {
  					...auth.env,
  					GH_HOST: "github.com"
  				},
@@ -644,7 +660,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -1975,6 +2120,9 @@ function createGitHubHost(options) {
+@@ -1975,6 +2127,9 @@ function createGitHubHost(options) {
  		identity() {
  			return identity.login?.trim() || void 0;
  		},
@@ -654,7 +670,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  		channel(channelOptions = {}) {
  			return github({
  				...channelOptions,
-@@ -2849,14 +2997,15 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2849,14 +3004,15 @@ function createGitHubPullRequestOperations(github, options) {
  				"--repo",
  				repository,
  				"--log-failed"
@@ -674,7 +690,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  			};
  		},
  		async readCheckLogs(runId) {
-@@ -2879,12 +3028,11 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2879,12 +3035,11 @@ function createGitHubPullRequestOperations(github, options) {
  				"--repo",
  				repository,
  				"--log-failed"
@@ -692,7 +708,22 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f786ea4842f625ffc95871b67c0b757e
  		},
  		async comment(body) {
  			nonempty(body, "Comment");
-@@ -3190,4 +3338,4 @@ function combine(states) {
+@@ -3053,8 +3208,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
+ 		const prefix = `repos/${repository}`, encodedBranch = encodeURIComponent(branch);
+ 		const [rules, classic] = await Promise.all([requestAllRules(`${prefix}/rules/branches/${encodedBranch}`), request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`)]);
+ 		try {
+-			if (rules.status !== 200) throw new Error(`Active branch rules unavailable (HTTP ${rules.status})`);
+-			const required = rulesChecks(rules.data);
++			// A private repository on a plan without rulesets answers 403. That status alone is ambiguous,
++			// so it means no rules only when the branch summary also reports the branch unprotected.
++			const summary = rules.status === 403 ? await request(`${prefix}/branches/${encodedBranch}`) : void 0;
++			const noRulesets = summary?.status === 200 && record(summary.data)?.protected === false;
++			if (rules.status !== 200 && !noRulesets) throw new Error(`Active branch rules unavailable (HTTP ${rules.status})`);
++			const required = noRulesets ? [] : rulesChecks(rules.data);
+ 			let classicSource = "protection-endpoint";
+ 			if (classic.status === 200) required.push(...classicChecks(classic.data));
+ 			else if (classic.status === 403 || classic.status === 404) {
+@@ -3190,4 +3349,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion
