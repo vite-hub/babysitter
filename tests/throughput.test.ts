@@ -707,3 +707,24 @@ test('CI recovery leaves a head with a spent repair budget to its cooldown wake'
   const recovery = source.slice(source.indexOf('async function recoverFailedCiWaits() {'), source.indexOf('async function stackParentMerged('))
   assert.match(recovery, /if \(snapshot\.progressBudget\?\.exhausted && snapshot\.progressBudget\.head === head && \(snapshot\.wait\?\.retryAt \?\? 0\) > Date\.now\(\)\) continue;\n\t+const recoveryKey/)
 })
+
+test('a required check that never reported on a finished head gets a fresh run instead of a two-minute wait', async () => {
+  // 2026-11-01: the `ci` job was missing from the successful runs of vitehub #3161 and #3162, and both
+  // logged "required checks pending" every two minutes overnight.
+  const { mr: missingRequiredChecks } = await import(join(dist, 'server-DZOuXkga.js'))
+  const head = 'a'.repeat(40)
+  const now = Date.parse('2026-11-02T06:00:00Z')
+  const snapshot = (status: string, completed_at?: string) => ({
+    pr: { head: { sha: head } },
+    checks: { 1: { id: 1, name: 'fast checks', head_sha: head, app: { id: 15368 }, status, conclusion: status === 'completed' ? 'success' : null, completed_at } },
+    statuses: {},
+  })
+  const missing = { state: 'pending', checks: [{ context: 'ci', appId: 15368, state: 'pending' }, { context: 'publish preview packages', appId: 15368, state: 'passed' }], missing: ['ci'] }
+  assert.deepEqual(missingRequiredChecks(snapshot('completed', '2026-11-01T09:50:00Z'), missing, now), ['ci'])
+  // Running checks, or checks that finished minutes ago, may still create it.
+  assert.deepEqual(missingRequiredChecks(snapshot('in_progress'), missing, now), [])
+  assert.deepEqual(missingRequiredChecks(snapshot('completed', '2026-11-02T05:58:00Z'), missing, now), [])
+  // A required check that reported and still runs is an ordinary wait.
+  assert.deepEqual(missingRequiredChecks(snapshot('completed', '2026-11-01T09:50:00Z'), { ...missing, checks: [...missing.checks, { context: 'docs', appId: null, state: 'pending' }] }, now), [])
+  assert.match(source, /const retested = !requiredChecksFailed && await retestMissingRequiredChecks\(inboxClaim\.snapshot, owner, passSignal\);/)
+})
