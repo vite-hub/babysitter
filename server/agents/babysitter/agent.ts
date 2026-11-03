@@ -56,8 +56,8 @@ export default defineAgent({
       },
       // Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
       // commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
-      // repair PRs (scripts/main-guardian.mjs).
-      author: { allow: ['onmax', 'renovate[bot]', 'renovate', 'vitehub-bot[bot]', 'vitehub-bot'] },
+      // repair PRs (scripts/main-guardian.mjs). Dependabot opens the GitHub Actions bumps.
+      author: { allow: ['onmax', 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vitehub-bot[bot]', 'vitehub-bot'] },
       // A person working a PR by hand labels it so no pass pushes over their work.
       labels: { deny: ['babysitter:skip'] },
     },
