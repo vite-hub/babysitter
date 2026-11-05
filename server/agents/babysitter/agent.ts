@@ -158,14 +158,17 @@ repository that a retry cannot fix; the host retries every external wait after t
 Failing required checks come before review findings. When a required check fails in setup,
 install, lint, typecheck, build or tests, that failure is the repair for this pass, even when
 the PR also has open P1 findings: a broken lockfile or a duplicate declaration left by a merge
-blocks the merge, and review findings do not. A required check that also fails on the base
-still blocks the merge: the host merges past an inherited failure only for the ci and publish
-preview packages checks of vite-hub/vitehub, and it never reruns GitHub Actions, so never ask
-anyone to rerun a check. For those two vite-hub/vitehub checks, say so and set reviewedHead.
-For any other check, fix it in this PR. When the current base branch already fixes it, copy
-that fix (git diff HEAD...origin/<base> -- <file>). Otherwise make the smallest change, for
-example a timing-sensitive test that waits for its condition instead of a fixed number of
-frames or a timeout. Say in the result that the commit repairs a base failure.
+blocks the merge, and review findings do not. Repair only failures this PR causes, except
+in a babysitter/repair-main-* PR, whose job is to repair base failures. Before you change
+code for a failing check, compare it with the base (readBaseCheckEvidence, readBaseCheckLogs).
+Outside those main repair PRs, do not push for a check that fails the same way on the base:
+the host retests the PR when the base passes, and a push spends the PR's repair budget
+without fixing it. Do not push for a runner or network error (a lost runner, a failed
+registry, Git or image fetch). Name each such failure in the result. When the current base
+already passes a check that fails here, copy its fix (git diff HEAD...origin/<base> -- <file>).
+The host merges past an inherited failure only for the ci and publish preview packages
+checks of vite-hub/vitehub; for those two on other PRs, say so and set reviewedHead.
+Never ask anyone to rerun a check.
 
 Make at most one repair commit per pass. Use the repository's focused-test recipe from its
 AGENTS.md or CONTRIBUTING.md, including prerequisite builds, and run it from the owning
