@@ -466,7 +466,7 @@ test('after the review push budget, bot feedback and review checks stop waking p
   // A spent PR with only bot work left parks; a head someone else pushed still gets a pass.
   assert.deepEqual(reviewPushBudgetWork(snapshot(3, { ...botReview, ...approvalFailed }), policy, new Set()), [])
   assert.deepEqual(reviewPushBudgetWork({ ...snapshot(3), reviewPushBudget: { count: 3, heads: [] } }, policy, new Set()), ['new-head'])
-  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkSpentReviewPushBudget\(\) \|\| await parkClosedPushWindow\(\) \|\| await parkSpentDailyPassBudget\(\);/)
+  assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkUnrelatedFailures\(\) \|\| await parkSpentReviewPushBudget\(\) \|\| await parkClosedPushWindow\(\) \|\| await parkSpentDailyPassBudget\(\);/)
   assert.match(source, /reason: "review-push-budget"\n/)
   // Pushes are counted on the snapshot in finish(), once per head, even when the wait is rejected.
   assert.match(source, /this\.recordReviewPush\(s, claim, result\.progress\);\n\t+const pinnedHead = result\.wait\?\.headSha;/)
