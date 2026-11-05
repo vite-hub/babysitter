@@ -1,4 +1,4 @@
-# Slimbook shared-resource guards
+# Babysitter operations
 
 Host files that keep the Babysitter, and any one user, from exhausting resources that
 every session on Slimbook shares. Installed copies are the source of truth on the host;
@@ -40,6 +40,27 @@ To also post them to Discord, put a webhook URL in
 
 ## Babysitter admission limits
 
+The installed worker uses GPT-6.1 Sol at `xhigh` through
+`model/model.conf`, installed at
+`/etc/systemd/system/babysitter-vitehub.service.d/model.conf`.
+After changing this override, reload systemd, drain the worker, and restart it.
+
+To install the override during an authorized service change:
+
+```sh
+sudo install -D -m 644 ops/model/model.conf /etc/systemd/system/babysitter-vitehub.service.d/model.conf
+sudo systemctl daemon-reload
+sudo systemctl kill --kill-whom=main --signal=SIGUSR2 babysitter-vitehub.service
+curl -fsS http://127.0.0.1:3028/api/drain
+# Repeat the drain check until it reports drained, then restart.
+sudo systemctl restart babysitter-vitehub.service
+curl -fsS http://127.0.0.1:3028/api/health
+```
+
+The drop-in sets `BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT`, which
+`server/agents/babysitter/agent.ts` reads. Edit those values for another model.
+Keep provider credentials in the service environment, outside this file.
+
 Set these in a `babysitter-vitehub.service.d` drop-in. The defaults are in parentheses.
 
 - `BABYSITTER_MIN_FREE_TMP_MB` (4096): skip a pass when `os.tmpdir()` has less free space.
@@ -51,6 +72,78 @@ Set these in a `babysitter-vitehub.service.d` drop-in. The defaults are in paren
   `BABYSITTER_PROXY_STATUS_MAX_AGE_S` (900): if the status file is stale, the guard ignores it.
 
 `/api/health` shows `admission` and `budget`. Skips are logged as `babysitter.admission.skipped`.
+
+## Unpark open PRs (`unpark.mjs`)
+
+This is a manual recovery command, not a scheduled job. It updates every open,
+non-terminal PR without a lease in the `babysitter` scope. In one transaction it:
+
+- Clears the daily pass window when at least 16 passes occurred in the last 24 hours.
+- Clears the repair push window when at least 5 pushes occurred in the last 24 hours.
+- Sets a future or missing `wait.retryAt` to now on waiting rows.
+
+The scheduler re-evaluates those rows on its next tick. Review push and no-progress
+budgets stay in place and are reported on stderr. This does not approve or merge a
+PR. The limits match `agent.ts` and the patched preset's `repairPushCap`; check them
+when updating the preset. The script uses the current Agent State table layout.
+
+Requires Node.js 24.15 or newer. Run from the repository root as the database owner.
+`BABYSITTER_STATE_DB` selects the SQLite file and defaults to
+`/home/workspace/babysitter-data/.vitehub/agent-state.db` for existing host callers.
+Use stdin when the service user cannot traverse the checkout:
+
+```sh
+umask 077
+sudo -u svc-babysitter env BABYSITTER_STATE_DB=/path/to/.vitehub/agent-state.db \
+  node --input-type=module < ops/unpark.mjs > unpark-backup.json
+```
+
+For a checkout readable by the database owner, use
+`BABYSITTER_STATE_DB=/path/to/.vitehub/agent-state.db node ops/unpark.mjs > unpark-backup.json`.
+Stdout contains the original changed rows and meta values as JSON after commit;
+stderr contains progress. Keep the backup private and outside Git. It can contain
+PR state and is not a full database backup. Existing session callers use the stdin
+form above. No service or timer in this repository invokes it.
+
+## Observe merge cadence (`merge-cadence.sh`)
+
+Run from the repository root on a Linux host with Bash, GNU date, grep, curl,
+systemd, and an authenticated GitHub CLI. The command reads the service journal,
+the local health endpoint, and GitHub. It does not change PRs or the service.
+`sudo journalctl` needs journal access; authenticate sudo before a long run.
+
+```sh
+sudo -v
+bash ops/merge-cadence.sh 600
+```
+
+The first report appears after the interval, in seconds. Omit it for 600 seconds.
+Each line reports merged PRs, model passes, input tokens, quota blocks, queue
+counts, skipped merges, and failed required checks on the watched main branch.
+Press Ctrl-C to stop. The GitHub reads use the current `gh` account; configure
+authentication with `gh auth login` or an environment token, never in the script.
+
+| Environment variable | Default |
+| --- | --- |
+| `BABYSITTER_UNIT` | `babysitter-vitehub.service` |
+| `BABYSITTER_PORT` | Service `PORT`, or `3028` |
+| `BABYSITTER_REPOS` | Service `BABYSITTER_REPOS`, comma-separated `owner/repo` names |
+| `BABYSITTER_MAIN_REPO` | `vite-hub/vitehub` |
+| `BABYSITTER_MAIN_BRANCH` | `main` |
+
+Set the overrides to observe another installation:
+
+```sh
+BABYSITTER_UNIT=babysitter.service BABYSITTER_PORT=4000 \
+  BABYSITTER_REPOS=your-org/your-repo BABYSITTER_MAIN_REPO=your-org/your-repo \
+  bash ops/merge-cadence.sh 60
+```
+
+This is a foreground observation command; no service or timer in this repository
+invokes it. Merge counts inspect only the 50 most recently updated closed PRs per
+repository. Required-check counts inspect only the first 100 check runs and the
+branch protection `contexts` list. API failures can leave incomplete counts, so
+use the output as an operational summary, not a merge decision.
 
 ## Releases
 
