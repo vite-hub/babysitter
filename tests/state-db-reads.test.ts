@@ -118,3 +118,24 @@ test('an updatedSince listing returns what a filtered walk of the whole journal 
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('Agent State write transactions commit with synchronous NORMAL on a WAL file', async () => {
+  const { createLibsqlAgentState } = await import(join(dist, 'state/sqlite.js'))
+  const directory = mkdtempSync(join(tmpdir(), 'babysitter-state-sync-'))
+  try {
+    const state = createLibsqlAgentState({ url: `file:${join(directory, 'state.db')}` })
+    await state.connect()
+    const storage = state.extension('probe')
+    const levels = new Set<number>()
+    for (let index = 0; index < 5; index++) {
+      await storage.transaction(async (tx: { execute: (sql: string) => Promise<Array<Record<string, unknown>>> }) => {
+        levels.add(Number((await tx.execute('PRAGMA synchronous'))[0]?.synchronous))
+      })
+    }
+    assert.deepEqual([...levels], [1])
+    await state.disconnect()
+  }
+  finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
