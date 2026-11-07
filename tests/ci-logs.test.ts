@@ -47,6 +47,6 @@ test('the excerpt shows a failure after a long successful build', () => {
 test('log readers use the large buffer and the failure excerpt', () => {
   assert.match(source, /maxBuffer: input\.maxBuffer \?\? maxBuffer,/)
   assert.match(source, /"api",\n\t+"--allow-escape-sequences",\n\t+path\n\t+\], \{\n\t+repository,\n\t+timeout: 6e4,\n\t+maxBuffer: CI_LOG_MAX_BUFFER,/)
-  assert.equal(source.match(/"--log-failed"\n\t+\], \{\n\t+\.\.\.commandOptions,\n\t+maxBuffer: CI_LOG_MAX_BUFFER\n\t+\}\);/g)?.length, 2)
+  assert.equal(source.match(/"--log-failed",\n\t+"--allow-escape-sequences"\n\t+\], \{\n\t+\.\.\.commandOptions,\n\t+maxBuffer: CI_LOG_MAX_BUFFER\n\t+\}\);/g)?.length, 2)
   assert.doesNotMatch(source, /text: logs\.stdout\.slice\(0, limit\)/)
 })
