@@ -4481,7 +4481,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
 -export { isProviderRateLimit as n, createBabysitterRuntime as t };
 +export { isProviderRateLimit as n, missingRequiredChecks as mr, createBabysitterRuntime as t, checksStillRunning as w, wakeReasons as x, repairContextKey as y, reviewPushBudgetWork as z, dailyPassExemption as q, pushCause as k, repairPushAllowance as r, failedOwnActions as fa, sameActionFailure as sf, inheritedCheckEvaluation as ic, inheritedBypassSafety as bs, requestAsyncMerge as am, matchingActionFailure as mf, parseFailedActionOutput as pf, pendingMergeWait as pw, infrastructureFailureLine as il, unrelatedFailureWait as uw, jobFailureFacts as jf };
 diff --git a/dist/state/sqlite.js b/dist/state/sqlite.js
-index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..1023e76eb030c999ecbafc93dcc6629ca36e6927 100644
+index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..dcce61b76f1911eea48e57265c7d691b278bd788 100644
 --- a/dist/state/sqlite.js
 +++ b/dist/state/sqlite.js
 @@ -121,15 +121,14 @@ var ViteHubSqliteAgentStateAdapter = class {
@@ -4521,6 +4521,33 @@ index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..1023e76eb030c999ecbafc93dcc6629c
  		});
  	}
  	async migrate() {
+@@ -734,6 +733,7 @@ function createLibsqlAgentState(options) {
+ 	const ownsClient = !options.client;
+ 	let client;
+ 	let writeKey;
++	let synchronousNormal = false;
+ 	const openClient = async () => {
+ 		if (options.client) return options.client;
+ 		const filePath = libsqlFilePath(options.url);
+@@ -753,6 +753,7 @@ function createLibsqlAgentState(options) {
+ 				requested,
+ 				actual: String(actual)
+ 			});
++			synchronousNormal = actual === "wal";
+ 		} catch (error) {
+ 			await opened.close?.();
+ 			throw error;
+@@ -790,6 +791,10 @@ function createLibsqlAgentState(options) {
+ 				if (!client.transaction) throw agentDiagnostics.AGENT_R0855({ message: "[vitehub] libSQL Agent State clients must support transactions." });
+ 				const connected = client;
+ 				return await serializeLibsqlWrite(writeKey, async () => {
++					// WAL with synchronous NORMAL syncs at checkpoints instead of on every commit; a commit still
++					// survives a process crash. The setting is per connection and cannot change inside a transaction,
++					// so it is set on the pooled connection the transaction borrows next.
++					if (synchronousNormal) await connected.execute("PRAGMA synchronous = NORMAL");
+ 					const transaction = await connected.transaction("write");
+ 					try {
+ 						const result = await run({ execute: libsqlExecute(transaction) });
 diff --git a/dist/types-B067Gzm7.d.ts b/dist/types-B067Gzm7.d.ts
 index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6b10247e1 100644
 --- a/dist/types-B067Gzm7.d.ts
