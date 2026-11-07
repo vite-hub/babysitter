@@ -1,5 +1,5 @@
 diff --git a/dist/babysitter-ZENI2mzg.js b/dist/babysitter-ZENI2mzg.js
-index 1c139c9d5e55953ad12c260e6623758314af6c22..16a6a7f2bd2f5b369561fc1c23d0cdac1bd2ec3b 100644
+index 1c139c9d5e55953ad12c260e6623758314af6c22..8c4efa1314389f63181aefa67f8fdfab87f07dfe 100644
 --- a/dist/babysitter-ZENI2mzg.js
 +++ b/dist/babysitter-ZENI2mzg.js
 @@ -76,6 +76,14 @@ function createBabysitterPassResultSchema(report) {
@@ -185,7 +185,24 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..16a6a7f2bd2f5b369561fc1c23d0cdac
  	return {
  		ready: true,
  		head
-@@ -613,21 +670,29 @@ const babysitter = defineAgent({
+@@ -419,7 +476,15 @@ async function readInvocationInputTokens(invocations, since) {
+ 	do {
+ 		const page = await invocations.list({
+ 			cursor,
+-			limit: 100
++			limit: 100,
++			status: [
++				"pending",
++				"running",
++				"completed",
++				"failed",
++				"cancelled"
++			],
++			updatedSince: new Date(since).toISOString()
+ 		});
+ 		if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
+ 		if (page.cursor) seenCursors.add(page.cursor);
+@@ -613,21 +678,29 @@ const babysitter = defineAgent({
  		noFindingsReviews: [],
  		ignoreFeedbackAuthors: [],
  		noProgressBudget: 3,
@@ -216,7 +233,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..16a6a7f2bd2f5b369561fc1c23d0cdac
  		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
  		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
  		resolveBabysitterLifecycleFilter(filter, lifecycle);
-@@ -648,11 +713,15 @@ const babysitter = defineAgent({
+@@ -648,11 +721,15 @@ const babysitter = defineAgent({
  			mentionAllowlist,
  			ignoreFeedbackAuthors,
  			noProgressBudget,
@@ -926,7 +943,7 @@ index ce7c68397e0361716d349c8b8be4df739c4aeeaa..7a9e2aafb5300317092a0a19c6ab1c72
  }
  declare function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext;
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a80bf43b1 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985fe2ace3e 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,14 +26,76 @@ const progressBudgetSchema = v.object({
@@ -1138,7 +1155,57 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  		this.storage = storage ?? createNodeSqliteInboxStorage(path);
  		this.ownsStorage = !storage;
  		this.scope = scope;
-@@ -620,13 +739,23 @@ var PullRequestInbox = class {
+@@ -587,19 +706,40 @@ var PullRequestInbox = class {
+ 			const t = this.tables;
+ 			await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.schemaVersion} (version INTEGER PRIMARY KEY)`);
+ 			const [row] = await tx.execute(`SELECT COALESCE(MAX(version), 0) AS version FROM ${t.schemaVersion}`);
+-			if (Number(row?.version ?? 0) >= 1) return;
+-			await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.pullRequests} (scope TEXT NOT NULL, repository TEXT NOT NULL, number INTEGER NOT NULL,
+-        value TEXT NOT NULL, summary TEXT NOT NULL, status TEXT NOT NULL, generation INTEGER NOT NULL, handled INTEGER NOT NULL,
+-        dirty_at INTEGER NOT NULL, next_at INTEGER NOT NULL, lease TEXT, lease_until INTEGER NOT NULL, waiting INTEGER NOT NULL,
+-        progress_blocked INTEGER NOT NULL, state TEXT, head_sha TEXT, head_ref TEXT, base_ref TEXT, PRIMARY KEY(scope, repository, number))`);
++			const version = Number(row?.version ?? 0);
++			if (version >= 2) return;
++			// Version 2 stores the JSON columns last. SQLite walks a row's overflow chain to reach any column after
++			// a large value, so with value first every filter on status, lease or head read the whole snapshot.
++			const columns = `scope TEXT NOT NULL, repository TEXT NOT NULL, number INTEGER NOT NULL, status TEXT NOT NULL,
++        generation INTEGER NOT NULL, handled INTEGER NOT NULL, dirty_at INTEGER NOT NULL, next_at INTEGER NOT NULL, lease TEXT,
++        lease_until INTEGER NOT NULL, waiting INTEGER NOT NULL, progress_blocked INTEGER NOT NULL, state TEXT, head_sha TEXT,
++        head_ref TEXT, base_ref TEXT, wait_head TEXT, lease_heads TEXT, summary TEXT NOT NULL, value TEXT NOT NULL,
++        PRIMARY KEY(scope, repository, number)`;
++			if (version === 1) {
++				await tx.execute(`DROP TABLE IF EXISTS ${t.pullRequests}_v2`);
++				await tx.execute(`CREATE TABLE ${t.pullRequests}_v2 (${columns})`);
++				await tx.execute(`INSERT INTO ${t.pullRequests}_v2 (scope, repository, number, status, generation, handled, dirty_at, next_at, lease,
++          lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref, wait_head, lease_heads, summary, value)
++          SELECT p.scope, p.repository, p.number, p.status, p.generation, p.handled, p.dirty_at, p.next_at, p.lease, p.lease_until, p.waiting,
++            p.progress_blocked, p.state, p.head_sha, p.head_ref, p.base_ref, json_extract(p.doc, '$.wait.headSha'),
++            CASE WHEN p.lease IS NULL THEN NULL ELSE (SELECT json_group_array(h.head) FROM (
++              SELECT value AS head FROM json_each(p.doc, '$.sourcePushHeads')
++              UNION SELECT value FROM json_each(p.doc, '$.prospectivePush.heads') WHERE json_extract(p.doc, '$.prospectivePush.token')=p.lease) h) END,
++            p.summary, p.value
++          FROM (SELECT *, CASE WHEN json_valid(value) THEN value ELSE '{}' END AS doc FROM ${t.pullRequests}) p`);
++				await tx.execute(`DROP TABLE ${t.pullRequests}`);
++				await tx.execute(`ALTER TABLE ${t.pullRequests}_v2 RENAME TO ${t.pullRequests}`);
++			} else await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.pullRequests} (${columns})`);
+ 			await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_head ON ${t.pullRequests}(scope, repository, state, head_sha)`);
+ 			await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_refs ON ${t.pullRequests}(scope, repository, state, head_ref, base_ref)`);
+ 			await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.pullRequests}_queue ON ${t.pullRequests}(scope, status, dirty_at)`);
+-			await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.deliveries} (scope TEXT NOT NULL, id TEXT NOT NULL, event TEXT, received INTEGER NOT NULL,
++			if (version === 0) {
++				await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.deliveries} (scope TEXT NOT NULL, id TEXT NOT NULL, event TEXT, received INTEGER NOT NULL,
+         payload TEXT, result TEXT, PRIMARY KEY(scope, id))`);
+-			await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.deliveries}_received ON ${t.deliveries}(scope, received)`);
+-			await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.meta} (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(scope, key))`);
+-			await tx.execute(`INSERT INTO ${t.schemaVersion} (version) VALUES (1)`);
++				await tx.execute(`CREATE INDEX IF NOT EXISTS ${t.deliveries}_received ON ${t.deliveries}(scope, received)`);
++				await tx.execute(`CREATE TABLE IF NOT EXISTS ${t.meta} (scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(scope, key))`);
++			}
++			await tx.execute(`INSERT INTO ${t.schemaVersion} (version) VALUES (2)`);
+ 		}).catch((error) => {
+ 			this.ready = void 0;
+ 			throw error;
+@@ -620,13 +760,23 @@ var PullRequestInbox = class {
  			args: this.repositories
  		};
  	}
@@ -1163,7 +1230,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	}
  	async get(repository, number) {
  		await this.init();
-@@ -635,7 +764,7 @@ var PullRequestInbox = class {
+@@ -635,7 +785,7 @@ var PullRequestInbox = class {
  	async all() {
  		if (!this.repositories.length) return [];
  		const repositories = this.repositoryFilter();
@@ -1172,7 +1239,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	}
  	compactTerminal(s) {
  		if (s.status !== "terminal") return;
-@@ -651,6 +780,7 @@ var PullRequestInbox = class {
+@@ -651,6 +801,7 @@ var PullRequestInbox = class {
  		s.feedbackRefresh = true;
  	}
  	async put(tx, s) {
@@ -1180,7 +1247,42 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  		let reopened = false;
  		let resumed = false;
  		let wasWorking = false;
-@@ -1247,7 +1377,8 @@ var PullRequestInbox = class {
+@@ -669,8 +820,10 @@ var PullRequestInbox = class {
+ 		if (!s.lease) delete s.prospectivePush;
+ 		this.compactTerminal(s);
+ 		const head = s.pr?.head?.sha;
++		const leaseHeads = s.lease ? [...new Set([...s.sourcePushHeads ?? [], ...s.prospectivePush?.token === s.lease ? s.prospectivePush.heads : []])] : void 0;
+ 		await tx.execute(`INSERT OR REPLACE INTO ${this.tables.pullRequests} (scope, repository, number, value, summary, status, generation, handled,
+-      dirty_at, next_at, lease, lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
++      dirty_at, next_at, lease, lease_until, waiting, progress_blocked, state, head_sha, head_ref, base_ref, wait_head, lease_heads)
++      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+ 			this.scope,
+ 			s.repository,
+ 			s.number,
+@@ -688,7 +841,9 @@ var PullRequestInbox = class {
+ 			s.pr?.state === void 0 ? null : String(s.pr.state).toLowerCase(),
+ 			head ?? null,
+ 			s.pr?.head?.ref ?? null,
+-			s.pr?.base?.ref ?? null
++			s.pr?.base?.ref ?? null,
++			s.wait?.headSha ?? null,
++			leaseHeads ? JSON.stringify(leaseHeads) : null
+ 		]);
+ 		if (this.activityAuthors.size && (s.status === "terminal" || reopened || resumed || readySuperseded)) {
+ 			const target = statusTargetKey(s);
+@@ -744,8 +899,10 @@ var PullRequestInbox = class {
+ 	}
+ 	/** Metadata entries whose keys start with `prefix`. */
+ 	async metaEntries(prefix) {
+-		return (await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND substr(key, 1, ?)=? ORDER BY key`, [
++		return (await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND key>=? AND key<? AND substr(key, 1, ?)=? ORDER BY key`, [
+ 			this.scope,
++			prefix,
++			prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1),
+ 			prefix.length,
+ 			prefix
+ 		])).map((row) => [stringValue(row.key), JSON.parse(stringValue(row.value))]);
+@@ -1247,7 +1404,8 @@ var PullRequestInbox = class {
  				exhausted: false,
  				evidence: previous?.evidence,
  				creditedEvidence: previous?.creditedEvidence ?? [],
@@ -1190,7 +1292,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			};
  			this.dirty(s, "progress-budget:reset");
  			await this.put(tx, s);
-@@ -1295,6 +1426,7 @@ var PullRequestInbox = class {
+@@ -1295,6 +1453,7 @@ var PullRequestInbox = class {
  			...previous,
  			...pr
  		};
@@ -1198,7 +1300,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  		if (newHead) {
  			delete s.ciEvidence;
  			s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha));
-@@ -1312,6 +1444,11 @@ var PullRequestInbox = class {
+@@ -1312,6 +1471,11 @@ var PullRequestInbox = class {
  		}
  		return true;
  	}
@@ -1210,7 +1312,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	eligible(repository, pr) {
  		return Boolean(pr && pr.state === "open" && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, "pull-request"));
  	}
-@@ -1373,7 +1510,7 @@ var PullRequestInbox = class {
+@@ -1373,7 +1537,7 @@ var PullRequestInbox = class {
  			const commentBody = String(payload.comment?.body ?? "");
  			const marked = commentBody.startsWith("<!-- vitehub-agent-activity:");
  			const repairMarked = commentBody.startsWith("<!-- vitehub-babysitter-repair:");
@@ -1219,16 +1321,28 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			if (event === "issue_comment" && !payload.issue?.pull_request) return await finish("issue is not a PR");
  			if (event === "issue_comment" && !activity && !isFeedback(payload.comment)) return await finish("irrelevant comment");
  			if (![
-@@ -1423,7 +1560,7 @@ var PullRequestInbox = class {
+@@ -1421,11 +1585,15 @@ var PullRequestInbox = class {
+ 			]);
+ 			for (const row of matches) numbers.add(Number(row.number));
  			if (sha && (check || event === "status")) {
- 				const pending = await tx.execute(`SELECT number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository]);
- 				for (const row of pending) {
+-				const pending = await tx.execute(`SELECT number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository]);
+-				for (const row of pending) {
 -					const snapshot = parseSnapshot(JSON.parse(stringValue(row.value)));
-+					const snapshot = this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value))));
- 					if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number));
- 				}
+-					if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number));
+-				}
++				const pending = await tx.execute(`SELECT number FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)
++          AND (wait_head=? OR (lease IS NOT NULL AND lease_until>? AND EXISTS (SELECT 1 FROM json_each(lease_heads) WHERE value=?)))`, [
++					this.scope,
++					repository,
++					sha,
++					this.clock(),
++					sha
++				]);
++				for (const row of pending) numbers.add(Number(row.number));
  			}
-@@ -1468,7 +1605,7 @@ var PullRequestInbox = class {
+ 			for (const number of numbers) {
+ 				const existing = await this.getIn(tx, repository, number);
+@@ -1468,7 +1636,7 @@ var PullRequestInbox = class {
  				};
  				if (event === "issue_comment") {
  					if (!activity) upsert(s.comments, payload.comment);
@@ -1237,7 +1351,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  				}
  				if (event === "pull_request_review_comment") {
  					upsert(s.reviewComments, payload.comment);
-@@ -1551,8 +1688,18 @@ var PullRequestInbox = class {
+@@ -1551,8 +1719,18 @@ var PullRequestInbox = class {
  					exhausted: false,
  					resetReason: `${event}:${payload.sender?.login ?? "unknown"}`
  				};
@@ -1256,7 +1370,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  				const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha;
  				const eligible = this.eligible(repository, s.pr);
  				if (s.pr && !eligible) {
-@@ -1579,26 +1726,24 @@ var PullRequestInbox = class {
+@@ -1579,26 +1757,24 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
@@ -1292,7 +1406,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  				const s = await this.getIn(tx, repository, number);
  				if (!s) continue;
  				if (s.pr && !this.eligible(s.repository, s.pr)) continue;
-@@ -1631,10 +1776,16 @@ var PullRequestInbox = class {
+@@ -1631,10 +1807,16 @@ var PullRequestInbox = class {
  					pr
  				};
  			}
@@ -1310,7 +1424,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			return true;
  		});
  	}
-@@ -1723,6 +1874,50 @@ var PullRequestInbox = class {
+@@ -1723,6 +1905,50 @@ var PullRequestInbox = class {
  			return true;
  		});
  	}
@@ -1361,7 +1475,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	/** Checks the durable claim fence immediately before an irreversible provider action. */
  	async isClaimCurrent(claim) {
  		return await this.transaction(async (tx) => {
-@@ -1739,6 +1934,13 @@ var PullRequestInbox = class {
+@@ -1739,6 +1965,13 @@ var PullRequestInbox = class {
  		return await this.transaction(async (tx) => {
  			const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number);
  			if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false;
@@ -1375,7 +1489,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			const pinnedHead = result.wait?.headSha;
  			if (result.wait && pinnedHead) {
  				if (result.retry || result.terminal) throw new Error("A wait cannot also retry or terminate work");
-@@ -1752,6 +1954,7 @@ var PullRequestInbox = class {
+@@ -1752,6 +1985,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -1383,7 +1497,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1781,6 +1984,7 @@ var PullRequestInbox = class {
+@@ -1781,6 +2015,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -1391,7 +1505,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1816,12 +2020,34 @@ var PullRequestInbox = class {
+@@ -1816,12 +2051,34 @@ var PullRequestInbox = class {
  				s.status = "waiting";
  				s.nextAt = 0;
  				s.reasons = ["no-progress-budget-exhausted"];
@@ -1426,7 +1540,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	recordProgress(s, claim, progress) {
  		const head = s.pr?.head?.sha;
  		if (progress?.kind === "verified") requireEvidence(progress.evidence);
-@@ -1831,14 +2057,19 @@ var PullRequestInbox = class {
+@@ -1831,14 +2088,19 @@ var PullRequestInbox = class {
  			const creditedEvidence = previous?.creditedEvidence ?? [];
  			const verified = progress.kind === "verified" && !creditedEvidence.includes(progress.evidence);
  			const count = verified ? 0 : (previous?.count ?? 0) + 1;
@@ -1448,7 +1562,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			};
  		}
  	}
-@@ -1847,7 +2078,7 @@ var PullRequestInbox = class {
+@@ -1847,7 +2109,7 @@ var PullRequestInbox = class {
  		if (!this.repositories.length) return [];
  		const repositories = this.repositoryFilter();
  		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
@@ -1457,7 +1571,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  	}
  	/** Records that the host evaluated a wait's new events and the wait still holds. */
  	async acknowledgeWait(observed) {
-@@ -1871,6 +2102,14 @@ var PullRequestInbox = class {
+@@ -1871,6 +2133,14 @@ var PullRequestInbox = class {
  				evidenceKey
  			});
  			if (s.wait.evidenceKey === evidenceKey) return false;
@@ -1472,7 +1586,20 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  			if (options.recovery) {
  				s.recoveryHead = s.pr?.head?.sha;
  				s.refresh = true;
-@@ -2209,7 +2448,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
+@@ -2036,9 +2306,10 @@ var PullRequestInbox = class {
+ 	/** Drops delivery payloads after `payloadMs` and delivery IDs after `idMs`. Recent IDs still deduplicate redeliveries. */
+ 	async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5 } = {}) {
+ 		const now = this.clock();
+-		const staleEvidence = (await this.metaEntries("ci-evidence:v1:")).filter(([, value]) => !isRuntimeRecord(value) || !isRuntimeNumber(value.fetchedAt) || value.fetchedAt < now - payloadMs).map(([key]) => key);
+ 		await this.transaction(async (tx) => {
+-			for (const key of staleEvidence) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]);
++			await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
++        AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
++          WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs]);
+ 			await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs]);
+ 			await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs]);
+ 		});
+@@ -2209,7 +2480,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
  			repository: { full_name: s.repository },
  			...payload
  		};
@@ -1492,7 +1619,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..381cdf428288246ca71b8c3af1491b4a
  		await inbox.ingest(id, event, full);
  	};
  	await ingest("pull_request", {
-@@ -2668,4 +2918,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
+@@ -2668,4 +2950,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
  	};
  }
  //#endregion
@@ -1521,6 +1648,38 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..92e6f7c2ccd3069667380dc5696b2de6
  				},
  				admission: {
  					accepting: guard.accepting,
+diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
+index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d25db95e2 100644
+--- a/dist/invocations/sqlite.js
++++ b/dist/invocations/sqlite.js
+@@ -741,6 +741,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+ 				args.push(...statuses);
+ 			}
++			// With a status list this range uses the (status, updated_at) index instead of reading every row.
++			if (hasRuntimeType(listOptions.updatedSince, "string")) {
++				filters.push("updated_at >= ?");
++				args.push(listOptions.updatedSince);
++			}
+ 			const agentName = listOptions.agentName?.trim();
+ 			if (agentName) {
+ 				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
+@@ -770,11 +775,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				args.push(`%${escapeLike(search.toLowerCase())}%`);
+ 			}
+ 			args.push(limit + 1);
++			const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
+ 			const records = (await client.execute({
+ 				args,
++				// An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
++				// that sort from reading the summary of every match, which sits behind the large search column.
+ 				sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
+           THEN json_remove(record, '$.observations') END) AS summary
+-          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
++          FROM ${table}${hasRuntimeType(listOptions.updatedSince, "string") ? ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?)` : where} ORDER BY sequence DESC${hasRuntimeType(listOptions.updatedSince, "string") ? "" : " LIMIT ?"}`
+ 			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
+ 			const page = records.slice(0, limit);
+ 			return {
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..509a62b5f3a821d069ead376542d1f349ffc3dfa 100644
 --- a/dist/presets/babysitter.d.ts
