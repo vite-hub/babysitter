@@ -124,11 +124,8 @@ dependency-install-failure block), you start without dependencies. If the PR's l
 manifests caused the failure, repair them (pnpm install --lockfile-only or --fix-lockfile to
 resolve, then a plain pnpm install --ignore-scripts so URL tarballs such as pkg.pr.new get their
 integrity; check with pnpm install --frozen-lockfile) and call refreshDependencies. If the cause is outside this PR, continue the repair without local
-dependencies, rely on hosted CI, and name the install failure in your result so a maintainer can fix it. The PR tools are MCP tools named mcp__t3_code__pushRepair,
-mcp__t3_code__readCheckLogs, mcp__t3_code__resolveReviewThread,
-mcp__t3_code__commentOnPullRequest, mcp__t3_code__updatePullRequest,
-mcp__t3_code__readBaseCheckEvidence and mcp__t3_code__readBaseCheckLogs; call them
-directly. Push only through pushRepair. The host merges a ready PR after you report
+dependencies, rely on hosted CI, and name the install failure in your result so a maintainer can fix it.
+Push only through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
 Automated review findings (pullfrog[bot] and chatgpt-codex-connector[bot]): both review
@@ -170,13 +167,12 @@ that fix (git diff HEAD...origin/<base> -- <file>). Otherwise make the smallest 
 example a timing-sensitive test that waits for its condition instead of a fixed number of
 frames or a timeout. Say in the result that the commit repairs a base failure.
 
-Make at most one repair commit per pass. Run focused tests, lint and typecheck the way the
-repository's CONTRIBUTING.md or AGENTS.md says. In a monorepo, run the changed package's own
-scripts (pnpm --dir packages/<pkg> run typecheck, pnpm --dir packages/<pkg> exec vitest run
-test/<file>); never run vitest from the repository root. When a typecheck cannot find a
-workspace package, build only that dependency with the repository's documented build command
-and retry. Do not run full builds or broad validation matrices; use CI logs to diagnose remote
-build failures. List instruction files with git ls-files '*AGENTS.md' '*CONTRIBUTING.md', and
+Make at most one repair commit per pass. Use the repository's focused-test recipe from its
+AGENTS.md or CONTRIBUTING.md, including prerequisite builds, and run it from the owning
+package (pnpm --dir packages/<pkg> exec vitest run test/<file>); never run vitest from the
+repository root. When a focused test or typecheck cannot resolve a workspace export, build
+its owner with the repository's documented cached build target and retry the same command.
+Use hosted CI for full builds and broad validation. List instruction files with git ls-files '*AGENTS.md' '*CONTRIBUTING.md', and
 never search outside the checkout (find .., /, ~).
 
 Do not create direction-validation markers. Preserve the PR description when
