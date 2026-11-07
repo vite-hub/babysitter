@@ -306,7 +306,7 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0f
  	const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : void 0;
  	const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : void 0;
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e03947844489931e 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..552ec06c858821ad49b2c23518af79a2eec9aa7a 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
 @@ -9,12 +9,13 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
@@ -515,7 +515,21 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  	}
  }
  async function installWorkspace(target, signal, run) {
-@@ -689,7 +745,7 @@ async function installWorkspace(target, signal, run) {
+@@ -591,6 +647,13 @@ async function installWorkspace(target, signal, run) {
+ 			return match[2];
+ 		};
+ 		if (await exists(join(source, "pnpm-lock.yaml"))) {
++			// The frozen graph is already resolved. Hooks stay disabled on the trusted host;
++			// only the private snapshot drops the checksum of the hook we do not execute.
++			const lockfile = join(source, "pnpm-lock.yaml");
++			const documents = parseAllDocuments(await readFile(lockfile, "utf8"));
++			let changed = false;
++			for (const document of documents) changed = document.delete("pnpmfileChecksum") || changed;
++			if (changed) await writeFile(lockfile, documents.map((document) => String(document)).join(""));
+ 			command = "corepack";
+ 			args = [
+ 				`pnpm@${version("pnpm", "10.34.6")}`,
+@@ -689,7 +752,7 @@ async function installWorkspace(target, signal, run) {
  			reason
  		})).catch(() => void 0);
  		if (signal?.aborted) throw error;
@@ -524,7 +538,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  	} finally {
  		try {
  			try {
-@@ -1186,7 +1242,7 @@ function createGitHubAppCredentials(app) {
+@@ -1186,7 +1249,7 @@ function createGitHubAppCredentials(app) {
  		/** The App bot's login and noreply email, used as the commit author. */
  		async identity() {
  			identity ??= (async () => {
@@ -533,7 +547,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  					const status = codeHostErrorStatus(error);
  					if (status !== void 0) throw agentDiagnostics.AGENT_R0757({
  						message: `GitHub App request /app failed with ${status}.`,
-@@ -1203,6 +1259,7 @@ function createGitHubAppCredentials(app) {
+@@ -1203,6 +1266,7 @@ function createGitHubAppCredentials(app) {
  					userAgent: app.userAgent
  				})).users.get(login).catch(() => void 0);
  				return {
@@ -541,7 +555,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  					login,
  					email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
  				};
-@@ -1259,6 +1316,26 @@ function isGraphQLCommand(args) {
+@@ -1259,6 +1323,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -568,7 +582,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1304,6 +1381,81 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
+@@ -1304,6 +1388,81 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
  		resetAt: reset * 1e3
  	};
  }
@@ -650,7 +664,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  function createGitHubHost(options) {
  	const checkoutScope = new AsyncLocalStorage();
  	const reserve = options.reserve ?? 1500;
-@@ -1498,10 +1650,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1657,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -663,7 +677,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1512,11 +1664,11 @@ function createGitHubHost(options) {
+@@ -1512,11 +1671,11 @@ function createGitHubHost(options) {
  					...auth.env,
  					GH_HOST: "github.com"
  				},
@@ -677,7 +691,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -1975,6 +2127,9 @@ function createGitHubHost(options) {
+@@ -1975,6 +2134,9 @@ function createGitHubHost(options) {
  		identity() {
  			return identity.login?.trim() || void 0;
  		},
@@ -687,7 +701,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  		channel(channelOptions = {}) {
  			return github({
  				...channelOptions,
-@@ -2849,14 +3004,15 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2849,14 +3011,15 @@ function createGitHubPullRequestOperations(github, options) {
  				"--repo",
  				repository,
  				"--log-failed"
@@ -707,7 +721,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  			};
  		},
  		async readCheckLogs(runId) {
-@@ -2879,12 +3035,11 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2879,12 +3042,11 @@ function createGitHubPullRequestOperations(github, options) {
  				"--repo",
  				repository,
  				"--log-failed"
@@ -725,7 +739,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  		},
  		async comment(body) {
  			nonempty(body, "Comment");
-@@ -3053,8 +3208,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
+@@ -3053,8 +3215,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
  		const prefix = `repos/${repository}`, encodedBranch = encodeURIComponent(branch);
  		const [rules, classic] = await Promise.all([requestAllRules(`${prefix}/rules/branches/${encodedBranch}`), request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`)]);
  		try {
@@ -740,7 +754,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..f0e1afbaea03ab808c22ea23e0394784
  			let classicSource = "protection-endpoint";
  			if (classic.status === 200) required.push(...classicChecks(classic.data));
  			else if (classic.status === 403 || classic.status === 404) {
-@@ -3190,4 +3349,4 @@ function combine(states) {
+@@ -3190,4 +3356,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion
