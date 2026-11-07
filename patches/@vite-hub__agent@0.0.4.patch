@@ -1421,7 +1421,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 5d80facda1e6fd3a50876048180cd57f664d8fa6..bbdae6d41da8425105fd70674d84615105f2c038 100644
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb52697ec3c3bb 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
 @@ -19,7 +19,8 @@ import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, norma
@@ -1495,7 +1495,20 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..bbdae6d41da8425105fd70674d846151
  const providerRuntimeMode = {
  	"allow-all": "full-access",
  	"allow-edits": "auto-accept-edits",
-@@ -2934,6 +2957,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -575,6 +598,12 @@ function normalizedProviderLaunch(value) {
+ 	if (value.args !== void 0) launch.args = [...value.args];
+ 	return launch;
+ }
++async function installedDependencyEnvironment(readRecord) {
++	try {
++		if (JSON.parse(await readRecord()).status === "installed") return { npm_config_verify_deps_before_run: "false" };
++	} catch {}
++	return {};
++}
+ const providerLaunchStderrMaxBytes = 16384;
+ function parsedProviderLaunchDiagnostic(value) {
+ 	if (!isRuntimeRecord(value) || Array.isArray(value)) return;
+@@ -2934,6 +2963,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  		}
  		let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal);
  		let materializeInstructions = Boolean(instructions);
@@ -1503,7 +1516,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..bbdae6d41da8425105fd70674d846151
  		if (!instructions && options.provider === "claude-code") {
  			const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => void 0);
  			if (nativeInstructions !== void 0) instructions = nativeInstructions;
-@@ -2967,13 +2991,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -2967,13 +2997,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  				providerBoxHomeFiles[claudeBoxPromptFile] = instructions;
  			} else providerBoxHomeFiles[".codex/AGENTS.md"] = instructions;
  		} else if (instructions && materializeInstructions) {
@@ -1523,7 +1536,29 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..bbdae6d41da8425105fd70674d846151
  				if (preserveNativeInstructions && provenanceInstructions && generated.content !== void 0) generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`;
  				generatedProviderFiles.push(generated);
  			}
-@@ -3101,7 +3128,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3007,6 +3040,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 				"vitehub provider baseline"
+ 			], { abortSignal: effectiveSignal });
+ 		}
++		if (!options.box) Object.assign(providerRuntimeEnvironment, await installedDependencyEnvironment(() => readFile(join(providerCwd, ".git", "vitehub-install.json"), "utf8")));
+ 		if (options.box) {
+ 			if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." });
+ 			const configuredCommand = options.providerSettings?.binaryPath;
+@@ -3026,7 +3060,12 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 			}), effectiveSignal, (lateBox) => lateBox.session.close(), observeLateCleanup);
+ 			clearActiveBox = setActiveProviderBox(context.context, providerBox);
+ 			if (claudeBoxPromptFile) claudePromptFile = posix.join(providerBox.home, claudeBoxPromptFile);
+-			const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {});
++			const dependencyEnvironment = await installedDependencyEnvironment(async () => {
++				const result = await providerBox.session.exec("cat", [posix.join(providerBox.session.cwd, ".git", "vitehub-install.json")], { signal: effectiveSignal });
++				return result.ok ? result.stdout : "";
++			});
++			Object.assign(providerRuntimeEnvironment, dependencyEnvironment);
++			const explicitEnvironment = [...Object.keys(providerEnvironmentOverrides || {}), ...Object.keys(dependencyEnvironment)];
+ 			const preparedEnvironment = { ...providerRuntimeEnvironment };
+ 			providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []);
+ 			providerLaunchDiagnosticPath = join(launchRoot, "box-diagnostic.json");
+@@ -3101,7 +3140,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			model: options.model,
  			resumeCursor,
  			runtimeMode: providerRuntimeMode[options.permissions ?? "ask"],
@@ -1542,7 +1577,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..bbdae6d41da8425105fd70674d846151
  			threadId
  		}), effectiveSignal, (session) => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime());
  		if (session.resumeCursor !== void 0) pendingResumeCursor = session.resumeCursor;
-@@ -3182,7 +3219,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3182,7 +3231,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  		});
  		const turn = await waitForProviderOperation(runtime.sendTurn({
  			attachments,
