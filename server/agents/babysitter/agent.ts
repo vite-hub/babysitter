@@ -143,7 +143,11 @@ change: reply on the thread with one sentence of rationale and resolve it with
 resolveReviewThread. When no valid P0 or P1 finding remains, a failing pullfrog-approval
 check does not block the merge: resolve the remaining threads and set reviewedHead to the
 current HEAD. Name the class of each finding in the final text, for example "Pullfrog: P2
-watcher cleanup race".
+watcher cleanup race". Also set automatedReview in the JSON result to the highest class of
+valid finding in the automated reviews of the head this pass started on: "P0", "P1", "P2",
+"P3", or "none" when those reviews have no valid finding. Omit it when no automated review of
+that head exists yet. After two heads in a row with nothing above P2, the host stops waiting
+for automated review on this PR.
 
 Converge instead of hardening forever. A finding that only reproduces with deliberately forged
 or hostile runtime objects (Proxies, cross-realm values, poisoned prototypes or species,
