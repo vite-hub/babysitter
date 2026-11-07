@@ -145,6 +145,23 @@ repository. Required-check counts inspect only the first 100 check runs and the
 branch protection `contexts` list. API failures can leave incomplete counts, so
 use the output as an operational summary, not a merge decision.
 
+## Measure review convergence (`review-metrics.mjs`)
+
+Reads merged PRs from GitHub with the current `gh` account. It changes nothing.
+
+```sh
+node ops/review-metrics.mjs vite-hub/vitehub 2026-10-31 2026-11-07
+```
+
+A round is one PR head that Pullfrog reviewed. `ownRounds` leaves out heads that only merge
+the base, which makes it comparable with Anthropic's review rounds (mean 2.08 before their
+convergence changes, 1.32 after; 8.9% then 1.5% of PRs at 5+ rounds). Each thread is counted
+by the `vitehub-babysitter-outcome:<kind>` marker that `resolveReviewThread` posts (fixed,
+disproved, declined, pre-existing, duplicate). Threads without a marker only show whether the
+line changed or the thread was closed unchanged. Baseline for vite-hub/vitehub, 2026-10-31 to
+2026-11-07: own rounds mean 1.97, 50.4% pass in one round, 5.5% need 5+; Codex posted 720
+threads (84% P2), 210 of them on a head that only merged main. Add `--json` for the full report.
+
 ## Releases
 
 `pnpm release <sha>` builds, tests, stages, smoke-boots, switches `release.conf`, drains,
