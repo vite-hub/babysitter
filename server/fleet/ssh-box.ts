@@ -171,9 +171,17 @@ async function dependencyInputsHash(checkout: string, paths: readonly string[]) 
   return hash.digest('hex')
 }
 
-async function installCommand(checkout: string) {
+const pnpmInstall = 'pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile'
+
+/** The shell command that installs a checkout's dependencies in the Box, run from its root. */
+export async function installCommand(checkout: string) {
   const exists = (name: string) => lstat(join(checkout, name)).then(() => true, () => false)
-  if (await exists('pnpm-lock.yaml')) return 'pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile'
+  if (await exists('pnpm-lock.yaml')) {
+    // The Box never runs repository pnpm hooks, but pnpm refuses a frozen install of a lockfile
+    // that records the hook's checksum. Install without that line, then restore the checked-out lockfile.
+    if (!/^pnpmfileChecksum:/m.test(await readFile(join(checkout, 'pnpm-lock.yaml'), 'utf8'))) return pnpmInstall
+    return `(b=$(mktemp) && cp pnpm-lock.yaml "$b" && sed -i '/^pnpmfileChecksum:/d' pnpm-lock.yaml && { ${pnpmInstall}; s=$?; cp "$b" pnpm-lock.yaml; rm -f "$b"; exit $s; })`
+  }
   if (await exists('package-lock.json')) return 'npm ci --prefer-offline --no-audit --no-fund --ignore-scripts'
   return undefined
 }
