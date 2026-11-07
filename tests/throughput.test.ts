@@ -199,6 +199,26 @@ test('a pass waits for checks that still run on its head, even beside an early f
   assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
 })
 
+test('a pass waits for CI jobs that wait hours for a runner', async () => {
+  // GitHub sets a queued check run's started_at when it creates the run. With a 30-minute stuck
+  // limit, vitehub#3514's 8 package-test jobs, queued since 08:41 UTC on 2026-11-07, counted as
+  // stuck at 09:11, and passes pushed over queued CI runs: 62 of 95 bot-cancelled runs in 17 h.
+  const { w: checksStillRunning } = await import(join(dist, 'server-DZOuXkga.js'))
+  const head = 'b'.repeat(40)
+  const now = Date.parse('2026-11-07T10:00:00Z')
+  const snapshot = (...checks: object[]) => ({ pr: { head: { sha: head } }, checks: Object.fromEntries(checks.map((check, index) => [index, { id: index + 1, head_sha: head, app: { id: 15368 }, ...check }])), statuses: {} })
+  const review = { name: 'pullfrog-approval', status: 'completed', conclusion: 'failure', started_at: '2026-11-07T09:30:00Z' }
+  const queued = (status: string, createdAt: string) => ({ name: 'package tests (agent 1/3)', status, started_at: createdAt })
+  assert.equal(checksStillRunning(snapshot(review, queued('queued', '2026-11-07T08:41:29Z')), now), true)
+  assert.equal(checksStillRunning(snapshot(review, queued('waiting', '2026-11-07T05:00:00Z')), now), true)
+  // A run that waits six hours for a runner is stuck, and a started run keeps the 30-minute limit.
+  assert.equal(checksStillRunning(snapshot(review, queued('queued', '2026-11-07T03:59:00Z')), now), false)
+  assert.equal(checksStillRunning(snapshot(review, queued('in_progress', '2026-11-07T09:29:00Z')), now), false)
+  // A pending commit status has no app and keeps the 30-minute limit.
+  const status = { pr: { head: { sha: head } }, checks: {}, statuses: { preview: { sha: head, context: 'preview', state: 'pending', created_at: '2026-11-07T09:29:00Z' } } }
+  assert.equal(checksStillRunning(status, now), false)
+})
+
 test('green PRs without a stored review are claimed before PRs that need model passes', () => {
   // A fully green PR with no stored review sat behind about 100 older PRs needing 15-minute passes.
   assert.match(source, /mergeReady: looksMergeReady\(s\),/)
