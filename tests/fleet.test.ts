@@ -344,7 +344,8 @@ test('the patched framework caps dependency refreshes per pass', () => {
   const dist = join(modules, '..', '@vite-hub', 'agent', 'dist')
   const source = execFileSync('ls', [dist], { encoding: 'utf8' }).split('\n').filter(name => name.endsWith('.js')).map(name => readFileSync(join(dist, name), 'utf8')).join('\n')
   // 2026-10-19: one pass called refreshDependencies 16 times.
-  assert.match(source, /execute: \(\) => withinRepair\(async \(\) => \{\n\t+workspace\?\.admitRefresh\?\.\(\);\n\t+await workspace\?\.beforeRepair\(context\.context\);/)
+  assert.match(source, /if \(refreshTask\) return refreshTask;/)
+  assert.match(source, /const release = workspace\?\.admitRefresh\?\.\(\);\n\t+try \{\n\t+await workspace\?\.beforeRepair\(context\.context\);/)
   assert.match(source, /const dependencyRefreshCap = 2;/)
   assert.match(source, /if \(dependencyRefreshes >= dependencyRefreshCap\) throw new Error\(`refreshDependencies already ran \$\{dependencyRefreshCap\} times in this pass, the limit\. Do not call it again\./)
   // With the cap spent, a commit of changed inputs is left to CI instead of demanding another refresh.
