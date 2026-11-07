@@ -1,5 +1,5 @@
 diff --git a/dist/babysitter-ZENI2mzg.js b/dist/babysitter-ZENI2mzg.js
-index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6232b340d 100644
+index 1c139c9d5e55953ad12c260e6623758314af6c22..5c80fb9c9d212085dace9d0d6201c1d16ef0a76a 100644
 --- a/dist/babysitter-ZENI2mzg.js
 +++ b/dist/babysitter-ZENI2mzg.js
 @@ -76,6 +76,14 @@ function createBabysitterPassResultSchema(report) {
@@ -35,7 +35,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
  	if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
  	const author = feedbackAuthor(value);
  	if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
-@@ -162,16 +172,25 @@ function feedback(values, policy, botBodies = true) {
+@@ -162,16 +172,37 @@ function feedback(values, policy, botBodies = true) {
  		line: value.line
  	}));
  }
@@ -60,28 +60,54 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
 +		repository
 +	});
  }
- /** Assessment is bound to full feedback bodies and failed check evidence, never prose heuristics. */
+-/** Assessment is bound to full feedback bodies and failed check evidence, never prose heuristics. */
 -function mergeReviewEvidenceKey(snapshot, policy = {}) {
-+function mergeReviewEvidenceKey(snapshot, policy = {}, legacy = false) {
++/** Council score tables carry review bookkeeping; prose in the same section still needs assessment. */
++function assessmentBody(body) {
++	const lines = String(body ?? "").split("\n");
++	for (let start = lines.length - 1; start >= 0; start--) {
++		if (!/^## Council review\s*$/i.test(lines[start])) continue;
++		let end = start + 1;
++		while (end < lines.length && !/^#{1,2}\s/.test(lines[end])) end++;
++		const content = lines.slice(start + 1, end).map((line) => line.trim()).filter(Boolean);
++		if (content.some((line) => /^\|\s*Delegate\s*\|(?:\s*Round \d+\s*\|)+$/i.test(line)) && content.every((line) => /^Rounds: \d+$/i.test(line) || /^\|\s*Delegate\s*\|(?:\s*Round \d+\s*\|)+$/i.test(line) || /^\|(?:\s*:?-+:?\s*\|)+$/.test(line) || /^\|[^|]+\|(?:\s*\d+(?:\.\d+)?\/10\s*\|)+$/.test(line))) lines.splice(start, end - start);
++	}
++	return lines.join("\n").trim();
++}
++/** Assessment is bound to actionable feedback bodies and failed check evidence. */
++function mergeReviewEvidenceKey(snapshot, policy = {}, legacy = false, metadata = legacy) {
  	const head = snapshot.pr?.head?.sha;
  	const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)].filter((value) => !value.deleted && (value.head_sha ?? value.sha) === head && failing.has(String(value.conclusion ?? value.state).toLowerCase())).map((value) => ({
  		id: value.id ?? value.context,
-@@ -199,7 +218,7 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+@@ -184,8 +215,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+ 	const threads = snapshot.threads.map((thread) => ({
+ 		id: thread.node_id ?? thread.id,
+ 		path: thread.path,
+-		isResolved: thread.isResolved,
+-		comments: (Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []).filter((comment) => !comment.deleted).map((comment) => ({
++		...metadata ? { isResolved: thread.isResolved } : { reopens: snapshot.threadReopens?.[thread.node_id ?? thread.id] ?? 0 },
++		comments: (Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []).filter((comment) => metadata ? !comment.deleted : !ignoredFeedback(comment, policy)).map((comment) => ({
+ 			id: comment.node_id ?? comment.id,
+ 			body: comment.body,
+ 			user: comment.user ?? comment.author,
+@@ -198,8 +229,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+ 		headRepository: snapshot.pr?.head?.repo?.full_name,
  		draft: snapshot.pr?.draft,
  		title: snapshot.pr?.title,
- 		body: snapshot.pr?.body,
+-		body: snapshot.pr?.body,
 -		base: mergeTarget(snapshot),
++		body: metadata ? snapshot.pr?.body : assessmentBody(snapshot.pr?.body),
 +		base: mergeTarget(snapshot, legacy),
  		comments: feedback(snapshot.comments, policy, false),
  		reviews: feedback(snapshot.reviews, policy),
  		reviewComments: feedback(snapshot.reviewComments, policy),
-@@ -207,18 +226,22 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+@@ -207,18 +238,22 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
  		failures
  	})).digest("hex");
  }
 +/** Whether a stored evidence key covers this snapshot, including keys stored with the base commit. */
 +function matchesMergeReviewEvidence(key, snapshot, policy = {}) {
-+	return hasRuntimeType(key, "string") && (key === mergeReviewEvidenceKey(snapshot, policy) || key === mergeReviewEvidenceKey(snapshot, policy, true));
++	return hasRuntimeType(key, "string") && (key === mergeReviewEvidenceKey(snapshot, policy) || key === mergeReviewEvidenceKey(snapshot, policy, false, true) || key === mergeReviewEvidenceKey(snapshot, policy, true));
 +}
  /**
  * Identities of the feedback items that need an assessment. An explicit assessment covers
@@ -102,7 +128,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
  	return kinds.flatMap(([kind, values]) => values.map((value) => createHash("sha256").update(JSON.stringify([
  		target,
  		kind,
-@@ -266,10 +289,13 @@ function snapshotCheckEvidence(snapshot) {
+@@ -266,10 +301,13 @@ function snapshotCheckEvidence(snapshot) {
  		}];
  	});
  	const newest = /* @__PURE__ */ new Map();
@@ -117,7 +143,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
  	}
  	const statuses = Object.values(snapshot.statuses).flatMap((status, index) => {
  		if (status.deleted || status.sha !== head || !hasRuntimeType(status.context, "string")) return [];
-@@ -299,14 +325,33 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
+@@ -299,14 +337,33 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
  	if (pr.draft) return no("draft");
  	if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
  	const evidence = snapshotCheckEvidence(snapshot);
@@ -156,7 +182,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
  	return {
  		ready: true,
  		head
-@@ -613,21 +658,29 @@ const babysitter = defineAgent({
+@@ -613,21 +670,29 @@ const babysitter = defineAgent({
  		noFindingsReviews: [],
  		ignoreFeedbackAuthors: [],
  		noProgressBudget: 3,
@@ -187,7 +213,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..3cbd0697263a562c9edb2e8fddd937b6
  		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
  		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
  		resolveBabysitterLifecycleFilter(filter, lifecycle);
-@@ -648,11 +701,15 @@ const babysitter = defineAgent({
+@@ -648,11 +713,15 @@ const babysitter = defineAgent({
  			mentionAllowlist,
  			ignoreFeedbackAuthors,
  			noProgressBudget,
@@ -1717,7 +1743,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..3e49174b6620ad79cd067c79cb29f7cfe152f3f1 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..a1717912f3ab8a183458aab1c48d62e47a309c49 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -3289,7 +3315,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..3e49174b6620ad79cd067c79cb29f7cf
 +						const allowance = repairPushAllowance(await pullRequestInbox.meta(`repair-pushes:${repository}#${number}`) ?? [], "failed", false, Date.now(), pullRequestInbox.isPriority(inboxClaim.snapshot.pr));
 +						reviewedRetryAt = allowance.allowed ? void 0 : allowance.nextAt + 6e4;
 +					}
-+					if (reviewedRetryAt !== void 0 && isRuntimeRecord(assessment) && assessment.version === 2 && assessment.head === inboxClaim.snapshot.pr?.head?.sha && matchesMergeReviewEvidence(assessment.evidenceKey, inboxClaim.snapshot, waitPolicy) && inboxClaim.snapshot.threads.every((thread) => thread.isResolved === true) && inboxClaim.snapshot.pr?.mergeable !== false && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
++					if (reviewedRetryAt !== void 0 && isRuntimeRecord(assessment) && assessment.version === 2 && assessment.head === inboxClaim.snapshot.pr?.head?.sha && matchesMergeReviewEvidence(assessment.evidenceKey, inboxClaim.snapshot, waitPolicy) && inboxClaim.snapshot.pr?.mergeable !== false && inboxClaim.snapshot.pr?.mergeable_state !== "dirty") {
 +						if (stackParent !== void 0 && !requiredChecksFailed) {
 +							await parkOnStackParent();
 +							return;
