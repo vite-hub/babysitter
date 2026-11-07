@@ -195,8 +195,8 @@ test('a pass waits for checks that still run on its head, even beside an early f
   // Everything settled, or the only running check is stuck: the pass runs now.
   assert.equal(checksStillRunning(snapshot(lintFailed)), false)
   assert.equal(checksStillRunning(snapshot(lintFailed, { name: 'Workers Builds', status: 'in_progress', started_at: at(45) })), false)
-  assert.match(source, /if \(checksStillRunning\(snapshot\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
-  assert.match(source, /if \(!conflict && checksStillRunning\(s\)\) return \[\];/)
+  assert.match(source, /if \(checksStillRunning\(snapshot, waitPolicy\)\) return reviewCheckRunning\(snapshot, waitPolicy\) \? "review checks" : "running checks";\n\t+if \(failureKeys\(snapshot\)\.length\) return void 0;/)
+  assert.match(source, /if \(!conflict && checksStillRunning\(s, policy\)\) return \[\];/)
 })
 
 test('green PRs without a stored review are claimed before PRs that need model passes', () => {
@@ -469,7 +469,7 @@ test('after the review push budget, bot feedback and review checks stop waking p
   assert.match(source, /if \(babysitterModelAdmission\(admitted, inboxClaim\.snapshot\)\) return await parkSpentReviewPushBudget\(\) \|\| await parkClosedPushWindow\(\) \|\| await parkSpentDailyPassBudget\(\);/)
   assert.match(source, /reason: "review-push-budget"\n/)
   // Pushes are counted on the snapshot in finish(), once per head, even when the wait is rejected.
-  assert.match(source, /this\.recordReviewPush\(s, claim, result\.progress\);\n\t+const pinnedHead = result\.wait\?\.headSha;/)
+  assert.match(source, /this\.recordReviewPush\(s, claim, result\.progress\);\n(?:\t+[^\n]*\n)*?\t+const pinnedHead = result\.wait\?\.headSha;/)
   // The 5-per-24h repair push cap stays as a backstop.
   assert.match(source, /const repairPushCap = 5;/)
 })
