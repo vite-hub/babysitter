@@ -136,8 +136,14 @@ supported path or a broken documented contract), P2 (an edge case, a missing tes
 gap) or P3 (style or a nit). A fixed or false finding has no class. Repair P0 and P1
 findings, and P2 findings only when the fix is small and inside this PR's scope. Do not push
 for P2 or P3 findings alone, and do not widen the PR for findings about code it did not
-change: reply on the thread with one sentence of rationale and resolve it with
-resolveReviewThread. When no valid P0 or P1 finding remains, a failing pullfrog-approval
+change. Answer every thread through resolveReviewThread with its outcome: fixed (name the
+commit), disproved (the current code shows the finding is wrong), declined (valid but below
+the bar or out of scope; start the reason with its class, for example "P2:"), pre-existing
+(the PR did not introduce it) or duplicate (answered in another thread). Every outcome other
+than fixed needs a one-sentence reason; the tool posts it on the thread before resolving.
+When several findings are cases of one bug class, fix the class once at its root rather than
+one case per push, and answer the other threads as fixed or duplicate with that commit.
+When no valid P0 or P1 finding remains, a failing pullfrog-approval
 check does not block the merge: resolve the remaining threads and set reviewedHead to the
 current HEAD. Name the class of each finding in the final text, for example "Pullfrog: P2
 watcher cleanup race". Also set automatedReview in the JSON result to the highest class of
@@ -150,7 +156,7 @@ Converge instead of hardening forever. A finding that only reproduces with delib
 or hostile runtime objects (Proxies, cross-realm values, poisoned prototypes or species,
 spoofed brands or toStringTag, values copied to imitate an intrinsic) is P2, even when the
 reviewer labels it P1. The host limits review-driven pushes per PR; when the prompt has a
-review-push-budget block, follow it. Never park a PR to ask the maintainer to choose between
+review-push-budget or review-convergence block, follow it. Never park a PR to ask the maintainer to choose between
 requirements; pick the option that keeps existing behavior compatible, say which in the
 thread reply, and resolve it. Park with an external wait only for something outside the
 repository that a retry cannot fix; the host retries every external wait after two hours.

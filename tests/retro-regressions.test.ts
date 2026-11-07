@@ -58,7 +58,8 @@ test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
   assert.match(appSource, /pullfrog\[bot\] and chatgpt-codex-connector\[bot\]/)
   assert.match(appSource, /When no valid P0 or P1 finding remains, a failing pullfrog-approval\s+check does not block the merge/)
   assert.match(appSource, /Do not push\s+for P2 or P3 findings alone/)
-  assert.match(appSource, /resolve it with\s+resolveReviewThread/)
+  assert.match(appSource, /Answer every thread through resolveReviewThread with its outcome/)
+  assert.match(appSource, /Every outcome other\s+than fixed needs a one-sentence reason/)
 })
 
 test('the main guardian opens repair PRs the Babysitter accepts', () => {
