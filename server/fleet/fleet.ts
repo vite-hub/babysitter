@@ -171,6 +171,26 @@ export function createFleet(options: FleetOptions) {
     return await host.probing
   }
 
+  function readyHosts(candidates: Host[]) {
+    const pending = new Map(candidates.map(host => [host, health(host).then(state => ({ host, state }))]))
+    return (async function* () {
+      while (pending.size) {
+        const ready = await Promise.race(pending.values())
+        pending.delete(ready.host)
+        yield ready
+      }
+    })()
+  }
+
+  function hostSlots(host: Host, state = host.health) {
+    // Expired or failed probes retain reservations, but cannot admit another pass.
+    if (!state?.ok || now() - state.checkedAt >= healthTtlMs || !state.home || state.availableMemoryBytes === undefined || state.memoryPressure === undefined) return host.active
+    return admittedSlots(host.config.slots, host.active, {
+      availableMemoryBytes: state.availableMemoryBytes,
+      memoryPressure: state.memoryPressure,
+    })
+  }
+
   function once(release: () => void) {
     let released = false
     return () => {
@@ -195,15 +215,9 @@ export function createFleet(options: FleetOptions) {
       const candidates = hosts
         .filter(host => host.active < host.config.slots)
         .toSorted((left, right) => left.active / left.config.slots - right.active / right.config.slots)
-      for (const host of candidates) {
-        const state = await health(host)
+      for await (const { host, state } of readyHosts(candidates)) {
         // Another pass may have taken the last slot while this one probed.
-        if (!state.ok || !state.home || state.availableMemoryBytes === undefined || state.memoryPressure === undefined || host.active >= host.config.slots) continue
-        const hostSlots = admittedSlots(host.config.slots, host.active, {
-          availableMemoryBytes: state.availableMemoryBytes,
-          memoryPressure: state.memoryPressure,
-        })
-        if (host.active >= hostSlots) continue
+        if (!state.home || host.active >= hostSlots(host, state)) continue
         host.active++
         host.placed++
         let closed = false
@@ -243,7 +257,7 @@ export function createFleet(options: FleetOptions) {
         local: {
           active: localActive,
           slots: options.localSlots,
-          admitted: localHealth?.ok ? admittedSlots(options.localSlots, localActive, localHealth) : 0,
+          admitted: localHealth?.ok ? admittedSlots(options.localSlots, localActive, localHealth) : localActive,
           overflow,
           healthy: localHealth?.ok ?? null,
           availableMemoryBytes: localHealth?.availableMemoryBytes,
@@ -254,12 +268,7 @@ export function createFleet(options: FleetOptions) {
           name: host.config.name,
           active: host.active,
           slots: host.config.slots,
-          admitted: host.health?.ok && host.health.availableMemoryBytes !== undefined && host.health.memoryPressure !== undefined
-            ? admittedSlots(host.config.slots, host.active, {
-              availableMemoryBytes: host.health.availableMemoryBytes,
-              memoryPressure: host.health.memoryPressure,
-            })
-            : 0,
+          admitted: hostSlots(host),
           placed: host.placed,
           healthy: host.health?.ok ?? null,
           reason: host.health?.reason,
@@ -280,8 +289,12 @@ export function createFleet(options: FleetOptions) {
     },
     /** Refresh resource admission before the scheduler claims another batch. */
     async admission() {
+      const pending = readyHosts(hosts)
       await localResources()
-      await Promise.all(hosts.map(host => health(host)))
+      if (localHealth?.ok && localActive < admittedSlots(options.localSlots, localActive, localHealth)) return this.status()
+      for await (const { host, state } of pending) {
+        if (host.active < hostSlots(host, state)) break
+      }
       return this.status()
     },
   }
