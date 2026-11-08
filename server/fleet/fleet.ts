@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createSshBoxRuntime, q, runScript, sshTransport, type FleetTransport } from './ssh-box.ts'
+import { createSshBoxRuntime, pruneSessionArchive, q, runScript, sshTransport, type FleetTransport } from './ssh-box.ts'
 
 export interface FleetHostConfig {
   /** Label used in logs and status. */
@@ -36,6 +36,8 @@ export interface FleetOptions {
   /** Override remote memory sampling while retaining the SSH disk/tool probe. */
   hostResources?: (host: FleetHostConfig) => FleetResourceHealth | Promise<FleetResourceHealth>
   codexConfig?: (workDirectory: string) => string
+  /** Local directory for the Codex session logs of fleet passes. */
+  sessionArchive?: string
   transport?: (host: FleetHostConfig) => FleetTransport
   log?: (event: string, fields: Record<string, unknown>) => void
   now?: () => number
@@ -213,6 +215,8 @@ export function createFleet(options: FleetOptions) {
           path: `${state.home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
           forwardPorts: options.forwardPorts,
           codexConfig: options.codexConfig,
+          sessionArchive: options.sessionArchive,
+          log,
           onClose: () => { closed = true },
           // Keep new passes off a host whose Boxes fail until the next probe.
           onHostFailure: (error) => {
@@ -379,10 +383,19 @@ export function registerFleetFromEnvironment(environment: NodeJS.ProcessEnv = pr
   catch {
     codexConfig = undefined
   }
+  const stateDirectory = environment.BABYSITTER_FLEET_STATE ?? join(process.cwd(), '.vitehub', 'fleet')
+  // Fleet passes delete their Box, and with it the Codex session log, on close. Keep a copy for
+  // pass measurements, for BABYSITTER_FLEET_SESSION_DAYS (14 by default).
+  const sessionArchive = environment.BABYSITTER_FLEET_SESSIONS ?? join(stateDirectory, 'sessions')
+  const sessionDays = positiveNumber(environment.BABYSITTER_FLEET_SESSION_DAYS, 14)
+  const prune = () => pruneSessionArchive(sessionArchive, sessionDays).catch((error: unknown) => console.log(`[fleet] sessions.prune.failed ${JSON.stringify({ reason: error instanceof Error ? error.message : String(error) })}`))
+  void prune()
+  setInterval(prune, 86_400_000).unref()
   const fleet = createFleet({
     localSlots: Number(environment.BABYSITTER_FLEET_LOCAL_SLOTS ?? 15),
     hosts,
-    stateDirectory: environment.BABYSITTER_FLEET_STATE ?? join(process.cwd(), '.vitehub', 'fleet'),
+    stateDirectory,
+    sessionArchive,
     minFreeMemoryBytes: positiveNumber(environment.BABYSITTER_FLEET_MIN_FREE_MEMORY_BYTES, 2 * 1024 ** 3),
     maxMemoryPressure: positiveNumber(environment.BABYSITTER_FLEET_MAX_MEMORY_PRESSURE, 5),
     memoryPerSlotBytes: positiveNumber(environment.BABYSITTER_FLEET_MEMORY_PER_SLOT_BYTES, 512 * 1024 ** 2),

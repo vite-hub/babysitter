@@ -6,7 +6,7 @@ import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:os'
 import { createReadStream } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, posix, relative } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -208,6 +208,13 @@ export interface SshBoxRuntimeOptions {
   /** Codex config written to the Box Home when the plan does not declare one. */
   codexConfig?: (workDirectory: string) => string
   onClose?: () => void
+  /**
+   * Local directory that receives the Box's Codex session logs before close removes the Box.
+   * Each host gets `<sessionArchive>/<host>/YYYY/MM/DD/rollout-*.jsonl`, the same layout as CODEX_HOME/sessions.
+   */
+  sessionArchive?: string
+  /** Step timings and session copies, one structured event each. */
+  log?: (event: string, fields: Record<string, unknown>) => void
   /** The host failed: a Box did not open, or a provider connection dropped at once. */
   onHostFailure?: (error: unknown) => void
 }
@@ -257,6 +264,7 @@ export function createSshBoxRuntime(options: SshBoxRuntimeOptions): BoxRuntime &
 async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptions) {
   if (!input.cwd) throw new Error('[fleet] A fleet Box needs the host checkout as cwd.')
   const { transport } = options
+  const log = options.log ?? (() => {})
   const id = randomUUID()
   const directory = `${options.root}/boxes/${id}`
   const home = `${directory}/home`
@@ -456,15 +464,23 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     spawn: spawnProcess,
     async materialize(boxInput, abortSignal) {
       const checkout = boxInput.cwd!
+      const timings: Record<string, number> = {}
+      const startedAt = Date.now()
+      let stepAt = startedAt
+      const step = (name: string) => { const at = Date.now(); timings[`${name}Ms`] = at - stepAt; stepAt = at }
       await shell(`mkdir -p ${q(home)} ${q(work)} ${q(tmp)} && umask 077 && mkdir -p ${q(run)}`, 'Box directory creation', { signal: abortSignal })
       await syncObjects(checkout, abortSignal)
+      step('mirror')
       const head = (await hostGit(checkout, ['rev-parse', 'HEAD'])).toString().trim()
       // The source tree and Git metadata, without objects or dependency trees.
       const tar = spawn('tar', ['-C', checkout, ...dependencyExcludes, '-czf', '-', '.'], { stdio: ['ignore', 'pipe', 'ignore'] })
       const unpacked = await shell(`tar -C ${q(work)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: tar.stdout, signal: abortSignal })
       if (unpacked.stdout.toString().trim() !== head) throw new Error(`[fleet] Box HEAD does not match the host checkout ${head}.`)
+      step('upload')
       const inputs = await dependencyInputsHash(checkout, await dependencyInputs(checkout))
-      if (await install(checkout, abortSignal)) installedInputs = inputs
+      const installed = await install(checkout, abortSignal)
+      if (installed) installedInputs = inputs
+      step('install')
       for (const [path, file] of Object.entries(boxInput.plan.files)) await files.write(`${home}/${path}`, await file.resolve(), { signal: abortSignal })
       if (options.codexConfig && !Object.hasOwn(boxInput.plan.files, '.codex/config.toml')) {
         await files.write(`${home}/.codex/config.toml`, Buffer.from(options.codexConfig(work)), { signal: abortSignal })
@@ -475,6 +491,8 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
         const result = await runScript(transport, `eval "$(cat)" && ${checks}`, { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
         if (result.code !== 0) throw new Error(`[fleet] ${options.host} is missing the Box requirement ${result.stdout.toString().trim() || result.stderr.trim()}.`)
       }
+      step('setup')
+      log('box.opened', { host: options.host, box: id, ...timings, installed, totalMs: Date.now() - startedAt })
     },
     async importWorkspace(checkout, abortSignal) {
       const list = (output: Buffer) => output.toString('utf8').split('\0').filter(path => path && !isAbsolute(path) && !path.split('/').some(part => part === '..' || part === '.git'))
@@ -512,19 +530,92 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     async refreshDependencies(checkout, abortSignal) {
       const paths = await dependencyInputs(checkout)
       const inputs = await dependencyInputsHash(checkout, paths)
-      if (inputs === installedInputs) return
+      if (inputs === installedInputs) {
+        log('box.refreshed', { host: options.host, box: id, skipped: true, totalMs: 0 })
+        return
+      }
+      const startedAt = Date.now()
       installedInputs = undefined
       await uploadPaths(checkout, paths, abortSignal)
       if (await install(checkout, abortSignal, false)) installedInputs = inputs
+      log('box.refreshed', { host: options.host, box: id, skipped: false, totalMs: Date.now() - startedAt })
     },
     async close() {
       return closing ??= (async () => {
+        const startedAt = Date.now()
         const kill = (signalName: string) => `for f in ${q(run)}/*.pid; do test -f "$f" && kill -s ${signalName} -- "-$(cat "$f")" 2>/dev/null; done; true`
-        await runScript(transport, `${kill('TERM')}; sleep 2; ${kill('KILL')}; rm -rf ${q(directory)}`, { timeout: 60_000 }).catch(() => undefined)
+        await runScript(transport, `${kill('TERM')}; sleep 2; ${kill('KILL')}`, { timeout: 30_000 }).catch(() => undefined)
+        // Codex writes its session log in the Box Home, which the rm below deletes. Copy it first so
+        // fleet passes can be measured like local ones. A failed copy never keeps the Box.
+        const sessions = options.sessionArchive
+          ? await archiveSessions(transport, `${home}/.codex/sessions`, join(options.sessionArchive, options.host)).catch((error: unknown) => {
+              log('box.sessions.failed', { host: options.host, box: id, reason: (error instanceof Error ? error.message : String(error)).slice(0, 500) })
+              return 0
+            })
+          : 0
+        await runScript(transport, `rm -rf ${q(directory)}`, { timeout: 60_000 }).catch(() => undefined)
+        log('box.closed', { host: options.host, box: id, sessions, totalMs: Date.now() - startedAt })
         for (const child of live) child.kill('SIGKILL')
         options.onClose?.()
       })()
     },
   }
   return session
+}
+
+/** Session log paths inside CODEX_HOME/sessions. Anything else in the archive is ignored. */
+const sessionLogPath = /^\d{4}\/\d{2}\/\d{2}\/rollout-[\w.-]+\.jsonl$/
+
+/**
+ * Copy the Codex session logs under `remote` to `local`, keeping their date folders. The archive comes
+ * from a Box the agent controlled, so only regular files with a session log path are kept.
+ */
+export async function archiveSessions(transport: FleetTransport, remote: string, local: string): Promise<number> {
+  const listed = await runScript(transport, `cd ${q(remote)} 2>/dev/null || exit 0; find . -type f -name 'rollout-*.jsonl' -print0 | tar --null -T - -czf -`, { timeout: 60_000 })
+  if (listed.code !== 0) throw new Error(`session archive failed (${listed.code}): ${listed.stderr.trim().slice(-500)}`)
+  if (!listed.stdout.length) return 0
+  const scratch = await mkdtemp(join(tmpdir(), 'vitehub-fleet-sessions-'))
+  try {
+    const extract = spawn('tar', ['-C', scratch, '--no-same-owner', '--no-same-permissions', '-xzf', '-'], { stdio: ['pipe', 'ignore', 'pipe'] })
+    extract.stdin.end(listed.stdout)
+    await new Promise<void>((resolve, reject) => extract.once('close', code => code === 0 ? resolve() : reject(new Error('session archive could not be extracted'))))
+    let copied = 0
+    const walk = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        if (entry.isDirectory()) { await walk(path); continue }
+        const name = relative(scratch, path)
+        if (!entry.isFile() || !sessionLogPath.test(name)) continue
+        await mkdir(join(local, dirname(name)), { recursive: true })
+        await copyFile(path, join(local, name))
+        copied++
+      }
+    }
+    await walk(scratch)
+    return copied
+  }
+  finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+/** Delete archived session logs older than `days`, and the date folders they leave empty. */
+export async function pruneSessionArchive(root: string, days: number, now = Date.now()) {
+  const cutoff = now - days * 86_400_000
+  const walk = async (directory: string): Promise<boolean> => {
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+    let empty = true
+    for (const entry of entries) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) {
+        if (await walk(path)) await rm(path, { recursive: true, force: true })
+        else empty = false
+        continue
+      }
+      if ((await lstat(path)).mtimeMs < cutoff) await rm(path, { force: true })
+      else empty = false
+    }
+    return empty
+  }
+  await walk(root)
 }
