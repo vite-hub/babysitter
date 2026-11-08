@@ -364,12 +364,15 @@ index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0f
  	const activityDefinition = activity ? githubAgentActivity(appOptions, "lifecycle") : void 0;
  	const openedActivityDefinition = activity ? githubAgentActivity(appOptions, "initialize") : void 0;
 diff --git a/dist/github-C5fJH50u.js b/dist/github-C5fJH50u.js
-index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c1393345f3cd39 100644
+index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b513391f130180 100644
 --- a/dist/github-C5fJH50u.js
 +++ b/dist/github-C5fJH50u.js
-@@ -9,12 +9,13 @@ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
+@@ -7,14 +7,15 @@ import { Diagnostic } from "nostics";
+ import * as v from "valibot";
+ import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
  import { createHash, randomUUID } from "node:crypto";
- import { access, appendFile, chmod, cp, glob, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+-import { access, appendFile, chmod, cp, glob, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
++import { access, appendFile, chmod, cp, glob, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
  import { tmpdir } from "node:os";
 +import { setTimeout as sleep } from "node:timers/promises";
  import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -671,7 +674,253 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  /** Return whether the host's frozen install matches current inputs and has published outputs. */
  async function hasCurrentGitHubDependencies(target, inputs = target) {
  	try {
-@@ -1186,7 +1280,7 @@ function createGitHubAppCredentials(app) {
+@@ -921,6 +1015,54 @@ async function prepareGitHubRepairBase(target, options) {
+ //#endregion
+ //#region src/server/github-checkout.ts
+ const exec$1 = promisify(execFile);
++/** Remove credentials, helpers and proxies from a copied Git configuration. */
++async function sanitizeProviderGitConfig(git, destination) {
++	const sensitive = (key) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath|worktree)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key);
++	const sanitize = async (scope) => {
++		let config = "";
++		try {
++			config = await git(destination, [
++				"config",
++				scope,
++				"--name-only",
++				"--list"
++			]);
++		} catch (error) {
++			if (scope === "--local") throw error;
++			const message = error instanceof Error ? error.message : String(error);
++			if (!/worktree.*config.*(?:not enabled|disabled)|extensions\.worktreeconfig/i.test(message)) throw error;
++		}
++		for (const key of new Set(config.split("\n").filter(Boolean))) {
++			let remove = sensitive(key);
++			if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
++				const base = key.slice(4, key.lastIndexOf("."));
++				if (URL.canParse(base)) {
++					const baseUrl = new URL(base);
++					remove = Boolean(baseUrl.username || baseUrl.password);
++				}
++				const values = await git(destination, [
++					"config",
++					scope,
++					"--get-all",
++					key
++				]).catch(() => "");
++				remove ||= values.split("\n").some((value) => {
++					if (!URL.canParse(value)) return false;
++					const url = new URL(value);
++					return Boolean(url.username || url.password);
++				});
++			}
++			if (remove) await git(destination, [
++				"config",
++				scope,
++				"--unset-all",
++				key
++			]);
++		}
++	};
++	await sanitize("--local");
++	await sanitize("--worktree");
++}
+ /** Restore PR checkout history in a separate materialized provider workspace. */
+ async function prepareGitHubPullRequestWorkspace(checkout, target, options = {}) {
+ 	options.signal?.throwIfAborted();
+@@ -1030,51 +1172,7 @@ async function prepareGitHubPullRequestWorkspace(checkout, target, options = {})
+ 		});
+ 		await git(destination, ["read-tree", expected]);
+ 		options.signal?.throwIfAborted();
+-		const sensitive = (key) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath|worktree)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key);
+-		const sanitize = async (scope) => {
+-			let config = "";
+-			try {
+-				config = await git(destination, [
+-					"config",
+-					scope,
+-					"--name-only",
+-					"--list"
+-				]);
+-			} catch (error) {
+-				if (scope === "--local") throw error;
+-				const message = error instanceof Error ? error.message : String(error);
+-				if (!/worktree.*config.*(?:not enabled|disabled)|extensions\.worktreeconfig/i.test(message)) throw error;
+-			}
+-			for (const key of new Set(config.split("\n").filter(Boolean))) {
+-				let remove = sensitive(key);
+-				if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
+-					const base = key.slice(4, key.lastIndexOf("."));
+-					if (URL.canParse(base)) {
+-						const baseUrl = new URL(base);
+-						remove = Boolean(baseUrl.username || baseUrl.password);
+-					}
+-					const values = await git(destination, [
+-						"config",
+-						scope,
+-						"--get-all",
+-						key
+-					]).catch(() => "");
+-					remove ||= values.split("\n").some((value) => {
+-						if (!URL.canParse(value)) return false;
+-						const url = new URL(value);
+-						return Boolean(url.username || url.password);
+-					});
+-				}
+-				if (remove) await git(destination, [
+-					"config",
+-					scope,
+-					"--unset-all",
+-					key
+-				]);
+-			}
+-		};
+-		await sanitize("--local");
+-		await sanitize("--worktree");
++		await sanitizeProviderGitConfig(git, destination);
+ 		if (materializedPaths) {
+ 			const trackedPaths = new Set((await git(destination, ["ls-files", "-z"])).split("\0").filter(Boolean));
+ 			const instructions = (path) => /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path);
+@@ -1125,6 +1223,137 @@ async function prepareGitHubPullRequestWorkspace(checkout, target, options = {})
+ 		});
+ 	}
+ }
++/**
++* Prepares a provider workspace that stays between passes on one PR. Its Git metadata is always
++* replaced with a sanitized copy of the trusted host checkout, so nothing a pass left in `.git`
++* survives except the host install's package-manager home. With `reuse`, ignored files such as
++* node_modules and build caches stay when the tracked tree already matches the head; otherwise the
++* workspace is emptied and checked out again, and the next install links from the kept package
++* store instead of downloading it. Returns `{ reused, reason }`: "warm", the caller's reason,
++* "dirty" or "missing-metadata".
++*/
++async function preparePersistentGitHubPullRequestWorkspace(checkout, target, options = {}) {
++	options.signal?.throwIfAborted();
++	const source = await realpath(checkout);
++	const destination = await realpath(target);
++	const overlaps = (left, right) => {
++		const relation = relative(left, right);
++		return !relation || relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation);
++	};
++	if (overlaps(source, destination) || overlaps(destination, source)) throw new Error("Provider workspace must be separate from prepared checkout.");
++	if (!(await lstat(join(source, ".git"))).isDirectory()) throw new Error("Expected independent prepared Git clone.");
++	const env = { ...process.env };
++	for (const key of Object.keys(env)) if (key.startsWith("GIT_") || key === "GH_TOKEN" || key === "GITHUB_TOKEN") delete env[key];
++	env.GIT_CONFIG_GLOBAL = "/dev/null";
++	env.GIT_CONFIG_NOSYSTEM = "1";
++	env.GIT_TERMINAL_PROMPT = "0";
++	const git = async (cwd, args) => (await exec$1("git", [
++		"-c",
++		"core.hooksPath=/dev/null",
++		"-c",
++		"core.fsmonitor=false",
++		...args
++	], {
++		cwd,
++		env,
++		signal: options.signal,
++		maxBuffer: 67108864
++	})).stdout.trim();
++	const expected = await git(source, ["rev-parse", "HEAD"]);
++	const remoteUrls = async (cwd) => {
++		const urls = [];
++		for (const name of (await git(cwd, ["remote"])).split("\n").filter(Boolean)) urls.push(`${name}=${await git(cwd, [
++			"remote",
++			"get-url",
++			"--all",
++			name
++		])}`, `${name}.push=${await git(cwd, [
++			"remote",
++			"get-url",
++			"--all",
++			"--push",
++			name
++		])}`);
++		return urls;
++	};
++	const remotes = await remoteUrls(source);
++	for (const remote of remotes) for (const url of remote.slice(remote.indexOf("=") + 1).split("\n")) if (URL.canParse(url)) {
++		const parsed = new URL(url);
++		if (parsed.username || parsed.password) throw new Error("Prepared checkout remotes must not contain credentials.");
++	}
++	const metadata = join(destination, ".git");
++	const previous = `${destination}.previous-git`;
++	await rm(previous, {
++		recursive: true,
++		force: true
++	});
++	const existing = await lstat(metadata).catch((error) => {
++		if (error.code !== "ENOENT") throw error;
++	});
++	let reason = options.reuse ? existing?.isDirectory() ? void 0 : "missing-metadata" : options.reason ?? "cold";
++	if (existing) await rename(metadata, previous);
++	try {
++		await cp(join(source, ".git"), metadata, { recursive: true });
++		await rm(join(metadata, "objects", "info", "alternates"), { force: true });
++		await rm(join(metadata, "hooks"), {
++			recursive: true,
++			force: true
++		});
++		await sanitizeProviderGitConfig(git, destination);
++		// The host install's HOME holds pnpm's content-addressed store; node_modules are hard links into it.
++		// pnpm re-verifies a store file whose mtime changed, so the store may outlive a reset.
++		await rename(join(previous, "vitehub-install-home"), join(metadata, "vitehub-install-home")).catch((error) => {
++			if (error.code !== "ENOENT") throw error;
++		});
++		if (!reason) {
++			// The install record describes the kept node_modules.
++			await rename(join(previous, "vitehub-install.json"), join(metadata, "vitehub-install.json")).catch((error) => {
++				if (error.code !== "ENOENT") throw error;
++			});
++			if (await git(destination, [
++				"status",
++				"--porcelain",
++				"--untracked-files=all"
++			])) reason = "dirty";
++		}
++		if (reason) {
++			await rm(join(metadata, "vitehub-install.json"), { force: true });
++			const entries = (await readdir(destination)).filter((entry) => entry !== ".git");
++			if (entries.length) await exec$1("rm", [
++				"-rf",
++				"--",
++				...entries
++			], {
++				cwd: destination,
++				signal: options.signal,
++				maxBuffer: 1048576
++			});
++			await git(destination, [
++				"reset",
++				"--hard",
++				"--quiet",
++				expected
++			]);
++		}
++		if (await git(destination, ["rev-parse", "HEAD"]) !== expected || JSON.stringify(await remoteUrls(destination)) !== JSON.stringify(remotes)) throw new Error("Provider checkout head or remote mismatch.");
++		await recordPreparedProviderCheckout(destination, expected);
++	} catch (error) {
++		await rm(metadata, {
++			recursive: true,
++			force: true
++		});
++		throw error;
++	} finally {
++		await rm(previous, {
++			recursive: true,
++			force: true
++		});
++	}
++	return {
++		reused: !reason,
++		reason: reason ?? "warm"
++	};
++}
+ //#endregion
+ //#region src/server/github-host.ts
+ const exec = promisify(execFile);
+@@ -1186,7 +1415,7 @@ function createGitHubAppCredentials(app) {
  		/** The App bot's login and noreply email, used as the commit author. */
  		async identity() {
  			identity ??= (async () => {
@@ -680,7 +929,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  					const status = codeHostErrorStatus(error);
  					if (status !== void 0) throw agentDiagnostics.AGENT_R0757({
  						message: `GitHub App request /app failed with ${status}.`,
-@@ -1203,6 +1297,7 @@ function createGitHubAppCredentials(app) {
+@@ -1203,6 +1432,7 @@ function createGitHubAppCredentials(app) {
  					userAgent: app.userAgent
  				})).users.get(login).catch(() => void 0);
  				return {
@@ -688,7 +937,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  					login,
  					email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
  				};
-@@ -1259,6 +1354,26 @@ function isGraphQLCommand(args) {
+@@ -1259,6 +1489,26 @@ function isGraphQLCommand(args) {
  	}
  	return false;
  }
@@ -715,7 +964,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  function abortError(reason) {
  	if (reason instanceof Error) return reason;
  	return new DOMException("The operation was aborted.", "AbortError");
-@@ -1304,6 +1419,107 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
+@@ -1304,6 +1554,107 @@ function parseGraphQLRateLimit(value, checkedAt = Date.now()) {
  		resetAt: reset * 1e3
  	};
  }
@@ -823,7 +1072,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  function createGitHubHost(options) {
  	const checkoutScope = new AsyncLocalStorage();
  	const reserve = options.reserve ?? 1500;
-@@ -1498,10 +1714,10 @@ function createGitHubHost(options) {
+@@ -1498,10 +1849,10 @@ function createGitHubHost(options) {
  		const operation = controlledOperation(input);
  		let auth;
  		try {
@@ -836,7 +1085,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  			touchBudgetState(auth.rateLimitKey, Date.now());
  			commands.set(auth.rateLimitKey, (commands.get(auth.rateLimitKey) ?? 0) + 1);
  			const execOptions = {
-@@ -1512,11 +1728,11 @@ function createGitHubHost(options) {
+@@ -1512,11 +1863,11 @@ function createGitHubHost(options) {
  					...auth.env,
  					GH_HOST: "github.com"
  				},
@@ -850,7 +1099,212 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  		} catch (error) {
  			if (auth && rateLimitMessage(error) && (secondaryRateLimitMessage(error) || isGraphQLCommand(args))) {
  				const limit = {
-@@ -1975,6 +2191,9 @@ function createGitHubHost(options) {
+@@ -1696,7 +2047,11 @@ function createGitHubHost(options) {
+ 		if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." });
+ 		for (const repository of [pullRequest.repository, pullRequest.headRepository]) if (repository !== void 0 && !/^[\w.-]+\/[\w.-]+$/.test(repository)) throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." });
+ 		if (pullRequest.headRepository && !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." });
+-		const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`));
++		// A persistent checkout (options.persistent, from the Babysitter's PR workspace pool) stays after the
++		// pass and is fetched again instead of cloned; its provider workspace keeps installed dependencies.
++		const persistent = options.persistent;
++		const checkout = persistent ? persistent.checkout : await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`));
++		if (persistent) await mkdir(checkout, { recursive: true });
+ 		const checkoutIdentity = await lstat(checkout, { bigint: true });
+ 		const isCheckout = async (path) => {
+ 			try {
+@@ -1760,64 +2115,119 @@ function createGitHubHost(options) {
+ 				await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions);
+ 				if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." });
+ 			}
+-			await exec("git", [
+-				"clone",
+-				"--no-checkout",
+-				"--",
+-				`https://github.com/${pullRequest.repository}.git`,
+-				checkout
+-			], commandOptions);
+-			if (pullRequest.headRef) {
+-				const sourceRepository = pullRequest.headRepository ?? pullRequest.repository;
+-				const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({
+-					refresh: true,
+-					repository: sourceRepository,
+-					signal: operation.signal
+-				});
+-				await exec("git", [
+-					"-C",
+-					checkout,
+-					"fetch",
+-					"--no-tags",
++			const cloneUrl = `https://github.com/${pullRequest.repository}.git`;
++			const emptyCheckout = async () => {
++				const entries = await readdir(checkout);
++				if (entries.length) await exec("rm", [
++					"-rf",
+ 					"--",
+-					`https://github.com/${sourceRepository}.git`,
+-					`refs/heads/${pullRequest.headRef}`
++					...entries
+ 				], {
+-					...commandOptions,
+-					env: {
+-						...env,
+-						...sourceAuth.env
+-					}
++					cwd: checkout,
++					maxBuffer,
++					signal: operation.signal
+ 				});
+-				await exec("git", [
+-					"-C",
+-					checkout,
+-					"-c",
+-					"core.hooksPath=/dev/null",
+-					"checkout",
+-					"-B",
+-					pullRequest.headRef,
+-					"FETCH_HEAD"
+-				], commandOptions);
+-			} else {
+-				await exec("git", [
+-					"-C",
+-					checkout,
+-					"fetch",
+-					"--no-tags",
+-					"--",
+-					"origin",
+-					pullRequest.headSha
+-				], commandOptions);
+-				await exec("git", [
++			};
++			// Reuse a persistent clone only when its own .git directory points at this repository;
++			// `git -C` alone would find a parent repository.
++			let reusedCheckout = Boolean(persistent) && Boolean((await lstat(join(checkout, ".git")).catch(() => void 0))?.isDirectory()) && await exec("git", [
++				"-C",
++				checkout,
++				"rev-parse",
++				"--absolute-git-dir"
++			], commandOptions).then(async (result) => result.stdout.trim() === await realpath(join(checkout, ".git")), () => false) && await exec("git", [
++				"-C",
++				checkout,
++				"config",
++				"--local",
++				"--get",
++				"remote.origin.url"
++			], commandOptions).then((result) => result.stdout.trim() === cloneUrl, () => false);
++			// Fetch-time gc must not run detached while the provider copies this .git directory.
++			const fetchConfig = persistent ? [
++				"-c",
++				"gc.autoDetach=false",
++				"-c",
++				"maintenance.autoDetach=false"
++			] : [];
++			for (;;) try {
++				if (!reusedCheckout) {
++					if (persistent) await emptyCheckout();
++					await exec("git", [
++						"clone",
++						"--no-checkout",
++						"--",
++						cloneUrl,
++						checkout
++					], commandOptions);
++				}
++				if (pullRequest.headRef) {
++					const sourceRepository = pullRequest.headRepository ?? pullRequest.repository;
++					const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({
++						refresh: true,
++						repository: sourceRepository,
++						signal: operation.signal
++					});
++					await exec("git", [
++						"-C",
++						checkout,
++						...fetchConfig,
++						"fetch",
++						"--no-tags",
++						"--",
++						`https://github.com/${sourceRepository}.git`,
++						`refs/heads/${pullRequest.headRef}`
++					], {
++						...commandOptions,
++						env: {
++							...env,
++							...sourceAuth.env
++						}
++					});
++					await exec("git", [
++						"-C",
++						checkout,
++						"-c",
++						"core.hooksPath=/dev/null",
++						"checkout",
++						"--force",
++						"-B",
++						pullRequest.headRef,
++						"FETCH_HEAD"
++					], commandOptions);
++				} else {
++					await exec("git", [
++						"-C",
++						checkout,
++						...fetchConfig,
++						"fetch",
++						"--no-tags",
++						"--",
++						"origin",
++						pullRequest.headSha
++					], commandOptions);
++					await exec("git", [
++						"-C",
++						checkout,
++						"-c",
++						"core.hooksPath=/dev/null",
++						"checkout",
++						"--force",
++						"--detach",
++						"FETCH_HEAD"
++					], commandOptions);
++				}
++				if (persistent) await exec("git", [
+ 					"-C",
+ 					checkout,
+-					"-c",
+-					"core.hooksPath=/dev/null",
+-					"checkout",
+-					"--detach",
+-					"FETCH_HEAD"
++					"clean",
++					"-ffdxq"
+ 				], commandOptions);
++				break;
++			} catch (error) {
++				// A reused clone that Git cannot update (a stale lock, a broken ref) is cloned again.
++				if (!reusedCheckout || operation.signal.aborted) throw error;
++				reusedCheckout = false;
+ 			}
+ 			await exec("git", [
+ 				"-C",
+@@ -1855,7 +2265,10 @@ function createGitHubHost(options) {
+ 			], commandOptions)).stdout.trim();
+ 			if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` });
+ 			operation.signal.throwIfAborted();
+-			const prepareWorkspace = async (target, options = {}) => await prepareGitHubPullRequestWorkspace(checkout, target, {
++			const prepareWorkspace = async (target, options = {}) => persistent?.work && resolve(target) === resolve(persistent.work) ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, {
++				...options,
++				signal: operation.signal
++			}) : await prepareGitHubPullRequestWorkspace(checkout, target, {
+ 				...options,
+ 				signal: operation.signal
+ 			});
+@@ -1968,13 +2381,16 @@ function createGitHubHost(options) {
+ 			}));
+ 		} finally {
+ 			operation.close();
+-			await cleanupCheckout().catch(() => void 0);
++			if (!persistent) await cleanupCheckout().catch(() => void 0);
+ 		}
+ 	}
+ 	const host = {
  		identity() {
  			return identity.login?.trim() || void 0;
  		},
@@ -860,7 +1314,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  		channel(channelOptions = {}) {
  			return github({
  				...channelOptions,
-@@ -2848,19 +3067,22 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2848,19 +3264,22 @@ function createGitHubPullRequestOperations(github, options) {
  				String(runId),
  				"--repo",
  				repository,
@@ -889,7 +1343,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  			await snapshot();
  			const result = await github.command(["api", `/repos/${repository}/actions/runs/${runId}`], commandOptions);
  			const run = v.parse(v.object({
-@@ -2878,13 +3100,13 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2878,13 +3297,13 @@ function createGitHubPullRequestOperations(github, options) {
  				String(runId),
  				"--repo",
  				repository,
@@ -910,7 +1364,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  		},
  		async comment(body) {
  			nonempty(body, "Comment");
-@@ -2914,8 +3136,14 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2914,8 +3333,14 @@ function createGitHubPullRequestOperations(github, options) {
  				`body=${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`
  			], commandOptions);
  		},
@@ -926,7 +1380,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  			const current = await snapshot();
  			const thread = v.parse(v.object({ node: v.nullable(v.object({
  				pullRequest: v.object({ id: v.string() }),
-@@ -2924,6 +3152,10 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2924,6 +3349,10 @@ function createGitHubPullRequestOperations(github, options) {
  			if (!thread.node || thread.node.pullRequest.id !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.");
  			if (thread.node.isResolved) return;
  			await snapshot();
@@ -937,7 +1391,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  			await graphQL(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}`, { id });
  		},
  		async updateMetadata(input) {
-@@ -2948,6 +3180,10 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2948,6 +3377,10 @@ function createGitHubPullRequestOperations(github, options) {
  			}
  			await github.command(args, commandOptions);
  		},
@@ -948,7 +1402,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  		async refreshDependencies() {
  			if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.");
  			await snapshot();
-@@ -3053,8 +3289,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
+@@ -3053,8 +3486,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
  		const prefix = `repos/${repository}`, encodedBranch = encodeURIComponent(branch);
  		const [rules, classic] = await Promise.all([requestAllRules(`${prefix}/rules/branches/${encodedBranch}`), request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`)]);
  		try {
@@ -963,12 +1417,12 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..5ac8e3b40fe1e78393e4b54097c13933
  			let classicSource = "protection-endpoint";
  			if (classic.status === 200) required.push(...classicChecks(classic.data));
  			else if (classic.status === 403 || classic.status === 404) {
-@@ -3190,4 +3430,4 @@ function combine(states) {
+@@ -3190,4 +3627,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion
 -export { assertGitHubDependenciesCurrent as _, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y };
-+export { checkLogExcerpt as L, readGitHubDependencyStatus as D, assertGitHubDependenciesCurrent as _, compactCiLog as S, diagnosticExcerpt as T, CI_LOG_MAX_BUFFER as w, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
++export { preparePersistentGitHubPullRequestWorkspace as P, checkLogExcerpt as L, readGitHubDependencyStatus as D, assertGitHubDependenciesCurrent as _, compactCiLog as S, diagnosticExcerpt as T, CI_LOG_MAX_BUFFER as w, createGitHubPullRequestRun as a, GitHubDependencyConflictError as b, pullRequestCheckState as c, createGitHubAppCredentials as d, createGitHubHost as f, GitHubWorkspaceInstallError as g, prepareGitHubRepairBase as h, normalizeGitHubMentionAllowlist as i, createGitHubInvocationWorkspaceHandler as l, prepareGitHubPullRequestWorkspace as m, evaluateGitHubRequiredChecks as n, createGitHubPullRequests as o, parseGraphQLRateLimit as p, createGitHubPullRequestOperations as r, parseRequiredChecks as s, createGitHubRequiredCheckPolicyReader as t, createGitHubWorkspaceInspector as u, hasCurrentGitHubDependencies as v, installGitHubPullRequestWorkspace as y, lockfileDefect as x };
 diff --git a/dist/github-CFpMjAW5.d.ts b/dist/github-CFpMjAW5.d.ts
 index 08b2e5b91dd11db46be2f7ecd74c8d9db3473ceb..3bfb84581ebc4f78a44d79d62bf7a240f3cea02a 100644
 --- a/dist/github-CFpMjAW5.d.ts
@@ -1006,7 +1460,7 @@ index ce7c68397e0361716d349c8b8be4df739c4aeeaa..7a9e2aafb5300317092a0a19c6ab1c72
  }
  declare function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext;
 diff --git a/dist/github-inbox-emRhJnWe.js b/dist/github-inbox-emRhJnWe.js
-index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985fe2ace3e 100644
+index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..c50034f95998dc356e99d941e4c325a382d31d73 100644
 --- a/dist/github-inbox-emRhJnWe.js
 +++ b/dist/github-inbox-emRhJnWe.js
 @@ -26,14 +26,76 @@ const progressBudgetSchema = v.object({
@@ -1310,8 +1764,15 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  		let reopened = false;
  		let resumed = false;
  		let wasWorking = false;
-@@ -669,8 +820,10 @@ var PullRequestInbox = class {
+@@ -667,10 +818,17 @@ var PullRequestInbox = class {
+ 			readySuperseded = s.status === "ready" && (wasWorking || previous?.status === "ready" && s.generation > Number(previous.generation));
+ 		}
  		if (!s.lease) delete s.prospectivePush;
++		if (s.status === "terminal" && this.onTerminal) {
++			// Runs after the write; removing a workspace twice, or for a PR that reopens, is harmless.
++			const { repository, number } = s;
++			setImmediate(() => this.onTerminal?.(repository, number));
++		}
  		this.compactTerminal(s);
  		const head = s.pr?.head?.sha;
 +		const leaseHeads = s.lease ? [...new Set([...s.sourcePushHeads ?? [], ...s.prospectivePush?.token === s.lease ? s.prospectivePush.heads : []])] : void 0;
@@ -1322,7 +1783,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			this.scope,
  			s.repository,
  			s.number,
-@@ -688,7 +841,9 @@ var PullRequestInbox = class {
+@@ -688,7 +846,9 @@ var PullRequestInbox = class {
  			s.pr?.state === void 0 ? null : String(s.pr.state).toLowerCase(),
  			head ?? null,
  			s.pr?.head?.ref ?? null,
@@ -1333,7 +1794,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  		]);
  		if (this.activityAuthors.size && (s.status === "terminal" || reopened || resumed || readySuperseded)) {
  			const target = statusTargetKey(s);
-@@ -744,8 +899,10 @@ var PullRequestInbox = class {
+@@ -744,8 +904,10 @@ var PullRequestInbox = class {
  	}
  	/** Metadata entries whose keys start with `prefix`. */
  	async metaEntries(prefix) {
@@ -1345,7 +1806,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			prefix.length,
  			prefix
  		])).map((row) => [stringValue(row.key), JSON.parse(stringValue(row.value))]);
-@@ -1247,7 +1404,8 @@ var PullRequestInbox = class {
+@@ -1247,7 +1409,8 @@ var PullRequestInbox = class {
  				exhausted: false,
  				evidence: previous?.evidence,
  				creditedEvidence: previous?.creditedEvidence ?? [],
@@ -1355,7 +1816,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			};
  			this.dirty(s, "progress-budget:reset");
  			await this.put(tx, s);
-@@ -1295,6 +1453,7 @@ var PullRequestInbox = class {
+@@ -1295,6 +1458,7 @@ var PullRequestInbox = class {
  			...previous,
  			...pr
  		};
@@ -1363,7 +1824,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  		if (newHead) {
  			delete s.ciEvidence;
  			s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha));
-@@ -1312,6 +1471,11 @@ var PullRequestInbox = class {
+@@ -1312,6 +1476,11 @@ var PullRequestInbox = class {
  		}
  		return true;
  	}
@@ -1375,7 +1836,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  	eligible(repository, pr) {
  		return Boolean(pr && pr.state === "open" && matchesGitHubPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, "pull-request"));
  	}
-@@ -1373,7 +1537,7 @@ var PullRequestInbox = class {
+@@ -1373,7 +1542,7 @@ var PullRequestInbox = class {
  			const commentBody = String(payload.comment?.body ?? "");
  			const marked = commentBody.startsWith("<!-- vitehub-agent-activity:");
  			const repairMarked = commentBody.startsWith("<!-- vitehub-babysitter-repair:");
@@ -1384,7 +1845,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			if (event === "issue_comment" && !payload.issue?.pull_request) return await finish("issue is not a PR");
  			if (event === "issue_comment" && !activity && !isFeedback(payload.comment)) return await finish("irrelevant comment");
  			if (![
-@@ -1421,11 +1585,15 @@ var PullRequestInbox = class {
+@@ -1421,11 +1590,15 @@ var PullRequestInbox = class {
  			]);
  			for (const row of matches) numbers.add(Number(row.number));
  			if (sha && (check || event === "status")) {
@@ -1405,7 +1866,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			}
  			for (const number of numbers) {
  				const existing = await this.getIn(tx, repository, number);
-@@ -1468,7 +1636,7 @@ var PullRequestInbox = class {
+@@ -1468,7 +1641,7 @@ var PullRequestInbox = class {
  				};
  				if (event === "issue_comment") {
  					if (!activity) upsert(s.comments, payload.comment);
@@ -1414,7 +1875,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  				}
  				if (event === "pull_request_review_comment") {
  					upsert(s.reviewComments, payload.comment);
-@@ -1551,8 +1719,18 @@ var PullRequestInbox = class {
+@@ -1551,8 +1724,18 @@ var PullRequestInbox = class {
  					exhausted: false,
  					resetReason: `${event}:${payload.sender?.login ?? "unknown"}`
  				};
@@ -1433,7 +1894,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  				const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha;
  				const eligible = this.eligible(repository, s.pr);
  				if (s.pr && !eligible) {
-@@ -1579,26 +1757,24 @@ var PullRequestInbox = class {
+@@ -1579,26 +1762,24 @@ var PullRequestInbox = class {
  			const candidates = await tx.execute(`SELECT p.repository AS repository, p.number AS number, p.base_ref AS base_ref, COALESCE(json_extract(p.value, '$.pr.base.repo.full_name'), p.repository) AS base_repository FROM ${t.pullRequests} p
          WHERE p.scope=? AND ${repositories.sql} AND p.waiting=0 AND p.status<>'terminal' AND p.generation>p.handled AND p.next_at<=?
            AND (p.lease IS NULL OR p.lease_until<=?) AND (p.progress_blocked=0 OR ?=1)
@@ -1469,7 +1930,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  				const s = await this.getIn(tx, repository, number);
  				if (!s) continue;
  				if (s.pr && !this.eligible(s.repository, s.pr)) continue;
-@@ -1631,10 +1807,16 @@ var PullRequestInbox = class {
+@@ -1631,10 +1812,16 @@ var PullRequestInbox = class {
  					pr
  				};
  			}
@@ -1487,7 +1948,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			return true;
  		});
  	}
-@@ -1723,6 +1905,50 @@ var PullRequestInbox = class {
+@@ -1723,6 +1910,50 @@ var PullRequestInbox = class {
  			return true;
  		});
  	}
@@ -1538,7 +1999,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  	/** Checks the durable claim fence immediately before an irreversible provider action. */
  	async isClaimCurrent(claim) {
  		return await this.transaction(async (tx) => {
-@@ -1739,6 +1965,13 @@ var PullRequestInbox = class {
+@@ -1739,6 +1970,13 @@ var PullRequestInbox = class {
  		return await this.transaction(async (tx) => {
  			const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number);
  			if (!s || s.lease !== claim.token || s.leaseUntil <= this.clock()) return false;
@@ -1552,7 +2013,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			const pinnedHead = result.wait?.headSha;
  			if (result.wait && pinnedHead) {
  				if (result.retry || result.terminal) throw new Error("A wait cannot also retry or terminate work");
-@@ -1752,6 +1985,7 @@ var PullRequestInbox = class {
+@@ -1752,6 +1990,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -1560,7 +2021,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1781,6 +2015,7 @@ var PullRequestInbox = class {
+@@ -1781,6 +2020,7 @@ var PullRequestInbox = class {
  						s.status = "ready";
  						s.nextAt = 0;
  					}
@@ -1568,7 +2029,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  					await this.put(tx, s);
  					return false;
  				}
-@@ -1816,12 +2051,34 @@ var PullRequestInbox = class {
+@@ -1816,12 +2056,34 @@ var PullRequestInbox = class {
  				s.status = "waiting";
  				s.nextAt = 0;
  				s.reasons = ["no-progress-budget-exhausted"];
@@ -1603,7 +2064,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  	recordProgress(s, claim, progress) {
  		const head = s.pr?.head?.sha;
  		if (progress?.kind === "verified") requireEvidence(progress.evidence);
-@@ -1831,14 +2088,19 @@ var PullRequestInbox = class {
+@@ -1831,14 +2093,19 @@ var PullRequestInbox = class {
  			const creditedEvidence = previous?.creditedEvidence ?? [];
  			const verified = progress.kind === "verified" && !creditedEvidence.includes(progress.evidence);
  			const count = verified ? 0 : (previous?.count ?? 0) + 1;
@@ -1625,7 +2086,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			};
  		}
  	}
-@@ -1847,7 +2109,7 @@ var PullRequestInbox = class {
+@@ -1847,7 +2114,7 @@ var PullRequestInbox = class {
  		if (!this.repositories.length) return [];
  		const repositories = this.repositoryFilter();
  		return (await this.read(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
@@ -1634,7 +2095,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  	}
  	/** Records that the host evaluated a wait's new events and the wait still holds. */
  	async acknowledgeWait(observed) {
-@@ -1871,6 +2133,14 @@ var PullRequestInbox = class {
+@@ -1871,6 +2138,14 @@ var PullRequestInbox = class {
  				evidenceKey
  			});
  			if (s.wait.evidenceKey === evidenceKey) return false;
@@ -1649,7 +2110,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			if (options.recovery) {
  				s.recoveryHead = s.pr?.head?.sha;
  				s.refresh = true;
-@@ -2036,9 +2306,10 @@ var PullRequestInbox = class {
+@@ -2036,9 +2311,10 @@ var PullRequestInbox = class {
  	/** Drops delivery payloads after `payloadMs` and delivery IDs after `idMs`. Recent IDs still deduplicate redeliveries. */
  	async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5 } = {}) {
  		const now = this.clock();
@@ -1662,7 +2123,7 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  			await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs]);
  			await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs]);
  		});
-@@ -2209,7 +2480,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
+@@ -2209,7 +2485,18 @@ async function probeSnapshot(inbox, read, s, now, readThreads, activityAuthors =
  			repository: { full_name: s.repository },
  			...payload
  		};
@@ -1682,25 +2143,80 @@ index dffcfb47c1ce8dcf570e330c45c9a6d523f1f7a7..3d5ada16e0a2914ed2393d2b9096c985
  		await inbox.ingest(id, event, full);
  	};
  	await ingest("pull_request", {
-@@ -2668,4 +2950,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
+@@ -2668,4 +2955,4 @@ function createClaimStopCheck(claim, readCurrent, readProviderHead) {
  	};
  }
  //#endregion
 -export { isStatusDeliveryCurrent as _, snapshotPrompt as a, openPullRequestFingerprint as c, readSnapshot as d, reconcileOneSnapshot as f, pullRequestFilterContext as g, normalizePullRequest as h, assertPromptFits as i, probeChangedSnapshots as l, isFeedback as m, createClaimStopCheck as n, detectChangedPullRequests as o, PullRequestInbox as p, snapshotPullRequest as r, hydrateSnapshot as s, claimStopReason as t, readPullRequestThreads as u, createNodeSqliteInboxStorage as v };
 +export { isStatusDeliveryCurrent as _, snapshotPrompt as a, openPullRequestFingerprint as c, readSnapshot as d, reconcileOneSnapshot as f, pullRequestFilterContext as g, normalizePullRequest as h, assertPromptFits as i, probeChangedSnapshots as l, isFeedback as m, createClaimStopCheck as n, detectChangedPullRequests as o, PullRequestInbox as p, snapshotPullRequest as r, hydrateSnapshot as s, claimStopReason as t, readPullRequestThreads as u, createNodeSqliteInboxStorage as v, budgetParks as b, nextReviewPushBudget as e, dailyPassResumeAt as y };
 diff --git a/dist/host-DBW8wmoH.js b/dist/host-DBW8wmoH.js
-index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..92e6f7c2ccd3069667380dc5696b2de62859b859 100644
+index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..592e341f23fe34fb2c9913d0796559df6e8de83f 100644
 --- a/dist/host-DBW8wmoH.js
 +++ b/dist/host-DBW8wmoH.js
-@@ -6,6 +6,7 @@ import { a as createBabysitterAdmission, o as resolveBabysitterAdmissionLimits }
+@@ -6,6 +6,8 @@ import { a as createBabysitterAdmission, o as resolveBabysitterAdmissionLimits }
  import { r as registerAgentProcessHostIntake } from "./agent-process-host-C8eMgdBg.js";
  import { d as createGitHubAppCredentials, f as createGitHubHost } from "./github-C5fJH50u.js";
  import { t as createBabysitterRuntime } from "./server-DZOuXkga.js";
 +import { b as budgetParks } from "./github-inbox-emRhJnWe.js";
++import { createPullRequestWorkspaces, pullRequestWorkspaceLimits } from "./pr-workspaces.js";
  import { lstat, mkdtemp, readFile, readdir, rename, rm } from "node:fs/promises";
  import { tmpdir } from "node:os";
  import { join, resolve, sep } from "node:path";
-@@ -212,7 +213,9 @@ async function createBabysitterProcessHost(context) {
+@@ -161,7 +163,15 @@ async function createBabysitterProcessHost(context) {
+ 			sessionStorePath: host.providerSessionStorePath
+ 		}
+ 	});
++	// One warm workspace per open PR. The TMPDIR sweep below and the legacy checkout cleanup
++	// above never reach this root.
++	const workspaceLimits = pullRequestWorkspaceLimits();
++	const workspaces = createPullRequestWorkspaces({
++		root: join(context.dataDir, "pr-workspaces"),
++		...workspaceLimits
++	});
+ 	runtime = createBabysitterRuntime({
++		workspaces,
+ 		agent: worker,
+ 		agentName: context.agentName,
+ 		github,
+@@ -177,6 +187,21 @@ async function createBabysitterProcessHost(context) {
+ 	});
+ 	const inbox = runtime.inbox;
+ 	const swept = await sweepBabysitterWorkspaces();
++	const workspaceStatus = async (repository, number) => {
++		if (!repositories.includes(repository.toLowerCase())) return "unknown";
++		const snapshot = await inbox.get(repository, number);
++		return !snapshot ? "unknown" : snapshot.status === "terminal" ? "terminal" : "open";
++	};
++	const sweepWorkspaces = (reason) => workspaces.sweep({ status: workspaceStatus }).then((result) => {
++		host.event("babysitter.workspaces.pruned", {
++			reason,
++			removed: result.removed.length,
++			reasons: result.removed.map((entry) => entry.reason),
++			keptBytes: result.keptBytes,
++			kept: result.kept
++		});
++	}, (error) => host.error("babysitter.workspaces.prune_failed", error, { reason }));
++	let workspaceSweep;
+ 	return {
+ 		start() {
+ 			registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
+@@ -189,9 +214,15 @@ async function createBabysitterProcessHost(context) {
+ 			}, (error) => host.error("babysitter.leases.release-failed", error)).finally(() => {
+ 				if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
+ 				host.start();
++				sweepWorkspaces("startup");
++				if (workspaceLimits.sweepMs > 0) {
++					workspaceSweep = setInterval(() => sweepWorkspaces("interval"), workspaceLimits.sweepMs);
++					workspaceSweep.unref?.();
++				}
+ 			});
+ 		},
+ 		async close() {
++			clearInterval(workspaceSweep);
+ 			registerAgentProcessHostIntake(context.agentName, void 0);
+ 			await host.close();
+ 			await inbox.close();
+@@ -212,7 +243,9 @@ async function createBabysitterProcessHost(context) {
  					working: queue.filter((item) => item.status === "working").length,
  					ready: queue.filter((item) => item.status === "ready" && item.dirty && !item.stackBlocked).length,
  					stackBlocked: queue.filter((item) => item.stackBlocked).length,
@@ -1711,6 +2227,12 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..92e6f7c2ccd3069667380dc5696b2de6
  				},
  				admission: {
  					accepting: guard.accepting,
+@@ -248,4 +281,4 @@ async function createBabysitterProcessHost(context) {
+ 	};
+ }
+ //#endregion
+-export { createBabysitterProcessHost };
++export { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, sweepBabysitterWorkspaces };
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
 index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d25db95e2 100644
 --- a/dist/invocations/sqlite.js
@@ -1743,6 +2265,373 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
  			const page = records.slice(0, limit);
  			return {
+diff --git a/dist/pr-workspaces.js b/dist/pr-workspaces.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..f6f1f2f60a3e811977d9e96854f5f96df90ad88a
+--- /dev/null
++++ b/dist/pr-workspaces.js
+@@ -0,0 +1,361 @@
++import { execFile } from "node:child_process";
++import { lstat, mkdir, open, readFile, readdir, rename, rm, statfs, writeFile } from "node:fs/promises";
++import { join, resolve } from "node:path";
++import { randomUUID } from "node:crypto";
++import { setTimeout as sleep } from "node:timers/promises";
++import { promisify } from "node:util";
++//#region src/presets/babysitter/pr-workspaces.ts
++const exec = promisify(execFile);
++const GB = 1024 ** 3;
++const DAY = 864e5;
++/**
++* Reads the pool limits from the service environment:
++* BABYSITTER_WORKSPACE_BUDGET_GB (60), BABYSITTER_WORKSPACE_IDLE_DAYS (7),
++* BABYSITTER_WORKSPACE_MIN_FREE_PERCENT (15) and BABYSITTER_WORKSPACE_SWEEP_MINUTES (60).
++*/
++function pullRequestWorkspaceLimits(env = process.env) {
++	const number = (name, fallback) => {
++		const raw = env[name];
++		if (raw === void 0 || raw.trim() === "") return fallback;
++		const value = Number(raw);
++		if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
++		return value;
++	};
++	return {
++		budgetBytes: number("BABYSITTER_WORKSPACE_BUDGET_GB", 60) * GB,
++		idleMs: number("BABYSITTER_WORKSPACE_IDLE_DAYS", 7) * DAY,
++		minFreeRatio: number("BABYSITTER_WORKSPACE_MIN_FREE_PERCENT", 15) / 100,
++		sweepMs: number("BABYSITTER_WORKSPACE_SWEEP_MINUTES", 60) * 6e4
++	};
++}
++/** `owner+name+number`: GitHub names never contain `+`, so the name maps back to one PR. */
++function entryName(repository, number) {
++	if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !Number.isSafeInteger(number) || number < 1) throw new Error("Expected a GitHub repository in owner/name form and a pull request number.");
++	return `${repository.toLowerCase().replace("/", "+")}+${number}`;
++}
++const entryPattern = /^[\w.-]+\+[\w.-]+\+\d+$/;
++/**
++* Decides whether the previous pass left a workspace this pass may keep. Only a pass that finished
++* without error, on the head this pass starts from (its own push or an unchanged head), qualifies.
++* The workspace preparation still resets a tree that is dirty or has no Git metadata.
++*/
++function workspaceDecision(previous, head, existed = previous !== void 0) {
++	if (!previous) return {
++		reuse: false,
++		reason: existed ? "missing-metadata" : "cold"
++	};
++	if (previous.ok !== true) return {
++		reuse: false,
++		reason: "failed-pass"
++	};
++	if (previous.head !== head) return {
++		reuse: false,
++		reason: "foreign-head"
++	};
++	return {
++		reuse: true,
++		reason: "warm"
++	};
++}
++function alive(pid) {
++	if (!Number.isSafeInteger(pid) || pid <= 0) return false;
++	try {
++		process.kill(pid, 0);
++		return true;
++	} catch (error) {
++		return error.code === "EPERM";
++	}
++}
++async function readRecord(directory) {
++	const record = await readFile(join(directory, "state.json"), "utf8").then(JSON.parse, () => void 0);
++	return record && typeof record === "object" && typeof record.repository === "string" && Number.isSafeInteger(record.number) ? record : void 0;
++}
++async function writeRecord(directory, record) {
++	const path = join(directory, "state.json");
++	const temporary = `${path}.${process.pid}.${randomUUID()}`;
++	await writeFile(temporary, JSON.stringify(record));
++	await rename(temporary, path);
++}
++/** Disk use of a directory, counted once per inode, on its own filesystem. */
++async function diskUsage(directory) {
++	const { stdout } = await exec("du", [
++		"-sk",
++		"--one-file-system",
++		"--",
++		directory
++	], { maxBuffer: 1048576 });
++	return Number(stdout.split(/\s/)[0]) * 1024;
++}
++async function freeRatio(directory) {
++	const info = await statfs(directory);
++	return info.blocks > 0 ? info.bavail / info.blocks : 1;
++}
++/**
++* One persistent workspace per open PR, under `root` (`<dataDir>/pr-workspaces`). Each entry holds
++* the trusted host checkout (`checkout/`), the provider workspace (`work/`), `state.json` with
++* the head the last pass left and whether it finished, and a `lock` file. Neither startup sweep of
++* TMPDIR nor the legacy `<dataDir>/checkouts` cleanup reaches this root; this pool removes its own
++* entries when a PR goes terminal, after `idleMs` without a pass, and least recently used first
++* while the pool is over `budgetBytes` or the filesystem has less than `minFreeRatio` free.
++*/
++function createPullRequestWorkspaces(options) {
++	// Absolute, so entry paths match the provider cwd that runProvider resolves.
++	const root = resolve(options.root);
++	const now = options.now ?? Date.now;
++	const limits = {
++		...pullRequestWorkspaceLimits({}),
++		...Object.fromEntries(Object.entries(options).filter(([key, value]) => [
++			"budgetBytes",
++			"idleMs",
++			"minFreeRatio"
++		].includes(key) && value !== void 0))
++	};
++	const mutexes = /* @__PURE__ */ new Map();
++	const held = /* @__PURE__ */ new Set();
++	let sweeping;
++	const lockMutex = async (name) => {
++		const previous = mutexes.get(name) ?? Promise.resolve();
++		let unlock;
++		const next = new Promise((resolve) => unlock = resolve);
++		const chained = previous.then(() => next);
++		mutexes.set(name, chained);
++		await previous;
++		return () => {
++			unlock();
++			if (mutexes.get(name) === chained) mutexes.delete(name);
++		};
++	};
++	/** Takes the entry's lock file. A lock whose owner process is gone is stale. */
++	const tryLockFile = async (name) => {
++		const directory = join(root, name);
++		const path = join(directory, "lock");
++		for (let attempt = 0; attempt < 3; attempt++) {
++			try {
++				await mkdir(directory, { recursive: true });
++				const handle = await open(path, "wx");
++				try {
++					await handle.writeFile(String(process.pid));
++				} finally {
++					await handle.close();
++				}
++				return true;
++			} catch (error) {
++				if (error.code !== "EEXIST") throw error;
++			}
++			const raw = await readFile(path, "utf8").catch(() => void 0);
++			if (raw === void 0) continue;
++			const pid = Number(raw);
++			const info = await lstat(path).catch(() => void 0);
++			// An empty lock is another process between open and write; it is stale only when old.
++			const stale = raw === "" ? !info || now() - info.mtimeMs > 6e4 : !alive(pid) || pid === process.pid && !held.has(name);
++			if (!stale) return false;
++			await rm(path, { force: true });
++		}
++		return false;
++	};
++	const unlockFile = async (name) => {
++		const path = join(root, name, "lock");
++		if (await readFile(path, "utf8").catch(() => void 0) === String(process.pid)) await rm(path, { force: true });
++	};
++	/** Waits for the in-process mutex and the lock file. */
++	const lock = async (name, signal) => {
++		const unlock = await lockMutex(name);
++		try {
++			while (!await tryLockFile(name)) {
++				signal?.throwIfAborted();
++				await sleep(500, void 0, { signal });
++			}
++		} catch (error) {
++			unlock();
++			throw error;
++		}
++		held.add(name);
++		return async (keepFile = false) => {
++			held.delete(name);
++			try {
++				if (!keepFile) await unlockFile(name);
++			} finally {
++				unlock();
++			}
++		};
++	};
++	/** Takes the entry only when no pass holds it. */
++	const tryLock = async (name) => {
++		if (held.has(name) || mutexes.has(name)) return void 0;
++		const unlock = await lockMutex(name);
++		if (!await tryLockFile(name).catch(() => false)) {
++			unlock();
++			return;
++		}
++		held.add(name);
++		return async (keepFile = false) => {
++			held.delete(name);
++			try {
++				if (!keepFile) await unlockFile(name);
++			} finally {
++				unlock();
++			}
++		};
++	};
++	/** Moves the entry out of the pool in one rename, then deletes it. Call with the entry locked. */
++	const removeLocked = async (name) => {
++		const directory = join(root, name);
++		if (!(await lstat(directory).catch(() => void 0))?.isDirectory()) return false;
++		const trash = join(root, `.trash-${name}-${randomUUID()}`);
++		await rename(directory, trash);
++		await exec("rm", [
++			"-rf",
++			"--",
++			trash
++		], { maxBuffer: 1048576 });
++		return true;
++	};
++	return {
++		root,
++		limits,
++		entryName,
++		/** Locks the PR's entry for one pass and returns its paths and the previous pass's record. */
++		async acquire(repository, number, signal) {
++			const name = entryName(repository, number);
++			const directory = join(root, name);
++			const release = await lock(name, signal);
++			try {
++				const existed = Boolean((await lstat(join(directory, "work")).catch(() => void 0))?.isDirectory());
++				const previous = await readRecord(directory);
++				const checkout = join(directory, "checkout");
++				const work = join(directory, "work");
++				await mkdir(checkout, { recursive: true });
++				await mkdir(work, { recursive: true });
++				let released = false;
++				return {
++					directory,
++					checkout,
++					work,
++					existed,
++					previous: previous && previous.repository.toLowerCase() === repository.toLowerCase() && previous.number === number ? previous : void 0,
++					/** Records what this pass left behind. */
++					async record(result) {
++						await writeRecord(directory, {
++							...result,
++							version: 1,
++							repository,
++							number,
++							at: now()
++						});
++					},
++					async release() {
++						if (released) return;
++						released = true;
++						await release();
++					}
++				};
++			} catch (error) {
++				await release();
++				throw error;
++			}
++		},
++		/** Deletes the PR's entry, waiting for a running pass to finish first. */
++		async remove(repository, number) {
++			const name = entryName(repository, number);
++			if (!(await lstat(join(root, name)).catch(() => void 0))?.isDirectory()) return false;
++			const release = await lock(name);
++			let removed = false;
++			try {
++				removed = await removeLocked(name);
++			} finally {
++				await release(removed);
++			}
++			return removed;
++		},
++		/**
++		* Deletes entries of terminal or unknown PRs, entries idle past `idleMs`, interrupted removals,
++		* then least recently used entries while the pool is over budget or the disk is low.
++		* Entries a pass holds stay. `status(repository, number)` answers "open", "terminal" or "unknown".
++		*/
++		async sweep({ status }) {
++			sweeping ??= (async () => {
++				const removed = [];
++				const kept = [];
++				const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
++					if (error.code === "ENOENT") return [];
++					throw error;
++				});
++				for (const entry of entries) {
++					if (!entry.isDirectory()) continue;
++					if (entry.name.startsWith(".trash-")) {
++						await exec("rm", [
++							"-rf",
++							"--",
++							join(root, entry.name)
++						], { maxBuffer: 1048576 }).catch(() => void 0);
++						continue;
++					}
++					if (!entryPattern.test(entry.name)) continue;
++					const directory = join(root, entry.name);
++					const release = await tryLock(entry.name);
++					if (!release) continue;
++					let gone = false;
++					try {
++						const record = await readRecord(directory);
++						const state = record ? await status(record.repository, record.number) : "unknown";
++						const usedAt = record?.at ?? (await lstat(directory)).mtimeMs;
++						const reason = state === "terminal" ? "terminal" : state === "open" ? now() - usedAt > limits.idleMs ? "idle" : void 0 : "unknown";
++						if (reason) {
++							gone = await removeLocked(entry.name);
++							if (gone) removed.push({
++								name: entry.name,
++								reason
++							});
++							continue;
++						}
++						let bytes = record.bytes;
++						if (!Number.isFinite(bytes) || (record.bytesAt ?? 0) < record.at) {
++							bytes = await diskUsage(directory);
++							await writeRecord(directory, {
++								...record,
++								bytes,
++								bytesAt: now()
++							});
++						}
++						kept.push({
++							name: entry.name,
++							bytes,
++							usedAt
++						});
++					} finally {
++						await release(gone);
++					}
++				}
++				let total = kept.reduce((sum, entry) => sum + entry.bytes, 0);
++				for (const entry of kept.sort((left, right) => left.usedAt - right.usedAt)) {
++					const lowDisk = await freeRatio(root).then((ratio) => ratio < limits.minFreeRatio, () => false);
++					if (total <= limits.budgetBytes && !lowDisk) break;
++					const release = await tryLock(entry.name);
++					if (!release) continue;
++					let gone = false;
++					try {
++						gone = await removeLocked(entry.name);
++					} finally {
++						await release(gone);
++					}
++					if (!gone) continue;
++					total -= entry.bytes;
++					removed.push({
++						name: entry.name,
++						reason: lowDisk ? "low-disk" : "budget"
++					});
++				}
++				return {
++					removed,
++					keptBytes: total,
++					kept: kept.length - removed.filter((entry) => entry.reason === "budget" || entry.reason === "low-disk").length
++				};
++			})().finally(() => {
++				sweeping = void 0;
++			});
++			return await sweeping;
++		}
++	};
++}
++//#endregion
++export { createPullRequestWorkspaces, diskUsage, entryName, pullRequestWorkspaceLimits, workspaceDecision };
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..509a62b5f3a821d069ead376542d1f349ffc3dfa 100644
 --- a/dist/presets/babysitter.d.ts
@@ -1997,7 +2886,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6049bf154 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09eef2fc6d7 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -2013,7 +2902,15 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  import * as v from "valibot";
  import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
  import { createHash, randomUUID } from "node:crypto";
-@@ -46,7 +46,7 @@ const result = v.variant("status", [
+@@ -18,6 +18,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
+ import { promisify } from "node:util";
+ import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
+ import "node:url";
++import { workspaceDecision } from "./pr-workspaces.js";
+ //#region src/presets/babysitter/async-merge.ts
+ const sha = v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i));
+ const uuid = v.pipe(v.string(), v.regex(/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i));
+@@ -46,7 +47,7 @@ const result = v.variant("status", [
  	})
  ]);
  /** GitHub serializes duplicate requests and compares the exact head when it executes. */
@@ -2022,7 +2919,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	let stdout;
  	try {
  		({stdout} = await github.command([
-@@ -63,7 +63,7 @@ async function requestAsyncMerge(github, repository, number, head, method, signa
+@@ -63,7 +64,7 @@ async function requestAsyncMerge(github, repository, number, head, method, signa
  			"-f",
  			"merge_action=direct_merge",
  			"-F",
@@ -2031,7 +2928,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		], {
  			repository,
  			timeout: 6e4,
-@@ -74,9 +74,28 @@ async function requestAsyncMerge(github, repository, number, head, method, signa
+@@ -74,9 +75,28 @@ async function requestAsyncMerge(github, repository, number, head, method, signa
  		stdout = error.stdout;
  	}
  	const response = v.parse(result, JSON.parse(stdout));
@@ -2061,7 +2958,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  async function readAsyncMerge(github, repository, number, requestId, signal) {
  	v.parse(uuid, requestId);
  	const { stdout } = await github.command([
-@@ -140,58 +159,6 @@ const failures = /* @__PURE__ */ new Set([
+@@ -140,58 +160,6 @@ const failures = /* @__PURE__ */ new Set([
  const key = (kind, value) => `ci-evidence:v1:${kind}:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
  const failed$1 = (item) => item.status === "completed" && failures.has(item.conclusion ?? "");
  const sourceUrl = (repository, job) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`;
@@ -2120,7 +3017,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  function actionLocation(repository, check) {
  	if (check.app?.slug && check.app.slug !== "github-actions") return void 0;
  	for (const value of [check.html_url, check.details_url]) {
-@@ -635,25 +602,28 @@ function stringField(input, key, allowEmpty = false) {
+@@ -635,25 +603,28 @@ function stringField(input, key, allowEmpty = false) {
  }
  function repairCapability(operations, autoMerge, mentionAllowlist = [], beforePush, workspace) {
  	const withinRepair = (execute) => workspace?.runRepair ? workspace.runRepair(execute) : execute();
@@ -2155,7 +3052,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				}
  			},
  			readBaseCheckEvidence: {
-@@ -679,15 +649,34 @@ function repairCapability(operations, autoMerge, mentionAllowlist = [], beforePu
+@@ -679,15 +650,34 @@ function repairCapability(operations, autoMerge, mentionAllowlist = [], beforePu
  					return operations.readBaseCheckLogs(input.runId);
  				}
  			},
@@ -2195,7 +3092,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				})
  			},
  			commitRepair: {
-@@ -767,15 +756,32 @@ function repairCapability(operations, autoMerge, mentionAllowlist = [], beforePu
+@@ -767,15 +757,32 @@ function repairCapability(operations, autoMerge, mentionAllowlist = [], beforePu
  			} } : {},
  			resolveReviewThread: {
  				name: "resolveReviewThread",
@@ -2232,7 +3129,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  					return { resolved: true };
  				}
  			},
-@@ -883,10 +889,29 @@ function withoutFindings(review, policy) {
+@@ -883,10 +890,29 @@ function withoutFindings(review, policy) {
  	const body = hasRuntimeType(review.body, "string") ? review.body.trimStart() : "";
  	return !body || policy.noFindingsReviews.some((prefix) => body.startsWith(prefix));
  }
@@ -2263,7 +3160,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	const external = (values) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
  	const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
  	const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
-@@ -898,7 +923,7 @@ function repairContextKey(s, policy) {
+@@ -898,7 +924,7 @@ function repairContextKey(s, policy) {
  			id: node_id ?? thread.id,
  			comments: identities
  		};
@@ -2272,7 +3169,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	return hash({
  		title: pr?.title,
  		body: pr?.body,
-@@ -931,6 +956,17 @@ function currentCheckSignals(s) {
+@@ -931,6 +957,17 @@ function currentCheckSignals(s) {
  	return [...signals.values()];
  }
  /**
@@ -2290,7 +3187,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  * The newest run of each current-head check, by name and app. Some integrations leave an earlier
  * run in progress forever and report the result in a later run; the earlier run is not a gate.
  */
-@@ -938,18 +974,85 @@ function latestCheckSignals(s) {
+@@ -938,18 +975,85 @@ function latestCheckSignals(s) {
  	const latest = /* @__PURE__ */ new Map();
  	for (const signal of currentCheckSignals(s)) {
  		const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
@@ -2378,7 +3275,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
  function createCheckWait(observed, policy) {
  	return {
-@@ -958,6 +1061,39 @@ function createCheckWait(observed, policy) {
+@@ -958,6 +1062,39 @@ function createCheckWait(observed, policy) {
  		knownFailures: failureKeys(observed)
  	};
  }
@@ -2418,7 +3315,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  /** Why a parked PR needs a model pass or a direct merge. Empty means it keeps waiting. */
  function wakeReasons(s, requiredChecks, policy) {
  	const wait = s.wait;
-@@ -967,8 +1103,8 @@ function wakeReasons(s, requiredChecks, policy) {
+@@ -967,8 +1104,8 @@ function wakeReasons(s, requiredChecks, policy) {
  	const known = new Set(wait.knownFailures ?? []);
  	if (wait.defer === "checks") {
  		const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
@@ -2429,7 +3326,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		return [
  			...conflict ? ["merge-conflict"] : [],
  			...failure ? ["new-failure"] : [],
-@@ -979,8 +1115,15 @@ function wakeReasons(s, requiredChecks, policy) {
+@@ -979,8 +1116,15 @@ function wakeReasons(s, requiredChecks, policy) {
  	if (wait.evidenceKey !== repairContextKey(s, policy)) reasons.push("feedback-changed");
  	if (wait.kind === "external" || wait.wake) return reasons;
  	if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
@@ -2447,7 +3344,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	if (reasons.length) return reasons;
  	if (requiredChecks === "failed") return [];
  	if (reviewCheckRunning(s, policy) || requiredChecks === "pending") return [];
-@@ -1367,6 +1510,152 @@ function createBabysitterInstaller(install, env = process.env, repository) {
+@@ -1367,6 +1511,152 @@ function createBabysitterInstaller(install, env = process.env, repository) {
  }
  //#endregion
  //#region src/presets/babysitter/ci-recovery.ts
@@ -2600,7 +3497,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  function hasFailedActions(snapshot) {
  	const head = snapshot.pr?.head?.sha;
  	return Boolean(head && Object.values(snapshot.checks).some((check) => failed$1(check) && check.head_sha === head && actionLocation(snapshot.repository, check)?.runId));
-@@ -1624,10 +1913,51 @@ function createBabysitterStatusRecovery(options) {
+@@ -1624,10 +1914,51 @@ function createBabysitterStatusRecovery(options) {
  //#endregion
  //#region src/presets/babysitter/server.ts
  /** Provider quota and rate-limit failures. Cancellation is never a rate limit. */
@@ -2653,7 +3550,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  }
  function createBabysitterRuntime(options) {
  	if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new Error("Babysitter concurrency must be a positive integer.");
-@@ -1642,6 +1972,9 @@ function createBabysitterRuntime(options) {
+@@ -1642,6 +1973,9 @@ function createBabysitterRuntime(options) {
  	const verifiedHostIdentity = hostIdentity && normalizedActivityAuthors.includes(hostIdentity.toLowerCase()) ? hostIdentity : void 0;
  	const activityAuthors = verifiedHostIdentity ? [verifiedHostIdentity] : [];
  	const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
@@ -2663,7 +3560,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	const pullRequestInbox = new PullRequestInbox({
  		...options.inboxStorage ? {
  			storage: options.inboxStorage,
-@@ -1650,15 +1983,23 @@ function createBabysitterRuntime(options) {
+@@ -1650,18 +1984,40 @@ function createBabysitterRuntime(options) {
  		repositories: options.repositories,
  		filter,
  		activityAuthors,
@@ -2689,7 +3586,24 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	};
  	const schedulerEvent = (name, properties = {}) => options.event?.(name, properties);
  	const schedulerError = (name, error, properties = {}) => options.error?.(name, error, properties);
-@@ -1793,18 +2134,19 @@ function createBabysitterRuntime(options) {
++	// A closed, merged or ineligible PR keeps no workspace (vitehub #1827: the old pool reached hundreds of GB).
++	const workspaces = options.workspaces;
++	if (workspaces) pullRequestInbox.onTerminal = (repository, number) => {
++		workspaces.remove(repository, number).then((removed) => {
++			if (removed) schedulerEvent("babysitter.workspace.removed", {
++				repository,
++				pullRequest: number,
++				reason: "terminal"
++			});
++		}, (error) => schedulerError("babysitter.workspace.remove_failed", error, {
++			repository,
++			pullRequest: number
++		}));
++	};
+ 	const statusChannel = verifiedHostIdentity ? github.channel({
+ 		activity: true,
+ 		pullRequest: { workspace: false }
+@@ -1793,18 +2149,19 @@ function createBabysitterRuntime(options) {
  		const base = snapshot.pr?.base?.ref;
  		if (!base) return "not-ready";
  		const pending = await pullRequestInbox.directMergeAttempt(repository, number);
@@ -2711,7 +3625,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		if (pending) try {
  			const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
  			const state = isRuntimeRecord(live) && hasRuntimeType(live.state, "string") ? live.state : void 0;
-@@ -1865,7 +2207,25 @@ function createBabysitterRuntime(options) {
+@@ -1865,7 +2222,25 @@ function createBabysitterRuntime(options) {
  					});
  				});
  				if (!result) return "blocked";
@@ -2738,7 +3652,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				if (result.status === "enqueued") {
  					if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, pending.token)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
  					return await reconcileEnqueued();
-@@ -1911,7 +2271,7 @@ function createBabysitterRuntime(options) {
+@@ -1911,7 +2286,7 @@ function createBabysitterRuntime(options) {
  		}
  		if (signal.aborted) return "blocked";
  		const policy = await requiredChecks.read(repository, base);
@@ -2747,7 +3661,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
  		const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : void 0;
  		const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : void 0;
-@@ -1919,7 +2279,9 @@ function createBabysitterRuntime(options) {
+@@ -1919,7 +2294,9 @@ function createBabysitterRuntime(options) {
  		let decision = directMergeReadiness(snapshot, evaluation.state, {
  			...waitPolicy,
  			assessedFeedback,
@@ -2758,7 +3672,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		});
  		if (decision.ready && merge.ready) {
  			const callback = merge.ready;
-@@ -1944,11 +2306,37 @@ function createBabysitterRuntime(options) {
+@@ -1944,11 +2321,37 @@ function createBabysitterRuntime(options) {
  			});
  			return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
  		}
@@ -2798,7 +3712,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			if (!current.ready) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
  					...owner,
-@@ -1956,6 +2344,22 @@ function createBabysitterRuntime(options) {
+@@ -1956,6 +2359,22 @@ function createBabysitterRuntime(options) {
  				});
  				return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
  			}
@@ -2821,7 +3735,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
  			const branchSafety = directMergeBranchSafety(repositorySettings, live, await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal));
  			if (branchSafety !== true) {
-@@ -1972,6 +2376,19 @@ function createBabysitterRuntime(options) {
+@@ -1972,6 +2391,19 @@ function createBabysitterRuntime(options) {
  				});
  				return "not-ready";
  			}
@@ -2841,7 +3755,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			signal.throwIfAborted();
  			if (!pending && !await pullRequestInbox.beginDirectMerge(claim, decision.head, true)) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
-@@ -1980,11 +2397,21 @@ function createBabysitterRuntime(options) {
+@@ -1980,11 +2412,21 @@ function createBabysitterRuntime(options) {
  				});
  				return "blocked";
  			}
@@ -2865,7 +3779,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			}
  			if (response.status !== "merged") {
  				if (response.status === "enqueued" && !await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
-@@ -2002,7 +2429,7 @@ function createBabysitterRuntime(options) {
+@@ -2002,7 +2444,7 @@ function createBabysitterRuntime(options) {
  		}
  		await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
  		await pullRequestInbox.finish(claim, {
@@ -2874,7 +3788,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			terminal: true
  		});
  		schedulerEvent("babysitter.owner.merged", {
-@@ -2013,10 +2440,22 @@ function createBabysitterRuntime(options) {
+@@ -2013,10 +2455,22 @@ function createBabysitterRuntime(options) {
  		return "merged";
  	}
  	const postPushGraceMs = options.postPushGraceMs ?? 18e4;
@@ -2898,7 +3812,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			threads: claim.snapshot.threads.map((thread) => {
  				const latest = current?.threads.find((value) => String(value.node_id ?? value.id) === String(thread.node_id ?? thread.id));
  				return latest?.resolutionSource === "worker" && latest.isResolved === true ? {
-@@ -2049,10 +2488,7 @@ function createBabysitterRuntime(options) {
+@@ -2049,10 +2503,7 @@ function createBabysitterRuntime(options) {
  		}
  		return await pullRequestInbox.finish(claim, {
  			text,
@@ -2910,7 +3824,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			verifiedPushHeads,
  			wait: {
  				...waiting,
-@@ -2060,25 +2496,417 @@ function createBabysitterRuntime(options) {
+@@ -2060,25 +2511,417 @@ function createBabysitterRuntime(options) {
  			}
  		});
  	}
@@ -3340,7 +4254,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	}
  	async function requiredCheckState(snapshot) {
  		return (await requiredCheckEvaluation(snapshot))?.state ?? "unknown";
-@@ -2087,6 +2915,29 @@ function createBabysitterRuntime(options) {
+@@ -2087,6 +2930,29 @@ function createBabysitterRuntime(options) {
  	* Remembers feedback only after an explicit assessment of the unchanged head.
  	* A repair push alone cannot prove that maintainer prerequisites are fulfilled.
  	*/
@@ -3370,7 +4284,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	async function recordAssessment(snapshot, current = {}) {
  		const key = `review-assessment:${snapshot.repository}#${snapshot.number}`;
  		const previous = await pullRequestInbox.meta(key);
-@@ -2099,11 +2950,18 @@ function createBabysitterRuntime(options) {
+@@ -2099,11 +2965,18 @@ function createBabysitterRuntime(options) {
  			feedback: [.../* @__PURE__ */ new Set([...known, ...feedbackFingerprints(snapshot, waitPolicy)])].slice(-2e3)
  		});
  	}
@@ -3391,7 +4305,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
  		const evaluation = await requiredCheckEvaluation(snapshot);
  		return evaluation?.state === "pending" && !evaluation.missing.length ? "required checks" : void 0;
-@@ -2149,6 +3007,15 @@ function createBabysitterRuntime(options) {
+@@ -2149,6 +3022,15 @@ function createBabysitterRuntime(options) {
  			};
  		});
  	}
@@ -3407,7 +4321,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  	/** A ready event may wake a direct merge, but must not start a model pass when
  	* the user supplied merge predicate still blocks that merge. */
  	async function directMergeWakeAllowed(snapshot, requiredChecks) {
-@@ -2188,19 +3055,27 @@ function createBabysitterRuntime(options) {
+@@ -2188,19 +3070,27 @@ function createBabysitterRuntime(options) {
  	}
  	async function externalWait(observed, wake, reason) {
  		if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
@@ -3437,7 +4351,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		};
  	}
  	async function recoverFailedCiWaits() {
-@@ -2208,6 +3083,9 @@ function createBabysitterRuntime(options) {
+@@ -2208,6 +3098,9 @@ function createBabysitterRuntime(options) {
  			if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
  			const head = snapshot.pr?.head?.sha;
  			if (!head) continue;
@@ -3447,7 +4361,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
  			if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
  			await pullRequestInbox.setMeta(recoveryKey, Date.now() + 6e5);
-@@ -2218,12 +3096,33 @@ function createBabysitterRuntime(options) {
+@@ -2218,12 +3111,33 @@ function createBabysitterRuntime(options) {
  			});
  		}
  	}
@@ -3483,7 +4397,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			if (reasons.includes("ready-to-merge") && !await directMergeWakeAllowed(snapshot, checks)) reasons = reasons.filter((reason) => reason !== "ready-to-merge");
  			if (snapshot.wait?.retryAt !== void 0 && snapshot.wait.retryAt <= Date.now()) reasons.push("merge-retry");
  			if (snapshot.wait?.wake) {
-@@ -2307,6 +3206,14 @@ function createBabysitterRuntime(options) {
+@@ -2307,6 +3221,14 @@ function createBabysitterRuntime(options) {
  		};
  		const { publicUrl, repositories } = options;
  		if (!isAccepting()) return;
@@ -3498,7 +4412,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2358,18 +3265,21 @@ function createBabysitterRuntime(options) {
+@@ -2358,18 +3280,21 @@ function createBabysitterRuntime(options) {
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -3520,7 +4434,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
  		}
  		await pullRequestInbox.recoverLeases();
-@@ -2380,6 +3290,7 @@ function createBabysitterRuntime(options) {
+@@ -2380,6 +3305,7 @@ function createBabysitterRuntime(options) {
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -3528,7 +4442,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2387,13 +3298,34 @@ function createBabysitterRuntime(options) {
+@@ -2387,13 +3313,34 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
@@ -3565,11 +4479,19 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  		const jobs = [...lane, ...regular];
  		if (!jobs.length) return;
  		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
-@@ -2444,23 +3376,24 @@ function createBabysitterRuntime(options) {
+@@ -2444,23 +3391,32 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
 +			let fleetPlacement;
++			// The PR's persistent workspace: a pass on the head the previous pass left keeps node_modules.
++			let workspaceEntry;
++			const workspaceRun = {
++				prepared: false,
++				ok: false,
++				reason: void 0,
++				durationMs: void 0
++			};
  			let modelWorkParked = false;
 +			let modelDispatched = false;
 +			// Provider rate limits are infrastructure, not a failed repair; they must not spend the PR's budget.
@@ -3595,7 +4517,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						verifiedPushHeads: [...verifiedPushHeads]
  					} : {},
  					wait: {
-@@ -2471,7 +3404,201 @@ function createBabysitterRuntime(options) {
+@@ -2471,7 +3427,201 @@ function createBabysitterRuntime(options) {
  				});
  				return true;
  			};
@@ -3797,7 +4719,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  			const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => pushedHead);
  			try {
  				if (!await hydrateSnapshot(pullRequestInbox, inboxClaim, (path, projection) => readRest(path, projection, passSignal), (repository, number) => readThreads(repository, number, passSignal), activityAuthors)) {
-@@ -2486,22 +3613,30 @@ function createBabysitterRuntime(options) {
+@@ -2486,22 +3636,30 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				const retargeted = await retargetMergedStackBase(inboxClaim, passSignal);
@@ -3833,7 +4755,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  					await pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${retargeted.from} to ${retargeted.to} after the parent pull request merged.` });
  					schedulerEvent("babysitter.stack.retargeted", {
  						...owner,
-@@ -2510,25 +3645,93 @@ function createBabysitterRuntime(options) {
+@@ -2510,25 +3668,93 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				if (merge.mode === "direct") {
@@ -3932,7 +4854,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				const deferral = await pendingGateDeferral(inboxClaim.snapshot);
  				if (deferral) {
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -2556,19 +3759,24 @@ function createBabysitterRuntime(options) {
+@@ -2556,19 +3782,24 @@ function createBabysitterRuntime(options) {
  				}
  				if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
  					readJson: (path, projection) => readRest(path, projection, passSignal),
@@ -3961,7 +4883,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2624,15 +3832,35 @@ function createBabysitterRuntime(options) {
+@@ -2624,15 +3855,35 @@ function createBabysitterRuntime(options) {
  					});
  					return;
  				}
@@ -3999,7 +4921,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						}
  					});
  					schedulerEvent("babysitter.mergeability.waiting", {
-@@ -2671,52 +3899,35 @@ function createBabysitterRuntime(options) {
+@@ -2645,6 +3896,10 @@ function createBabysitterRuntime(options) {
+ 				if (ciRecovery?.state === "blocked" && ciRecovery.permission) await pullRequestInbox.setMeta(`ci-permission-fallback:v1:${inboxClaim.snapshot.repository}:${inboxClaim.snapshot.pr?.head?.sha ?? ""}`, { pendingAt: Date.now() });
+ 				const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
+ 				const webhookSnapshot = inboxClaim.snapshot;
++				workspaceEntry = workspaces ? await workspaces.acquire(repository, number, passSignal) : void 0;
++				const workspacePlan = workspaceEntry ? workspaceDecision(workspaceEntry.previous, pullRequest.headRefOid, workspaceEntry.existed) : void 0;
++				workspaceRun.head = pullRequest.headRefOid;
++				workspaceRun.base = pullRequest.baseRefOid;
+ 				await github.withPullRequestCheckout({
+ 					headRef: pullRequest.headRefName,
+ 					headRepository: pullRequest.headRepository?.nameWithOwner,
+@@ -2671,52 +3926,35 @@ function createBabysitterRuntime(options) {
  					const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
  					const repairOperation = new AsyncLocalStorage();
  					const ownedResolutions = /* @__PURE__ */ new Map();
@@ -4075,7 +5008,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						observePendingPush?.(current);
  						for (const [id, reopens] of ownedResolutions) if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
  						const observedHead = current.pr?.head?.sha;
-@@ -2727,20 +3938,35 @@ function createBabysitterRuntime(options) {
+@@ -2727,29 +3965,65 @@ function createBabysitterRuntime(options) {
  							pendingInboxHeads.clear();
  							pendingInboxHeads.add(pushedHead);
  						}
@@ -4114,13 +5047,50 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  							await pullRequestInbox.hydrate(inboxClaim, { refresh: true });
  							const changed = new DOMException("Pull request base changed; retry the conflict repair against current GitHub state.", "AbortError");
  							passController.abort(changed);
-@@ -2763,21 +3989,32 @@ function createBabysitterRuntime(options) {
+ 							throw changed;
+ 						}
+ 					};
++					// Brings the PR's persistent workspace to the head before the provider starts: kept when the
++					// previous pass left this head on a clean tree, otherwise emptied and checked out again.
++					const preparePersistentWorkspace = async () => {
++						// From here the workspace may be half reset, so the pass only counts as ok once it finishes.
++						workspaceRun.prepared = true;
++						const startedAt = Date.now();
++						const result = await prepared.prepareWorkspace(workspaceEntry.work, {
++							restoreInstructions: true,
++							reuse: workspacePlan.reuse,
++							reason: workspacePlan.reason
++						});
++						workspaceRun.reason = result.reason;
++						workspaceRun.durationMs = Date.now() - startedAt;
++						schedulerEvent("babysitter.workspace.prepared", {
++							...owner,
++							head_sha: pullRequest.headRefOid,
++							workspace: result.reused ? "warm" : "reset",
++							reason: result.reason,
++							durationMs: workspaceRun.durationMs
++						});
++					};
+ 					const prepareRepairWorkspace = async (directory, nodeOptions) => {
+ 						if (!preparedDirectories.has(directory)) {
+-							if (directory !== checkout) await prepared.prepareWorkspace(directory, { restoreInstructions: true });
++							if (directory !== checkout && !(workspaceEntry && workspaceRun.reason && directory === workspaceEntry.work)) await prepared.prepareWorkspace(directory, { restoreInstructions: true });
+ 							if (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty") {
+ 								const base = await readRepairBase();
+ 								await prepareGitHubRepairBase(directory, {
+@@ -2763,21 +4037,37 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
 -							if (presetOptions.install !== false) try {
+-								await installDependencies(directory, abortSignal, owner, nodeOptions);
 +							if (presetOptions.install !== false && !fleetPlacement?.box) try {
- 								await installDependencies(directory, abortSignal, owner, nodeOptions);
++								// A kept workspace whose install record matches the current inputs needs no install.
++								if (!(isRuntimeRecord(installOption) && installOption.command) && await hasCurrentGitHubDependencies(directory)) schedulerEvent("babysitter.install.skipped", {
++									...owner,
++									reason: "current"
++								});
++								else await installDependencies(directory, abortSignal, owner, nodeOptions);
  							} catch (error) {
 +								// Installation is a convenience, not a gate. The failure stays in .git/vitehub-install.json,
 +								// where the model reads it and either repairs the PR's dependency inputs or works without them.
@@ -4150,7 +5120,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  							return await github.ensureGraphQLBudget(...args);
  						}
  					}, {
-@@ -2793,20 +4030,31 @@ function createBabysitterRuntime(options) {
+@@ -2793,20 +4083,31 @@ function createBabysitterRuntime(options) {
  						signal: abortSignal,
  						autoMerge: merge.mode === "auto",
  						eligible: (current) => pullRequestInbox.eligible(repository, normalizePullRequest(current)),
@@ -4185,7 +5155,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  							await assertLease();
  							return head;
  						},
-@@ -2852,6 +4100,10 @@ function createBabysitterRuntime(options) {
+@@ -2852,6 +4153,10 @@ function createBabysitterRuntime(options) {
  									beforePush: async (head) => {
  										const current = await assertLease();
  										await assertRepairBase();
@@ -4196,7 +5166,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  										if (head && !await pullRequestInbox.registerProspectivePush({
  											...inboxClaim,
  											generation: current.generation,
-@@ -2862,6 +4114,8 @@ function createBabysitterRuntime(options) {
+@@ -2862,6 +4167,8 @@ function createBabysitterRuntime(options) {
  										} : void 0;
  									},
  									afterPush: async (head) => {
@@ -4205,7 +5175,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  										recordPush(head);
  										await assertLease();
  									}
-@@ -2874,11 +4128,19 @@ function createBabysitterRuntime(options) {
+@@ -2874,11 +4181,19 @@ function createBabysitterRuntime(options) {
  							}
  						}
  					});
@@ -4227,7 +5197,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
  						ownedResolutions.set(id, reopens);
  					});
-@@ -2890,6 +4152,13 @@ function createBabysitterRuntime(options) {
+@@ -2890,7 +4205,15 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -4239,9 +5209,11 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
 +						if (fleetPlacement.box) workerSettings.box = fleetPlacement.box;
 +					}
  					if (workerSettings.box) providerDirectory = checkout;
++					else if (workspaceEntry) await preparePersistentWorkspace();
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
-@@ -2907,6 +4176,11 @@ function createBabysitterRuntime(options) {
+ 						if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
+@@ -2907,6 +4230,11 @@ function createBabysitterRuntime(options) {
  						if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
  					}, {
  						runRepair: (execute) => repairOperation.run(true, execute),
@@ -4253,7 +5225,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						beforeRepair: async (context, paths) => {
  							if (!workerSettings.box) return;
  							await assertLease();
-@@ -2916,8 +4190,13 @@ function createBabysitterRuntime(options) {
+@@ -2916,8 +4244,13 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -4267,7 +5239,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  							await assertLease();
  						},
  						afterRefresh: async (context) => {
-@@ -2925,7 +4204,8 @@ function createBabysitterRuntime(options) {
+@@ -2925,7 +4258,8 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -4277,7 +5249,24 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  							await assertLease();
  						}
  					});
-@@ -3005,7 +4285,18 @@ function createBabysitterRuntime(options) {
+@@ -2964,6 +4298,8 @@ function createBabysitterRuntime(options) {
+ 								schema: passResultSchema
+ 							},
+ 							permissions: "allow-edits-unattended",
++							// The provider works in the PR's persistent workspace, so runProvider neither creates nor deletes a temporary root.
++							...workspaceEntry && !workerSettings.box ? { cwd: workspaceEntry.work } : {},
+ 							env: async (context) => {
+ 								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
+ 							},
+@@ -2998,14 +4334,25 @@ function createBabysitterRuntime(options) {
+ 							mode: "write",
+ 							store: {
+ 								provider: "local",
+-								root: checkout,
++								root: workspaceEntry ? workspaceEntry.work : checkout,
+ 								locks: "process"
+ 							}
+ 						}
  					});
  					const prompt = `Repair PR #${number} in ${repository}. Expected HEAD ${pullRequest.headRefOid}, source branch ${pullRequest.headRefName}, source repository ${pullRequest.headRepository?.nameWithOwner ?? "unavailable"}. ${pullRequest.url}`;
  					const snapshotContext = snapshotPrompt(webhookSnapshot);
@@ -4297,7 +5286,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  					assertPromptFits(userMessage);
  					schedulerEvent("babysitter.context.prepared", {
  						repository,
-@@ -3020,8 +4311,18 @@ function createBabysitterRuntime(options) {
+@@ -3020,8 +4367,18 @@ function createBabysitterRuntime(options) {
  					});
  					githubRun.threadId = `${githubRun.threadId}:${runId}`;
  					inboxClaim.activity = githubRun.activity;
@@ -4317,7 +5306,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						return await runAgent(agent, {
  							runtime: "vite",
  							run: githubRun,
-@@ -3041,7 +4342,9 @@ function createBabysitterRuntime(options) {
+@@ -3041,7 +4398,9 @@ function createBabysitterRuntime(options) {
  							},
  							output: "drained"
  						});
@@ -4328,9 +5317,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  					if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", {
  						...owner,
  						reviewed_head: passResult.reviewedHead,
-@@ -3054,12 +4357,25 @@ function createBabysitterRuntime(options) {
- 					timeout: 36e5
+@@ -3051,15 +4410,33 @@ function createBabysitterRuntime(options) {
+ 					resultText = passResult.text;
+ 				}, {
+ 					signal: passSignal,
+-					timeout: 36e5
++					timeout: 36e5,
++					...workspaceEntry ? { persistent: {
++						checkout: workspaceEntry.checkout,
++						work: workspaceEntry.work
++					} } : {}
  				});
++				workspaceRun.ok = true;
  				if (modelWorkParked) return;
 +				if (await recordAutomatedReviewRound(inboxClaim.snapshot, passResult?.automatedReview, pullRequest.headRefOid) && !reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy)) {
 +					inboxClaim.reviewSettled = true;
@@ -4355,7 +5353,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				let recorded = false;
  				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
  					text: resultText,
-@@ -3067,12 +4383,13 @@ function createBabysitterRuntime(options) {
+@@ -3067,12 +4444,13 @@ function createBabysitterRuntime(options) {
  				});
  				else if (pushedHead) {
  					outcome = "waiting";
@@ -4371,7 +5369,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason)
  					});
  				} else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
-@@ -3090,6 +4407,7 @@ function createBabysitterRuntime(options) {
+@@ -3090,6 +4468,7 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					recorded = await pullRequestInbox.finish(inboxClaim, {
  						text: resultText,
@@ -4379,7 +5377,16 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  						wait: {
  							...createCheckWait(inboxClaim.snapshot, waitPolicy),
  							headSha: pullRequest.headRefOid,
-@@ -3120,6 +4438,7 @@ function createBabysitterRuntime(options) {
+@@ -3113,6 +4492,8 @@ function createBabysitterRuntime(options) {
+ 					evidenceKey: fallbackEvidenceKey
+ 				});
+ 			} catch (error) {
++				// A pass that pushed ends on the post-push grace abort; its workspace holds the pushed head.
++				if (pushedHead && (isAbortError(error) || error instanceof Error && error.name === "TimeoutError")) workspaceRun.ok = true;
+ 				if (modelWorkParked) return;
+ 				if (error instanceof GitHubWorkspaceInstallError) {
+ 					outcome = "waiting";
+@@ -3120,6 +4501,7 @@ function createBabysitterRuntime(options) {
  					wait.kind = "external";
  					wait.reason = error.message;
  					if (error.retryable) wait.retryAt = Date.now() + 3e5;
@@ -4387,7 +5394,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  					await pullRequestInbox.finish(inboxClaim, {
  						text: error.message,
  						wait
-@@ -3129,19 +4448,42 @@ function createBabysitterRuntime(options) {
+@@ -3129,19 +4511,42 @@ function createBabysitterRuntime(options) {
  				}
  				if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
  					outcome = "waiting";
@@ -4432,7 +5439,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3152,18 +4494,40 @@ function createBabysitterRuntime(options) {
+@@ -3152,18 +4557,52 @@ function createBabysitterRuntime(options) {
  						reason: "github-rate-limit",
  						...owner
  					});
@@ -4471,10 +5478,34 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..f50be85c07ccb33f554b3f3171a4fde6
  				clearTimeout(pushedAt);
  				stopPullRequestWatch();
 +				fleetPlacement?.release();
++				if (workspaceEntry) try {
++					if (workspaceRun.prepared) await workspaceEntry.record({
++						head: pushedHead ?? workspaceRun.head,
++						base: workspaceRun.base,
++						ok: workspaceRun.ok,
++						outcome
++					});
++				} catch (error) {
++					schedulerError("babysitter.workspace.record_failed", error, owner);
++				} finally {
++					await workspaceEntry.release();
++				}
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3196,4 +4560,4 @@ function assertBabysitterAgent(agent) {
+@@ -3171,6 +4610,11 @@ function createBabysitterRuntime(options) {
+ 					schedulerEvent("babysitter.owner.finished", {
+ 						durationMs: Date.now() - startedAt,
+ 						outcome,
++						...workspaceRun.reason ? {
++							workspace: workspaceRun.reason === "warm" ? "warm" : "reset",
++							workspace_reason: workspaceRun.reason,
++							workspace_ms: workspaceRun.durationMs
++						} : {},
+ 						...owner
+ 					});
+ 					options.wake?.();
+@@ -3196,4 +4640,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
