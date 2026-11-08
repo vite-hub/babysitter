@@ -2234,10 +2234,19 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..592e341f23fe34fb2c9913d0796559df
 -export { createBabysitterProcessHost };
 +export { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, sweepBabysitterWorkspaces };
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d25db95e2 100644
+index 294f1e2c8555665b76c430601664183fd0a4606f..e831d52b078427b0d1d32752f5f2945bd244575b 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
-@@ -741,6 +741,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -530,6 +530,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
+         WHERE agent_name IS NULL OR agent_name = ''`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
+         ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
++        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
+         ON ${table} (${triggeredByProjection()}, agent_name)`);
+ 			await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
+@@ -741,6 +743,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
  				args.push(...statuses);
  			}
@@ -2249,11 +2258,23 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			const agentName = listOptions.agentName?.trim();
  			if (agentName) {
  				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
-@@ -770,11 +775,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -748,6 +755,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			}
+ 			const capabilityId = listOptions.capabilityId?.trim();
+ 			if (capabilityId) {
++				filters.push(`(capability_ids IS NULL OR EXISTS (
++          SELECT 1 FROM json_each(capability_ids) AS capability WHERE capability.value = ?
++        ))`);
++				args.push(capabilityId);
+ 				filters.push(`(EXISTS (SELECT 1
+           FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
+           WHERE capability.value = ?)
+@@ -770,11 +781,15 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				args.push(`%${escapeLike(search.toLowerCase())}%`);
  			}
  			args.push(limit + 1);
 +			const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
++			const selectedTable = capabilityId && !hasRuntimeType(listOptions.updatedSince, "string") ? `${table} INDEXED BY ${table}_sequence_capability_ids` : table;
  			const records = (await client.execute({
  				args,
 +				// An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
@@ -2261,7 +2282,7 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  				sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
            THEN json_remove(record, '$.observations') END) AS summary
 -          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
-+          FROM ${table}${hasRuntimeType(listOptions.updatedSince, "string") ? ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?)` : where} ORDER BY sequence DESC${hasRuntimeType(listOptions.updatedSince, "string") ? "" : " LIMIT ?"}`
++          FROM ${selectedTable}${hasRuntimeType(listOptions.updatedSince, "string") ? ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?)` : where} ORDER BY sequence DESC${hasRuntimeType(listOptions.updatedSince, "string") ? "" : " LIMIT ?"}`
  			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
  			const page = records.slice(0, limit);
  			return {
@@ -5695,3 +5716,58 @@ index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6
      login: string;
      email: string;
    }>;
+diff --git a/dist/vite.js b/dist/vite.js
+index 9dfeca5165c9ef86e74112b232a2c6922f906049..7cf2a948eeeb593489f73db78d15b2584d7ceaf7 100644
+--- a/dist/vite.js
++++ b/dist/vite.js
+@@ -524,7 +524,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
+ 	}
+ 	return candidates;
+ }
+-function createResolvedAliasPlugin(aliases, aliasResolveDir) {
++function createResolvedAliasPlugin(aliases, aliasResolveDir, resolveEntryPackageAliases = true) {
+ 	const entries = Object.entries(aliases || {});
+ 	if (!entries.length) return;
+ 	const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
+@@ -566,7 +566,7 @@ function createResolvedAliasPlugin(aliases, aliasResolveDir) {
+ 					await canonicalizeSpecifier();
+ 					match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix }) => prefix ? canonicalSpecifier.startsWith(canonicalAlias) : canonicalSpecifier === canonicalAlias);
+ 				}
+-				if (!match && isAbsolute(args.path)) for (const alias of aliases) {
++				if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) for (const alias of aliases) {
+ 					if (isAbsolute(alias.specifier)) continue;
+ 					const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier;
+ 					const aliasSegments = packageAlias.split("/");
+@@ -883,7 +883,7 @@ async function bundleEsmEntry(entryFile, outfile, options = {}) {
+ 	const viteAliasPlugin = createViteAliasPlugin(options.alias);
+ 	const frameworkRuntime = (Array.isArray(options.alias) ? options.alias.flatMap((alias) => typeof alias.find === "string" ? [alias.find] : []) : Object.keys(options.alias || {})).some((specifier) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"));
+ 	const plugins = [];
+-	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd());
++	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd(), options.resolveEntryPackageAliases);
+ 	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
+ 	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
+ 	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
+@@ -3400,6 +3400,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+ 					});
+ 					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
+ 						...options.bundleOptions,
++						resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 						define: {
+ 							...options.bundleDefines,
+ 							...options.bundleOptions?.define
+@@ -3517,6 +3518,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+ 		}
+ 		await bundleEsmEntry(options.bundleEntry, serverEntry, {
+ 			...options.bundleOptions,
++			resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...options.bundleOptions?.define
+@@ -3628,6 +3630,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+ 		await mkdir(dirname(outfile), { recursive: true });
+ 		await bundleEsmEntry(func.bundleEntry, outfile, {
+ 			...func.bundleOptions,
++			resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...func.bundleOptions.define

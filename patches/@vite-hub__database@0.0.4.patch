@@ -1,0 +1,55 @@
+diff --git a/dist/vite-CdW0qAxA.js b/dist/vite-CdW0qAxA.js
+index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..6a0be359d6bb2d153210f6916b3435684bd74018 100644
+--- a/dist/vite-CdW0qAxA.js
++++ b/dist/vite-CdW0qAxA.js
+@@ -729,7 +729,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
+ 	}
+ 	return candidates;
+ }
+-function createResolvedAliasPlugin(aliases, aliasResolveDir) {
++function createResolvedAliasPlugin(aliases, aliasResolveDir, resolveEntryPackageAliases = true) {
+ 	const entries = Object.entries(aliases || {});
+ 	if (!entries.length) return;
+ 	const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
+@@ -771,7 +771,7 @@ function createResolvedAliasPlugin(aliases, aliasResolveDir) {
+ 					await canonicalizeSpecifier();
+ 					match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix }) => prefix ? canonicalSpecifier.startsWith(canonicalAlias) : canonicalSpecifier === canonicalAlias);
+ 				}
+-				if (!match && isAbsolute(args.path)) for (const alias of aliases) {
++				if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) for (const alias of aliases) {
+ 					if (isAbsolute(alias.specifier)) continue;
+ 					const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier;
+ 					const aliasSegments = packageAlias.split("/");
+@@ -1088,7 +1088,7 @@ async function bundleEsmEntry(entryFile, outfile, options = {}) {
+ 	const viteAliasPlugin = createViteAliasPlugin(options.alias);
+ 	const frameworkRuntime = (Array.isArray(options.alias) ? options.alias.flatMap((alias) => typeof alias.find === "string" ? [alias.find] : []) : Object.keys(options.alias || {})).some((specifier) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"));
+ 	const plugins = [];
+-	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd());
++	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd(), options.resolveEntryPackageAliases);
+ 	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
+ 	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
+ 	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
+@@ -2360,6 +2360,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+ 					});
+ 					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
+ 						...options.bundleOptions,
++						resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 						define: {
+ 							...options.bundleDefines,
+ 							...options.bundleOptions?.define
+@@ -2477,6 +2478,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+ 		}
+ 		await bundleEsmEntry(options.bundleEntry, serverEntry, {
+ 			...options.bundleOptions,
++			resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...options.bundleOptions?.define
+@@ -2588,6 +2590,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+ 		await mkdir(dirname(outfile), { recursive: true });
+ 		await bundleEsmEntry(func.bundleEntry, outfile, {
+ 			...func.bundleOptions,
++			resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...func.bundleOptions.define
