@@ -15,6 +15,28 @@ import type { BoxExecOptions, BoxExecResult, BoxFileEntry, BoxProcess, BoxRuntim
 
 const execFileAsync = promisify(execFile)
 
+// Fleet placement creates a runtime per pass. The known-tip read and import must
+// share a coordinator lock across those runtimes, before building any bundle.
+const objectSyncs = new Map<string, Promise<void>>()
+
+async function withObjectSync(key: string, signal: AbortSignal | undefined, sync: () => Promise<void>) {
+  for (;;) {
+    signal?.throwIfAborted()
+    const active = objectSyncs.get(key)
+    if (!active) break
+    if (!signal) { await active; continue }
+    const cancelled = Promise.withResolvers<never>()
+    const abort = () => cancelled.reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+    try { await Promise.race([active, cancelled.promise]) }
+    finally { signal.removeEventListener('abort', abort) }
+  }
+  const lock = Promise.withResolvers<void>()
+  objectSyncs.set(key, lock.promise)
+  try { await sync() }
+  finally { objectSyncs.delete(key); lock.resolve() }
+}
+
 /** Coordinator loopback ports reachable on the host, keyed by coordinator port. */
 export interface FleetTunnel {
   readonly ports: ReadonlyMap<number, number>
@@ -397,27 +419,30 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   /** Bring the mirror up to date with every object reachable in the host checkout. */
   const syncObjects = async (checkout: string, abortSignal?: AbortSignal) => {
     const origin = (await hostGit(checkout, ['config', '--get', 'remote.origin.url']).then(value => value.toString().trim(), () => '')) || checkout
-    mirror = `${options.root}/git/${createHash('sha256').update(origin).digest('hex').slice(0, 16)}.git`
-    const lock = `${mirror}.lock`
-    const known = await shell(`mkdir -p ${q(`${options.root}/git`)} && flock ${q(lock)} sh -c 'test -d "$1" || git init -q --bare "$1"; git -C "$1" config gc.auto 0; git -C "$1" for-each-ref --format="%(objectname)" refs/fleet/known' sh ${q(mirror)}`, 'mirror preparation', { signal: abortSignal })
-    const tips = known.stdout.toString('utf8').split('\n').filter(line => /^[0-9a-f]{40,64}$/.test(line))
-    const present = tips.length
-      ? (await hostGit(checkout, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], `${tips.join('\n')}\n`)).toString('utf8').split('\n').filter(line => / (?:commit|tag)$/.test(line)).map(line => line.split(' ')[0]!)
-      : []
-    const scratch = await mkdtemp(join(tmpdir(), 'vitehub-fleet-bundle-'))
-    try {
-      const bundle = join(scratch, 'sync.bundle')
-      const created = await hostGit(checkout, ['bundle', 'create', '-q', bundle, 'HEAD', '--all', '--stdin'], present.map(sha => `^${sha}\n`).join('')).then(() => true, (error: { stderr?: Buffer }) => {
-        if (String(error.stderr ?? '').includes('empty bundle')) return false
-        throw new Error(`[fleet] git bundle failed: ${String(error.stderr ?? error)}`)
-      })
-      if (!created) return
-      const incoming = `refs/fleet/incoming/${id}`
-      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; set -- "$1" "$2" "$3" "+refs/*:$3/*"; if git bundle list-heads "$2" | grep -q " HEAD$"; then set -- "$@" "+HEAD:$3/HEAD"; fi; m="$1"; f="$2"; i="$3"; shift 3; git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" "$@"; set -- "$m" "$f" "$i"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
-    }
-    finally {
-      await rm(scratch, { recursive: true, force: true })
-    }
+    const repositoryMirror = `${options.root}/git/${createHash('sha256').update(origin).digest('hex').slice(0, 16)}.git`
+    mirror = repositoryMirror
+    await withObjectSync(JSON.stringify([options.host, repositoryMirror]), abortSignal, async () => {
+      const lock = `${repositoryMirror}.lock`
+      const known = await shell(`mkdir -p ${q(`${options.root}/git`)} && flock ${q(lock)} sh -c 'test -d "$1" || git init -q --bare "$1"; git -C "$1" config gc.auto 0; git -C "$1" for-each-ref --format="%(objectname)" refs/fleet/known' sh ${q(repositoryMirror)}`, 'mirror preparation', { signal: abortSignal })
+      const tips = known.stdout.toString('utf8').split('\n').filter(line => /^[0-9a-f]{40,64}$/.test(line))
+      const present = tips.length
+        ? (await hostGit(checkout, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], `${tips.join('\n')}\n`)).toString('utf8').split('\n').filter(line => / (?:commit|tag)$/.test(line)).map(line => line.split(' ')[0]!)
+        : []
+      const scratch = await mkdtemp(join(tmpdir(), 'vitehub-fleet-bundle-'))
+      try {
+        const bundle = join(scratch, 'sync.bundle')
+        const created = await hostGit(checkout, ['bundle', 'create', '-q', bundle, 'HEAD', '--all', '--stdin'], present.map(sha => `^${sha}\n`).join('')).then(() => true, (error: { stderr?: Buffer }) => {
+          if (String(error.stderr ?? '').includes('empty bundle')) return false
+          throw new Error(`[fleet] git bundle failed: ${String(error.stderr ?? error)}`)
+        })
+        if (!created) return
+        const incoming = `refs/fleet/incoming/${id}`
+        await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; set -- "$1" "$2" "$3" "+refs/*:$3/*"; if git bundle list-heads "$2" | grep -q " HEAD$"; then set -- "$@" "+HEAD:$3/HEAD"; fi; m="$1"; f="$2"; i="$3"; shift 3; git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" "$@"; set -- "$m" "$f" "$i"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(repositoryMirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
+      }
+      finally {
+        await rm(scratch, { recursive: true, force: true })
+      }
+    })
   }
 
   /** Whether the Box now has the dependencies its inputs describe. */
