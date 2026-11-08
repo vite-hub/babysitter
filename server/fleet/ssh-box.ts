@@ -118,7 +118,7 @@ async function must(transport: FleetTransport, script: string, what: string, opt
 
 const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** The runtime owns these. Host values name host paths and never apply remotely. */
-const runtimeEnvironment = new Set(['CODEX_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'TEMP', 'TMP', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
+const runtimeEnvironment = new Set(['CODEX_HOME', 'COREPACK_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'TEMP', 'TMP', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
 const exportsOf = (environment: Readonly<Record<string, string>>) =>
   Object.entries(environment).filter(([name]) => environmentName.test(name)).map(([name, value]) => `export ${name}=${q(value)}\n`).join('')
 
@@ -172,6 +172,13 @@ async function dependencyInputsHash(checkout: string, paths: readonly string[]) 
 }
 
 const pnpmInstall = 'pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile'
+
+async function hasPinnedPackageManager(checkout: string) {
+  const manifest: unknown = await readFile(join(checkout, 'package.json'), 'utf8').then(text => JSON.parse(text), () => undefined).catch(() => undefined)
+  return typeof manifest === 'object' && manifest !== null && 'packageManager' in manifest
+    && typeof manifest.packageManager === 'string'
+    && /^(?:pnpm|yarn|npm)@\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+sha(?:224|256|384|512)\.[a-fA-F0-9]+)?$/.test(manifest.packageManager)
+}
 
 /** The shell command that installs a checkout's dependencies in the Box, run from its root. */
 export async function installCommand(checkout: string) {
@@ -272,6 +279,9 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   const run = `${directory}/run`
   // Tests, Node's compile cache and gh write here; the Box directory is removed on close, the host /tmp never is.
   const tmp = `${directory}/tmp`
+  const corepackHome = async (checkout: string) => await hasPinnedPackageManager(checkout)
+    ? `${options.root}/pnpm-cache/corepack`
+    : `${home}/.cache/node/corepack`
   const base: Record<string, string> = {
     HOME: home,
     INIT_CWD: work,
@@ -285,6 +295,8 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     XDG_CONFIG_HOME: `${home}/.config`,
     XDG_STATE_HOME: `${home}/.local/state`,
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    // Unpinned projects keep Corepack's default-version state private to their Box.
+    COREPACK_HOME: await corepackHome(input.cwd),
     npm_config_store_dir: `${options.root}/pnpm-store`,
     npm_config_cache_dir: `${options.root}/pnpm-cache`,
   }
@@ -422,6 +434,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
 
   /** Whether the Box now has the dependencies its inputs describe. */
   const install = async (checkout: string, abortSignal?: AbortSignal, frozen = true): Promise<boolean> => {
+    base.COREPACK_HOME = await corepackHome(checkout)
     const command = await installCommand(checkout)
     if (!command) return true
     const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { ${line} > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s; }`
