@@ -241,3 +241,94 @@ test('local memory pressure retains active reservations without admitting local 
     rmSync(options.stateDirectory, { recursive: true, force: true })
   }
 })
+
+test('a Box failure invalidates placement already awaiting cached health', async () => {
+  const options = fixture()
+  const second = Promise.withResolvers<PromiseSettledResult<Awaited<ReturnType<ReturnType<typeof createFleet>['place']>>>>()
+  let trigger = false
+  const trace: string[] = []
+  const output = '/fixture\n10000000\n8388608\n0\ntools-ok\n'
+  const fleet = createFleet({
+    ...options,
+    localSlots: 0,
+    hosts: [{ name: 'empty', target: 'fixture', slots: 2 }, { name: 'usable', target: 'fixture', slots: 2 }],
+    transport: () => ({ start: script => spawn(process.execPath, ['-e', script.startsWith('mkdir -p')
+      ? 'process.stderr.write("simulated SSH directory failure"); process.exit(255)'
+      : `process.stdout.write(${JSON.stringify(output)})`], { stdio: 'pipe' }) }),
+    localResources: () => resources,
+    hostResources: host => host.name === 'empty' ? { ...resources, availableMemoryBytes: 2 * 1024 ** 3 } : resources,
+    log(event) {
+      if (event === 'host.down' || event === 'placed') trace.push(event)
+      if (event === 'box.closed' && trigger) {
+        trigger = false
+        queueMicrotask(() => {
+          void fleet.place({ repository: 'o/r', number: 2 }).then(
+            value => second.resolve({ status: 'fulfilled', value }),
+            reason => second.resolve({ status: 'rejected', reason }),
+          )
+        })
+      }
+    },
+  })
+  await fleet.refresh()
+  const first = await fleet.place({ repository: 'o/r', number: 1 })
+  let secondPlacement: Awaited<ReturnType<typeof fleet.place>> | undefined
+  try {
+    trace.length = 0
+    const input = { cwd: options.stateDirectory, identity: 'health-race', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+    assert.ok(first.box)
+    const prepared = await first.box.runtime.prepare(input)
+    trigger = true
+    await assert.rejects(first.box.runtime.open(input, { executionAuthority: prepared.executionAuthority }), /simulated SSH directory failure/)
+    const result = await second.promise
+    if (result.status === 'fulfilled') secondPlacement = result.value
+    assert.equal(result.status, 'rejected', 'placement accepts health captured before a Box failure')
+    if (result.status === 'rejected') assert.ok(result.reason instanceof FleetCapacityError)
+    assert.deepEqual(trace, ['host.down'])
+    assert.equal(fleet.status().hosts[1]!.active, 1)
+    assert.equal(fleet.status().hosts[1]!.healthy, false)
+  }
+  finally {
+    first.release()
+    secondPlacement?.release()
+    rmSync(options.stateDirectory, { recursive: true, force: true })
+  }
+})
+
+test('saturated hosts refresh without holding admission open', async () => {
+  const options = fixture()
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  let clock = 0
+  const fleet = createFleet({
+    ...options,
+    localSlots: 1,
+    hosts: [{ name: 'remote', target: 'fixture', slots: 1 }],
+    localResources: () => resources,
+    hostResources: async () => {
+      if (clock) { entered.resolve(); await release.promise }
+      return resources
+    },
+    now: () => clock,
+  })
+  const local = await fleet.place({ repository: 'o/r', number: 1 })
+  const remote = await fleet.place({ repository: 'o/r', number: 2 })
+  clock = 30_001
+  const admission = fleet.admission()
+  try {
+    await entered.promise
+    local.release()
+    const result = await beforeProbeCompletes(admission, Promise.resolve())
+    assert.equal(result.kind, 'completed', 'a saturated remote probe blocks admission after a local release')
+    assert.equal(fleet.status().local.admitted - fleet.status().local.active, 1)
+    assert.equal(fleet.remoteActive(), 1)
+  }
+  finally {
+    release.resolve()
+    await admission
+    local.release()
+    remote.release()
+    await fleet.refresh()
+    rmSync(options.stateDirectory, { recursive: true, force: true })
+  }
+})
