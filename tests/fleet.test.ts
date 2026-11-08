@@ -426,6 +426,66 @@ test('fleet materialization rejects a failed local archiver even when the receiv
   }
 })
 
+test('fleet materialization preserves raw filename bytes in tracked and untracked paths', async () => {
+  const { root, work } = checkout()
+  const name = Buffer.from([0x66, 0x69, 0x6c, 0x65, 0xff])
+  const at = (directory: string) => Buffer.concat([Buffer.from(`${directory}/`), name])
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    writeFileSync(at(work), 'committed\n')
+    writeFileSync(join(work, 'ñ-日本🙂\n'), 'unicode\n')
+    git(work, 'add', '-A')
+    git(work, 'commit', '-qm', 'raw filename')
+    chmodSync(at(work), 0o600)
+    utimesSync(at(work), 1_600_000_000, 1_600_000_000)
+    const directory = Buffer.concat([at(work), Buffer.from('-dir')])
+    mkdirSync(directory)
+    writeFileSync(Buffer.concat([directory, Buffer.from('/child')]), 'untracked\n')
+    await assert.doesNotReject(async () => { opened = await open(root, work) })
+    assert.ok(opened)
+    assert.equal(readFileSync(at(opened.session.cwd), 'utf8'), 'committed\n')
+    assert.equal(readFileSync(join(opened.session.cwd, 'ñ-日本🙂\n'), 'utf8'), 'unicode\n')
+    assert.equal(readFileSync(Buffer.concat([at(opened.session.cwd), Buffer.from('-dir/child')]), 'utf8'), 'untracked\n')
+    assert.equal(statSync(at(opened.session.cwd)).mode & 0o777, 0o600)
+    assert.equal(statSync(at(opened.session.cwd)).mtimeMs, statSync(at(work)).mtimeMs)
+    assert.equal(git(opened.session.cwd, 'ls-files', '--stage'), git(work, 'ls-files', '--stage'))
+    assert.equal(existsSync(join(opened.session.cwd, 'node_modules')), false)
+  }
+  finally { await opened?.session.close(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('fleet materialization rejects missing inventoried files and removes its partial Box', async () => {
+  const { root, work } = checkout()
+  writeFileSync(join(work, 'required.txt'), 'required\n')
+  const local = localTransport()
+  const transport = { start(script: string) {
+    if (script.includes('source.git')) rmSync(join(work, 'required.txt'), { force: true })
+    return local.start(script)
+  } }
+  const runtime = createSshBoxRuntime({ host: 'test', transport, root: join(root, 'remote'), path: process.env.PATH! })
+  const input = { cwd: work, identity: 'i', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+  const plan = await runtime.prepare(input)
+  let opened: Awaited<ReturnType<typeof runtime.open>> | undefined
+  try {
+    await assert.rejects(async () => { opened = await runtime.open(input, { executionAuthority: plan.executionAuthority }) }, /Workspace archive failed/)
+    assert.equal(execFileSync('find', [join(root, 'remote', 'boxes'), '-mindepth', '1', '-maxdepth', '1'], { encoding: 'utf8' }).trim(), '')
+  }
+  finally { await opened?.close(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('fleet materialization rejects unreadable untracked files and removes its partial Box', async () => {
+  const { root, work } = checkout()
+  writeFileSync(join(work, 'required.txt'), 'required\n')
+  chmodSync(join(work, 'required.txt'), 0)
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    assert.throws(() => readFileSync(join(work, 'required.txt')), { code: 'EACCES' })
+    await assert.rejects(async () => { opened = await open(root, work) }, /Workspace archive failed/)
+    assert.equal(execFileSync('find', [join(root, 'remote', 'boxes'), '-mindepth', '1', '-maxdepth', '1'], { encoding: 'utf8' }).trim(), '')
+  }
+  finally { await opened?.session.close(); rmSync(root, { recursive: true, force: true }) }
+})
+
 test('aborting a fleet upload stops its local archiver and removes the partial Box', { timeout: 15_000 }, async () => {
   const { root, work } = checkout()
   const bin = join(root, 'bin')

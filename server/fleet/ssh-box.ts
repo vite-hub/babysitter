@@ -150,16 +150,21 @@ export function loopbackPorts(values: readonly string[], always: readonly number
 
 const manifestNames = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', '.yarnrc.yml', 'bun.lock', 'bun.lockb'])
 
+const nulPaths = (paths: readonly (string | Buffer)[]) => Buffer.concat(paths.flatMap(path => [Buffer.from('./'), typeof path === 'string' ? Buffer.from(path) : path, Buffer.from('\0')]))
+
 /** Reuse only blobs whose raw bytes and mode match the host, including smudged files. */
 async function workspaceOverlay(checkout: string, head: string, signal?: AbortSignal) {
-  const tree = new Map((await hostGit(checkout, ['ls-tree', '-r', '-z', head])).toString('utf8').split('\0').filter(Boolean).map(record => {
+  // Latin-1 keys retain every filename byte; filesystem and archive paths use Buffers.
+  const rawPaths = (paths: readonly string[]) => paths.map(path => Buffer.from(path, 'latin1'))
+  const hostPath = (path: string) => Buffer.concat([Buffer.from(`${checkout}/`), Buffer.from(path, 'latin1')])
+  const tree = new Map((await hostGit(checkout, ['ls-tree', '-r', '-z', head])).toString('latin1').split('\0').filter(Boolean).map(record => {
     const tab = record.indexOf('\t')
     const [mode, kind, oid] = record.slice(0, tab).split(' ')
     return [record.slice(tab + 1), { mode, kind, oid }]
   }))
   const tracked = new Set<string>()
   const objects = new Set<string>()
-  for (const record of (await hostGit(checkout, ['ls-files', '--stage', '-z'])).toString('utf8').split('\0').filter(Boolean)) {
+  for (const record of (await hostGit(checkout, ['ls-files', '--stage', '-z'])).toString('latin1').split('\0').filter(Boolean)) {
     const tab = record.indexOf('\t')
     const path = record.slice(tab + 1)
     const [mode, oid] = record.slice(0, tab).split(' ')
@@ -179,7 +184,7 @@ async function workspaceOverlay(checkout: string, head: string, signal?: AbortSi
   const times = new Map<number, string[]>()
   const modes = new Map<number, string[]>()
   const walk = async (directory: string) => {
-    for (const entry of await readdir(join(checkout, directory), { withFileTypes: true })) {
+    for (const entry of await readdir(hostPath(directory), { withFileTypes: true, encoding: 'latin1' })) {
       signal?.throwIfAborted()
       const path = posix.join(directory, entry.name)
       if (path === '.git' || (excluded(path) && !tracked.has(path) && !tree.has(path) && !parents.has(path))) continue
@@ -197,17 +202,17 @@ async function workspaceOverlay(checkout: string, head: string, signal?: AbortSi
     await Promise.all(files.slice(at, at + 16).map(async path => {
       signal?.throwIfAborted()
       const expected = tree.get(path)
-      const entry = await lstat(join(checkout, path))
+      const entry = await lstat(hostPath(path))
       const mode = entry.isSymbolicLink() ? '120000' : entry.mode & 0o111 ? '100755' : '100644'
       if (expected?.kind === 'blob' && expected.mode === mode && (entry.isFile() || entry.isSymbolicLink())) {
         const hash = createHash(head.length === 64 ? 'sha256' : 'sha1')
         if (entry.isSymbolicLink()) {
-          const target = await readlink(join(checkout, path), { encoding: 'buffer' })
+          const target = await readlink(hostPath(path), { encoding: 'buffer' })
           hash.update(`blob ${target.length}\0`).update(target)
         }
         else {
           hash.update(`blob ${entry.size}\0`)
-          for await (const chunk of createReadStream(join(checkout, path), { signal })) hash.update(chunk)
+          for await (const chunk of createReadStream(hostPath(path), { signal })) hash.update(chunk)
         }
         if (hash.digest('hex') === expected.oid) {
           const seconds = Math.floor(entry.mtimeMs / 1000)
@@ -228,7 +233,11 @@ async function workspaceOverlay(checkout: string, head: string, signal?: AbortSi
     }))
   }
   for (const [path, entry] of tree) if (entry.kind === 'blob' && !present.has(path)) remove.add(path)
-  return { paths: paths.toSorted(), remove: [...remove].toSorted(), objects: [...objects].toSorted(), times, modes }
+  return {
+    paths: rawPaths(paths.toSorted()), remove: rawPaths([...remove].toSorted()), objects: [...objects].toSorted(),
+    times: new Map([...times].map(([seconds, paths]) => [seconds, rawPaths(paths)])),
+    modes: new Map([...modes].map(([mode, paths]) => [mode, rawPaths(paths)])),
+  }
 }
 
 async function hostGit(checkout: string, args: string[], input?: string) {
@@ -530,23 +539,23 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     throw new Error(failure)
   }
 
-  const uploadPaths = async (checkout: string, paths: readonly string[], abortSignal?: AbortSignal, metadata?: Pick<Awaited<ReturnType<typeof workspaceOverlay>>, 'times' | 'modes'>) => {
+  const uploadPaths = async (checkout: string, paths: readonly (string | Buffer)[], abortSignal?: AbortSignal, metadata?: Pick<Awaited<ReturnType<typeof workspaceOverlay>>, 'times' | 'modes'>) => {
     if (!paths.length && !metadata) return
     abortSignal?.throwIfAborted()
     const scratch = metadata ? await mkdtemp(join(tmpdir(), 'vitehub-fleet-times-')) : undefined
     const name = `vitehub-fleet-times-${id}`
-    const args = ['-C', checkout, '--exclude=./.git/objects', '-czf', '-', ...(metadata ? ['./.git'] : []), '--null', '--no-recursion', '--ignore-failed-read', '-T', '-']
+    const args = ['-C', checkout, '--exclude=./.git/objects', '-czf', '-', ...(metadata ? ['./.git'] : []), '--null', '--no-recursion', '-T', '-']
     try {
       if (scratch && metadata) {
         const commands = ['set -e']
         // Match tar's second-resolution mtimes, including symlinks, without resending file data.
         for (const [seconds, names] of [...metadata.times].toSorted(([a], [b]) => a - b)) {
-          const sorted = names.toSorted()
-          for (let at = 0; at < sorted.length; at += 128) commands.push(`touch -h -m -d @${seconds} -- ${sorted.slice(at, at + 128).map(path => q(`./${path}`)).join(' ')}`)
+          const sorted = names.toSorted(Buffer.compare)
+          for (let at = 0; at < sorted.length; at += 128) commands.push(`printf '%s' ${q(nulPaths(sorted.slice(at, at + 128)).toString('base64'))} | base64 -d | xargs -0 -r touch -h -m -d @${seconds} --`)
         }
         for (const [mode, names] of [...metadata.modes].toSorted(([a], [b]) => a - b)) {
-          const sorted = names.toSorted()
-          for (let at = 0; at < sorted.length; at += 128) commands.push(`chmod ${mode.toString(8)} -- ${sorted.slice(at, at + 128).map(path => q(`./${path}`)).join(' ')}`)
+          const sorted = names.toSorted(Buffer.compare)
+          for (let at = 0; at < sorted.length; at += 128) commands.push(`printf '%s' ${q(nulPaths(sorted.slice(at, at + 128)).toString('base64'))} | base64 -d | xargs -0 -r chmod ${mode.toString(8)} --`)
         }
         await writeFile(join(scratch, name), `${commands.join('\n')}\n`)
         args.push('-C', scratch, `--transform=s|^${name}$|.git/${name}|`, name)
@@ -572,7 +581,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
         tar.stdin.destroy()
       }
       abortSignal?.addEventListener('abort', stop, { once: true })
-      tar.stdin.end(paths.map(path => `./${path}\0`).join(''))
+      tar.stdin.end(nulPaths(paths))
       try {
         if (abortSignal?.aborted) stop()
         const restoreMetadata = metadata ? ` && cd ${q(work)} && sh ${q(`.git/${name}`)} && rm -f ${q(`.git/${name}`)}` : ''
@@ -627,7 +636,7 @@ tar -C ${q(work)} --no-same-owner -xf ${q(`${run}/source.tar`)}
 cat > ${q(`${run}/remove`)}
 cd ${q(work)}
 xargs -0 -r rm -rf -- < ${q(`${run}/remove`)}
-rm -rf ${q(source)} ${q(`${run}/source.tar`)} ${q(`${run}/remove`)}`, 'source materialization', { input: Buffer.from(overlay.remove.map(path => `./${path}\0`).join('')), signal: abortSignal })
+rm -rf ${q(source)} ${q(`${run}/source.tar`)} ${q(`${run}/remove`)}`, 'source materialization', { input: nulPaths(overlay.remove), signal: abortSignal })
       await uploadPaths(checkout, overlay.paths, abortSignal, overlay)
       const unpacked = await shell(`mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} rev-parse HEAD`, 'workspace HEAD verification', { signal: abortSignal })
       if (unpacked.stdout.toString().trim() !== head) throw new Error(`[fleet] Box HEAD does not match the host checkout ${head}.`)
