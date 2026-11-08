@@ -20,7 +20,7 @@ The same real check proves correct-pin offline reuse, private default-version st
 
 Both new deterministic bootstrap tests fail on assertions against `7afc6b3e` and pass here. Real Corepack tarball-server reproductions independently confirm that a same-pin Box completes while the cancelled response remains stalled, and standalone pnpm installs offline with Corepack present. See `bootstrap-cancellation.json` and `bootstrap-manager.json`.
 
-The full 191-test suite, eight real dependency-install checks, build and package typecheck pass. The real dependency checks cover changed lockfiles, unchanged refreshes, concurrent workspaces, failed installs, repaired inputs, version changes, offline misses/reuse, cancellation and cleanup. Strict checks include the benchmark, both check scripts and the regression test. The current cache boundary still needs independent review.
+The full 191-test suite, eight real dependency-install checks, build and package typecheck pass. The real dependency checks cover changed lockfiles, unchanged refreshes, concurrent workspaces, failed installs, repaired inputs, version changes, offline misses/reuse, cancellation and cleanup. Strict checks include the benchmark, both check scripts and the regression tests. Both independent review axes passed at implementation head `f57370455931c70ef82d7acb6cc21d35c20bb8f1`. Reviewers independently verified stalled-download, lock-waiter and refresh cancellation, standalone pnpm, integrity, private artifacts/defaults and manifest repair. The subsequent commit updates only this evidence note.
 
 ## Measurements
 
@@ -35,7 +35,7 @@ Raw arrays, stage timings and host load are in `seed-samples.json`; exact summar
 
 Shared Slimbook, local shell transport, warm OS cache, network enabled. Fixed baseline-first ordering within each serial pair; initial stores differ for cold controls. Parent validation completed before this run. Other agents and registry load uncontrolled. Close excluded from open timer. Node 24.21.0, pnpm 10.33.0, Corepack 0.36.0, Linux. Runtime preparation now adds a private artifact copy. Actual SSH cost is unmeasured.
 
-The files `samples.json`, `exploratory-samples.json`, `profile.json`, `behavior.json`, `regression-before.txt` all `review-fixed-*.json` and `seed-repair.json` describe superseded implementations. They establish no result for this cache boundary.
+The files `samples.json`, `exploratory-samples.json`, `profile.json`, `behavior.json`, `regression-before.txt`, all `review-fixed-*.json` and `seed-repair.json` describe superseded implementations. They establish no result for this cache boundary.
 
 ## Reproduce
 
