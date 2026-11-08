@@ -118,7 +118,7 @@ async function must(transport: FleetTransport, script: string, what: string, opt
 
 const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** The runtime owns these. Host values name host paths and never apply remotely. */
-const runtimeEnvironment = new Set(['CODEX_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'TEMP', 'TMP', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
+const runtimeEnvironment = new Set(['CODEX_HOME', 'COREPACK_HOME', 'HOME', 'INIT_CWD', 'OLDPWD', 'PATH', 'PWD', 'TEMP', 'TMP', 'TMPDIR', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME'])
 const exportsOf = (environment: Readonly<Record<string, string>>) =>
   Object.entries(environment).filter(([name]) => environmentName.test(name)).map(([name, value]) => `export ${name}=${q(value)}\n`).join('')
 
@@ -172,6 +172,15 @@ async function dependencyInputsHash(checkout: string, paths: readonly string[]) 
 }
 
 const pnpmInstall = 'pnpm install --frozen-lockfile --prefer-offline --ignore-scripts --ignore-pnpmfile'
+
+async function pinnedPackageManager(checkout: string): Promise<string | undefined> {
+  const manifest: unknown = await readFile(join(checkout, 'package.json'), 'utf8').then(text => JSON.parse(text), () => undefined).catch(() => undefined)
+  return typeof manifest === 'object' && manifest !== null && 'packageManager' in manifest
+    && typeof manifest.packageManager === 'string'
+    && /^(?:pnpm|yarn|npm)@\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+sha(?:224|256|384|512)\.[a-fA-F0-9]+)?$/.test(manifest.packageManager)
+    ? manifest.packageManager
+    : undefined
+}
 
 /** The shell command that installs a checkout's dependencies in the Box, run from its root. */
 export async function installCommand(checkout: string) {
@@ -285,6 +294,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     XDG_CONFIG_HOME: `${home}/.config`,
     XDG_STATE_HOME: `${home}/.local/state`,
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    COREPACK_HOME: `${home}/.cache/node/corepack`,
     npm_config_store_dir: `${options.root}/pnpm-store`,
     npm_config_cache_dir: `${options.root}/pnpm-cache`,
   }
@@ -422,11 +432,32 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
 
   /** Whether the Box now has the dependencies its inputs describe. */
   const install = async (checkout: string, abortSignal?: AbortSignal, frozen = true): Promise<boolean> => {
+    const pin = await pinnedPackageManager(checkout)
+    const pinKey = pin && createHash('sha256').update(pin).digest('hex')
+    base.COREPACK_HOME = `${home}/.cache/node/corepack${pinKey ? `/${pinKey}` : ''}`
     const command = await installCommand(checkout)
     if (!command) return true
-    const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { ${line} > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s; }`
-    let result = await runScript(transport, script(command), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
-    if (result.code !== 0 && !frozen) result = await runScript(transport, script(command.replace('--frozen-lockfile', '--no-frozen-lockfile')), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
+    // Corepack skips integrity checks on cache hits. Only runtime-owned downloads populate
+    // the shared seed; workers receive independent copies and can repair their manifests.
+    const cache = `${options.root}/pnpm-cache/corepack-seeds-v1/${pinKey}`
+    const staging = `${cache}.tmp.${id}`
+    const seed = `set -e; cache="$1"; pin="$2"; if ! test -d "$cache/v1"; then seed="$3"; mkdir "$seed"; trap 'rm -rf "$seed"' EXIT; COREPACK_HOME="$seed" corepack install --global --cache-only "$pin"; test -d "$seed/v1"; mv "$seed" "$cache"; fi`
+    const prepareCorepack = pin?.startsWith('pnpm@')
+      ? `if command -v corepack >/dev/null 2>&1 && manager=$(command -v pnpm) && grep -Fq ${q("require('./lib/corepack.cjs').runMain(['pnpm',")} "$manager"; then mkdir -p ${q(`${options.root}/pnpm-cache/corepack-seeds-v1`)} ${q(base.COREPACK_HOME)} && flock ${q(`${cache}.lock`)} sh -c ${q(seed)} sh ${q(cache)} ${q(pin)} ${q(staging)} && rm -rf ${q(`${base.COREPACK_HOME}/v1`)} && cp -R ${q(`${cache}/v1`)} ${q(`${base.COREPACK_HOME}/v1`)}; fi`
+      : ':'
+    const pid = `${run}/install.pid`
+    const script = (line: string) => `echo $$ > ${q(pid)}; cd ${q(work)} && eval "$(cat)" && { { ${prepareCorepack}; } && ${line}; } > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; rm -f ${q(pid)}; exit $s`
+    const runInstall = async (line: string) => {
+      try {
+        return await runScript(transport, `exec setsid -w sh -c ${q(script(line))}`, { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
+      }
+      catch (error) {
+        await runScript(transport, `p=$(cat ${q(pid)} 2>/dev/null) && kill -s KILL -- "-$p" 2>/dev/null; rm -rf ${q(staging)}; rm -f ${q(pid)}; true`, { timeout: 15_000 }).catch(() => undefined)
+        throw error
+      }
+    }
+    let result = await runInstall(command)
+    if (result.code !== 0 && !frozen) result = await runInstall(command.replace('--frozen-lockfile', '--no-frozen-lockfile'))
     const record = (status: 'installed' | 'failed', reason?: string) => files.write(`${work}/.git/vitehub-install.json`, Buffer.from(JSON.stringify({ status, reason, at: new Date().toISOString() })), { signal: abortSignal })
     if (result.code === 0) {
       await record('installed')
