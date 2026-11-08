@@ -2267,10 +2267,10 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			return {
 diff --git a/dist/pr-workspaces.js b/dist/pr-workspaces.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..a3c839a5c13c868a7e8a9743e0ac4efeee6bb989
+index 0000000000000000000000000000000000000000..c21d89b07e5da94cca677890dbddc75ca65ce838
 --- /dev/null
 +++ b/dist/pr-workspaces.js
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,391 @@
 +import { execFile } from "node:child_process";
 +import { lstat, mkdir, open, readFile, readdir, rename, rm, statfs, writeFile } from "node:fs/promises";
 +import { join, resolve } from "node:path";
@@ -2328,6 +2328,33 @@ index 0000000000000000000000000000000000000000..a3c839a5c13c868a7e8a9743e0ac4efe
 +	return {
 +		reuse: true,
 +		reason: "warm"
++	};
++}
++/**
++* Decides whether a pass resumes the previous pass's provider thread. Only a warm workspace qualifies
++* (same head or the pass's own push, last pass finished, clean tree), after a pass that ended with a
++* push or a recorded wait, on the same base commit and the same release.
++*/
++function providerSessionDecision(previous, workspace, current) {
++	if (workspace !== "warm") return {
++		resume: false,
++		reason: `workspace-${workspace ?? "unprepared"}`
++	};
++	if (previous?.resumable !== true) return {
++		resume: false,
++		reason: "unfinished-pass"
++	};
++	if (!current.base || previous.base !== current.base) return {
++		resume: false,
++		reason: "base-moved"
++	};
++	if (previous.release !== current.release) return {
++		resume: false,
++		reason: "new-release"
++	};
++	return {
++		resume: true,
++		reason: "resumed"
 +	};
 +}
 +function alive(pid) {
@@ -2634,7 +2661,7 @@ index 0000000000000000000000000000000000000000..a3c839a5c13c868a7e8a9743e0ac4efe
 +	};
 +}
 +//#endregion
-+export { createPullRequestWorkspaces, diskUsage, entryName, pullRequestWorkspaceLimits, workspaceDecision };
++export { createPullRequestWorkspaces, diskUsage, entryName, providerSessionDecision, pullRequestWorkspaceLimits, workspaceDecision };
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
 index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..509a62b5f3a821d069ead376542d1f349ffc3dfa 100644
 --- a/dist/presets/babysitter.d.ts
@@ -2702,7 +2729,7 @@ index 7f003b2bd2f700f2aca729c491dad8417b44d6d7..5a43ab443f1d16ec18c4615ad68520f7
  		const concurrency = Math.max(0, Math.min(context.concurrency, memoryConcurrency));
  		return concurrency > context.active ? {
 diff --git a/dist/provider-agent.js b/dist/provider-agent.js
-index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb52697ec3c3bb 100644
+index 5d80facda1e6fd3a50876048180cd57f664d8fa6..ea35474a251ab8f3fcf2b9cbdffec01f60649b7a 100644
 --- a/dist/provider-agent.js
 +++ b/dist/provider-agent.js
 @@ -19,7 +19,8 @@ import { ViteHubError, formatRuntimeDiagnosticError, getViteHubErrorShape, norma
@@ -2789,7 +2816,39 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  const providerLaunchStderrMaxBytes = 16384;
  function parsedProviderLaunchDiagnostic(value) {
  	if (!isRuntimeRecord(value) || Array.isArray(value)) return;
-@@ -2934,6 +2963,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -2698,7 +2727,11 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 	const generatedProviderFiles = [];
+ 	let restoreGeneratedGitMetadata;
+ 	let claudePromptFile;
+-	let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : void 0;
++	// `run.providerSession.resume === false` starts a new provider thread on a stable thread id and
++	// drops the stored cursor first. runProvider reports `resumed` and an `invalidate()` handle back.
++	const providerSession = isRuntimeRecord(context.runtime.run?.providerSession) ? context.runtime.run.providerSession : void 0;
++	const freshProviderSession = providerSession?.resume === false;
++	let pendingResumeCursor = preservesProviderSession && sessionKey && !freshProviderSession ? resumeCursors.get(sessionKey) : void 0;
+ 	let deferredSessionConsume;
+ 	let runtimeCleanupDeferred = false;
+ 	let deferredRuntimeCleanup;
+@@ -2872,8 +2905,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+ 		};
+ 		if (options.sessionStorePath !== void 0 && (!hasRuntimeType(options.sessionStorePath, "string") || !options.sessionStorePath.trim())) throw agentDiagnostics.AGENT_R0715({ message: "[vitehub] driver.sessionStorePath must be a non-empty string." });
+ 		sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey ? partitionProviderSessionStore(await waitForProviderOperation(providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore), effectiveSignal), sessionKey) : void 0;
+-		const durableResumeCursor = sessionStore ? await waitForProviderOperation(sessionStore.consume(), effectiveSignal, () => void 0, deferSessionConsume) : void 0;
++		if (freshProviderSession && sessionKey) resumeCursors.delete(sessionKey);
++		const durableResumeCursor = !sessionStore ? void 0 : freshProviderSession ? await waitForProviderOperation(sessionStore.invalidate(), effectiveSignal).then(() => void 0) : await waitForProviderOperation(sessionStore.consume(), effectiveSignal, () => void 0, deferSessionConsume);
+ 		const resumeCursor = pendingResumeCursor ?? durableResumeCursor;
++		if (providerSession) {
++			providerSession.resumed = resumeCursor !== void 0;
++			const partition = sessionStore;
++			if (partition && sessionKey) providerSession.invalidate = async () => {
++				resumeCursors.delete(sessionKey);
++				await partition.invalidate();
++			};
++		}
+ 		if (pendingResumeCursor === void 0 && durableResumeCursor !== void 0) pendingResumeCursor = durableResumeCursor;
+ 		const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider);
+ 		const providerCommand = providerExecutable === void 0 || hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim() ? options.provider === "codex" ? "codex" : "claude" : providerExecutable;
+@@ -2934,6 +2976,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  		}
  		let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal);
  		let materializeInstructions = Boolean(instructions);
@@ -2797,7 +2856,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  		if (!instructions && options.provider === "claude-code") {
  			const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => void 0);
  			if (nativeInstructions !== void 0) instructions = nativeInstructions;
-@@ -2967,13 +2997,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -2967,13 +3010,16 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  				providerBoxHomeFiles[claudeBoxPromptFile] = instructions;
  			} else providerBoxHomeFiles[".codex/AGENTS.md"] = instructions;
  		} else if (instructions && materializeInstructions) {
@@ -2817,7 +2876,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  				if (preserveNativeInstructions && provenanceInstructions && generated.content !== void 0) generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`;
  				generatedProviderFiles.push(generated);
  			}
-@@ -3007,6 +3040,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3007,6 +3053,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  				"vitehub provider baseline"
  			], { abortSignal: effectiveSignal });
  		}
@@ -2825,7 +2884,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  		if (options.box) {
  			if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." });
  			const configuredCommand = options.providerSettings?.binaryPath;
-@@ -3026,7 +3060,12 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3026,7 +3073,12 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			}), effectiveSignal, (lateBox) => lateBox.session.close(), observeLateCleanup);
  			clearActiveBox = setActiveProviderBox(context.context, providerBox);
  			if (claudeBoxPromptFile) claudePromptFile = posix.join(providerBox.home, claudeBoxPromptFile);
@@ -2839,7 +2898,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  			const preparedEnvironment = { ...providerRuntimeEnvironment };
  			providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []);
  			providerLaunchDiagnosticPath = join(launchRoot, "box-diagnostic.json");
-@@ -3101,7 +3140,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3101,7 +3153,17 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  			model: options.model,
  			resumeCursor,
  			runtimeMode: providerRuntimeMode[options.permissions ?? "ask"],
@@ -2858,7 +2917,7 @@ index 5d80facda1e6fd3a50876048180cd57f664d8fa6..7e8c3f165391aaa084966c4c69fb5269
  			threadId
  		}), effectiveSignal, (session) => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime());
  		if (session.resumeCursor !== void 0) pendingResumeCursor = session.resumeCursor;
-@@ -3182,7 +3231,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
+@@ -3182,7 +3244,7 @@ async function* runProvider(options, resumeCursors, sessionLocks, cwdLocks, cont
  		});
  		const turn = await waitForProviderOperation(runtime.sendTurn({
  			attachments,
@@ -2889,7 +2948,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09eef2fc6d7 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..94366fc81f5a0e6204870a6839003366be9e8ddd 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -2909,7 +2968,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  import { promisify } from "node:util";
  import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
  import "node:url";
-+import { workspaceDecision } from "./pr-workspaces.js";
++import { providerSessionDecision, workspaceDecision } from "./pr-workspaces.js";
  //#region src/presets/babysitter/async-merge.ts
  const sha = v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i));
  const uuid = v.pipe(v.string(), v.regex(/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i));
@@ -4482,7 +4541,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  		const jobs = [...lane, ...regular];
  		if (!jobs.length) return;
  		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
-@@ -2444,23 +3391,32 @@ function createBabysitterRuntime(options) {
+@@ -2444,23 +3391,34 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
@@ -4493,7 +4552,9 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
 +				prepared: false,
 +				ok: false,
 +				reason: void 0,
-+				durationMs: void 0
++				durationMs: void 0,
++				session: void 0,
++				providerSession: void 0
 +			};
  			let modelWorkParked = false;
 +			let modelDispatched = false;
@@ -4520,7 +4581,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						verifiedPushHeads: [...verifiedPushHeads]
  					} : {},
  					wait: {
-@@ -2471,7 +3427,201 @@ function createBabysitterRuntime(options) {
+@@ -2471,7 +3429,201 @@ function createBabysitterRuntime(options) {
  				});
  				return true;
  			};
@@ -4722,7 +4783,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  			const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => pushedHead);
  			try {
  				if (!await hydrateSnapshot(pullRequestInbox, inboxClaim, (path, projection) => readRest(path, projection, passSignal), (repository, number) => readThreads(repository, number, passSignal), activityAuthors)) {
-@@ -2486,22 +3636,30 @@ function createBabysitterRuntime(options) {
+@@ -2486,22 +3638,30 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				const retargeted = await retargetMergedStackBase(inboxClaim, passSignal);
@@ -4758,7 +4819,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  					await pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${retargeted.from} to ${retargeted.to} after the parent pull request merged.` });
  					schedulerEvent("babysitter.stack.retargeted", {
  						...owner,
-@@ -2510,25 +3668,93 @@ function createBabysitterRuntime(options) {
+@@ -2510,25 +3670,93 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				if (merge.mode === "direct") {
@@ -4857,7 +4918,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				const deferral = await pendingGateDeferral(inboxClaim.snapshot);
  				if (deferral) {
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -2556,19 +3782,24 @@ function createBabysitterRuntime(options) {
+@@ -2556,19 +3784,24 @@ function createBabysitterRuntime(options) {
  				}
  				if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
  					readJson: (path, projection) => readRest(path, projection, passSignal),
@@ -4886,7 +4947,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2624,15 +3855,35 @@ function createBabysitterRuntime(options) {
+@@ -2624,15 +3857,35 @@ function createBabysitterRuntime(options) {
  					});
  					return;
  				}
@@ -4924,7 +4985,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						}
  					});
  					schedulerEvent("babysitter.mergeability.waiting", {
-@@ -2645,6 +3896,10 @@ function createBabysitterRuntime(options) {
+@@ -2645,6 +3898,10 @@ function createBabysitterRuntime(options) {
  				if (ciRecovery?.state === "blocked" && ciRecovery.permission) await pullRequestInbox.setMeta(`ci-permission-fallback:v1:${inboxClaim.snapshot.repository}:${inboxClaim.snapshot.pr?.head?.sha ?? ""}`, { pendingAt: Date.now() });
  				const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
  				const webhookSnapshot = inboxClaim.snapshot;
@@ -4935,7 +4996,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				await github.withPullRequestCheckout({
  					headRef: pullRequest.headRefName,
  					headRepository: pullRequest.headRepository?.nameWithOwner,
-@@ -2671,52 +3926,35 @@ function createBabysitterRuntime(options) {
+@@ -2671,52 +3928,35 @@ function createBabysitterRuntime(options) {
  					const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
  					const repairOperation = new AsyncLocalStorage();
  					const ownedResolutions = /* @__PURE__ */ new Map();
@@ -5011,7 +5072,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						observePendingPush?.(current);
  						for (const [id, reopens] of ownedResolutions) if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
  						const observedHead = current.pr?.head?.sha;
-@@ -2727,29 +3965,65 @@ function createBabysitterRuntime(options) {
+@@ -2727,29 +3967,65 @@ function createBabysitterRuntime(options) {
  							pendingInboxHeads.clear();
  							pendingInboxHeads.add(pushedHead);
  						}
@@ -5081,7 +5142,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							if (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty") {
  								const base = await readRepairBase();
  								await prepareGitHubRepairBase(directory, {
-@@ -2763,21 +4037,37 @@ function createBabysitterRuntime(options) {
+@@ -2763,21 +4039,37 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -5123,7 +5184,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							return await github.ensureGraphQLBudget(...args);
  						}
  					}, {
-@@ -2793,20 +4083,31 @@ function createBabysitterRuntime(options) {
+@@ -2793,20 +4085,31 @@ function createBabysitterRuntime(options) {
  						signal: abortSignal,
  						autoMerge: merge.mode === "auto",
  						eligible: (current) => pullRequestInbox.eligible(repository, normalizePullRequest(current)),
@@ -5158,7 +5219,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							await assertLease();
  							return head;
  						},
-@@ -2852,6 +4153,10 @@ function createBabysitterRuntime(options) {
+@@ -2852,6 +4155,10 @@ function createBabysitterRuntime(options) {
  									beforePush: async (head) => {
  										const current = await assertLease();
  										await assertRepairBase();
@@ -5169,7 +5230,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  										if (head && !await pullRequestInbox.registerProspectivePush({
  											...inboxClaim,
  											generation: current.generation,
-@@ -2862,6 +4167,8 @@ function createBabysitterRuntime(options) {
+@@ -2862,6 +4169,8 @@ function createBabysitterRuntime(options) {
  										} : void 0;
  									},
  									afterPush: async (head) => {
@@ -5178,7 +5239,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  										recordPush(head);
  										await assertLease();
  									}
-@@ -2874,11 +4181,19 @@ function createBabysitterRuntime(options) {
+@@ -2874,11 +4183,19 @@ function createBabysitterRuntime(options) {
  							}
  						}
  					});
@@ -5200,7 +5261,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
  						ownedResolutions.set(id, reopens);
  					});
-@@ -2890,7 +4205,15 @@ function createBabysitterRuntime(options) {
+@@ -2890,7 +4207,15 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -5216,7 +5277,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
  						if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
-@@ -2907,6 +4230,11 @@ function createBabysitterRuntime(options) {
+@@ -2907,6 +4232,11 @@ function createBabysitterRuntime(options) {
  						if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
  					}, {
  						runRepair: (execute) => repairOperation.run(true, execute),
@@ -5228,7 +5289,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						beforeRepair: async (context, paths) => {
  							if (!workerSettings.box) return;
  							await assertLease();
-@@ -2916,8 +4244,13 @@ function createBabysitterRuntime(options) {
+@@ -2916,8 +4246,13 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -5242,7 +5303,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							await assertLease();
  						},
  						afterRefresh: async (context) => {
-@@ -2925,7 +4258,8 @@ function createBabysitterRuntime(options) {
+@@ -2925,7 +4260,8 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -5252,7 +5313,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							await assertLease();
  						}
  					});
-@@ -2964,6 +4298,8 @@ function createBabysitterRuntime(options) {
+@@ -2964,6 +4300,8 @@ function createBabysitterRuntime(options) {
  								schema: passResultSchema
  							},
  							permissions: "allow-edits-unattended",
@@ -5261,7 +5322,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  							env: async (context) => {
  								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
  							},
-@@ -2998,14 +4334,25 @@ function createBabysitterRuntime(options) {
+@@ -2998,14 +4336,32 @@ function createBabysitterRuntime(options) {
  							mode: "write",
  							store: {
  								provider: "local",
@@ -5285,13 +5346,29 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
 +					const requiredChecksNow = await requiredCheckState(inboxClaim.snapshot);
 +					const pushAllowance = repairPushAllowance(await pullRequestInbox.meta(`repair-pushes:${repository}#${number}`) ?? [], requiredChecksNow, conflictedSnapshot(inboxClaim.snapshot), Date.now(), pullRequestInbox.isPriority(inboxClaim.snapshot.pr));
 +					const pushContext = !pushAllowance.allowed ? `\n\n<push-window>\nThis PR already has ${pushAllowance.count} repair pushes in the last 24 hours, so pushRepair refuses every push until ${new Date(pushAllowance.nextAt).toISOString()}. Do not edit files or commit. Assess the current HEAD: reply to and resolve the automated findings, classify each one, and set reviewedHead to the current HEAD. The host merges it when its required checks pass.\n</push-window>` : pushAllowance.spaced ? `\n\n<push-window>\nThis PR already has ${pushAllowance.count} repair pushes in the last 24 hours. Its required checks fail, so this pass may push one commit, and the next push opens two hours later. Make that commit fix the failing required checks (setup, lockfile, lint, typecheck, build or tests) first. Leave review findings below P0 for a later pass.\n</push-window>` : requiredChecksNow === "failed" ? `\n\n<required-checks-failing>\nRequired checks fail on this head. Fix them before review findings, and push the fix in this pass even when review findings remain: the PR cannot merge until they pass.\n</required-checks-failing>` : "";
-+					const userMessage = `${prompt}\n\n${snapshotContext}${installContext}${reviewBudgetContext}${convergenceContext}${pushContext}`;
++					// A warm workspace on an unmoved base continues the previous pass's provider thread. A resumed
++					// thread gets only this message, so it carries the full current snapshot as before.
++					workspaceRun.session = workspaceEntry && !workerSettings.box ? providerSessionDecision(workspaceEntry.previous, workspaceRun.reason, {
++						base: pullRequest.baseRefOid,
++						release: baseAgent.version
++					}) : void 0;
++					const resumeContext = workspaceRun.session?.resume ? `\n\n<resumed-pass>\nThis pass continues your previous session on this PR. The checkout is the one your last pass left at HEAD ${pullRequest.headRefOid}, with its dependencies installed. The snapshot below is the current state; where it differs from what you saw before, it wins. Assess its new comments, reviews and checks before you act.\n</resumed-pass>` : "";
++					const userMessage = `${prompt}${resumeContext}\n\n${snapshotContext}${installContext}${reviewBudgetContext}${convergenceContext}${pushContext}`;
  					assertPromptFits(userMessage);
  					schedulerEvent("babysitter.context.prepared", {
  						repository,
-@@ -3020,8 +4367,18 @@ function createBabysitterRuntime(options) {
+@@ -3018,10 +4374,26 @@ function createBabysitterRuntime(options) {
+ 						runId,
+ 						publicUrl: publicUrl ?? resolvePublicUrl({ agentName: options.agentName ?? baseAgent.name })
  					});
- 					githubRun.threadId = `${githubRun.threadId}:${runId}`;
+-					githubRun.threadId = `${githubRun.threadId}:${runId}`;
++					// Local passes in a PR workspace keep the stable thread id and ask for a fresh session when the
++					// rule says so, which also drops the stored cursor. Others scope the session to this pass, so a
++					// new checkout never resumes a Codex process whose temporary cwd was deleted.
++					if (workspaceRun.session) {
++						workspaceRun.providerSession = { resume: workspaceRun.session.resume };
++						githubRun.providerSession = workspaceRun.providerSession;
++					} else githubRun.threadId = `${githubRun.threadId}:${runId}`;
  					inboxClaim.activity = githubRun.activity;
 -					passResult = await runWithProviderRetry(async () => {
 +					passResult = await releaseProviderFailedPass(() => runWithProviderRetry(async () => {
@@ -5309,7 +5386,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						return await runAgent(agent, {
  							runtime: "vite",
  							run: githubRun,
-@@ -3041,7 +4398,9 @@ function createBabysitterRuntime(options) {
+@@ -3041,7 +4413,9 @@ function createBabysitterRuntime(options) {
  							},
  							output: "drained"
  						});
@@ -5320,7 +5397,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  					if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", {
  						...owner,
  						reviewed_head: passResult.reviewedHead,
-@@ -3051,15 +4410,33 @@ function createBabysitterRuntime(options) {
+@@ -3051,15 +4425,33 @@ function createBabysitterRuntime(options) {
  					resultText = passResult.text;
  				}, {
  					signal: passSignal,
@@ -5356,7 +5433,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				let recorded = false;
  				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
  					text: resultText,
-@@ -3067,12 +4444,13 @@ function createBabysitterRuntime(options) {
+@@ -3067,12 +4459,13 @@ function createBabysitterRuntime(options) {
  				});
  				else if (pushedHead) {
  					outcome = "waiting";
@@ -5372,7 +5449,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason)
  					});
  				} else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
-@@ -3090,6 +4468,7 @@ function createBabysitterRuntime(options) {
+@@ -3090,6 +4483,7 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					recorded = await pullRequestInbox.finish(inboxClaim, {
  						text: resultText,
@@ -5380,7 +5457,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  						wait: {
  							...createCheckWait(inboxClaim.snapshot, waitPolicy),
  							headSha: pullRequest.headRefOid,
-@@ -3113,6 +4492,8 @@ function createBabysitterRuntime(options) {
+@@ -3113,6 +4507,8 @@ function createBabysitterRuntime(options) {
  					evidenceKey: fallbackEvidenceKey
  				});
  			} catch (error) {
@@ -5389,7 +5466,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				if (modelWorkParked) return;
  				if (error instanceof GitHubWorkspaceInstallError) {
  					outcome = "waiting";
-@@ -3120,6 +4501,7 @@ function createBabysitterRuntime(options) {
+@@ -3120,6 +4516,7 @@ function createBabysitterRuntime(options) {
  					wait.kind = "external";
  					wait.reason = error.message;
  					if (error.retryable) wait.retryAt = Date.now() + 3e5;
@@ -5397,7 +5474,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  					await pullRequestInbox.finish(inboxClaim, {
  						text: error.message,
  						wait
-@@ -3129,19 +4511,42 @@ function createBabysitterRuntime(options) {
+@@ -3129,19 +4526,42 @@ function createBabysitterRuntime(options) {
  				}
  				if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
  					outcome = "waiting";
@@ -5442,7 +5519,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3152,18 +4557,52 @@ function createBabysitterRuntime(options) {
+@@ -3152,18 +4572,57 @@ function createBabysitterRuntime(options) {
  						reason: "github-rate-limit",
  						...owner
  					});
@@ -5482,10 +5559,15 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				stopPullRequestWatch();
 +				fleetPlacement?.release();
 +				if (workspaceEntry) try {
++					// Completing without error is not a repair: only a push or a recorded wait may be resumed.
++					const resumable = workspaceRun.ok && outcome === "waiting";
++					if (!resumable) await workspaceRun.providerSession?.invalidate?.();
 +					if (workspaceRun.prepared) await workspaceEntry.record({
 +						head: pushedHead ?? workspaceRun.head,
 +						base: workspaceRun.base,
 +						ok: workspaceRun.ok,
++						resumable,
++						release: baseAgent.version,
 +						outcome
 +					});
 +				} catch (error) {
@@ -5496,7 +5578,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3171,6 +4610,11 @@ function createBabysitterRuntime(options) {
+@@ -3171,6 +4630,13 @@ function createBabysitterRuntime(options) {
  					schedulerEvent("babysitter.owner.finished", {
  						durationMs: Date.now() - startedAt,
  						outcome,
@@ -5505,10 +5587,12 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..a7a67c903bac7466f6cbaba2dd08e09e
 +							workspace_reason: workspaceRun.reason,
 +							workspace_ms: workspaceRun.durationMs
 +						} : {},
++						resumed: workspaceRun.providerSession?.resumed === true,
++						...workspaceRun.session ? { session_reason: workspaceRun.session.reason } : {},
  						...owner
  					});
  					options.wake?.();
-@@ -3196,4 +4640,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +4662,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
