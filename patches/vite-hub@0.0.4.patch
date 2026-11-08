@@ -1,3 +1,53 @@
+diff --git a/dist/console/runtime/server/invocation.get.js b/dist/console/runtime/server/invocation.get.js
+index 4361e8c6e504258ff103306d4fc0552b05da5d40..0d0739ceb6a5fcce3c0e7cd6034894b0e25c6e1d 100644
+--- a/dist/console/runtime/server/invocation.get.js
++++ b/dist/console/runtime/server/invocation.get.js
+@@ -6,18 +6,23 @@ import { r as getConsoleAgentDefinition, t as consoleAgentInvokerProfiles } from
+ import { agentInvocationRerunInput } from "@vite-hub/agent";
+ import * as v from "valibot";
+ //#region src/console/runtime/server/invocation.get.ts
+-function observationCursor(observations, count = observations.length) {
++function formatObservationCursor(count, fnv, djb) {
++	return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`;
++}
++function observationCursors(observations, prefixCount) {
+ 	let fnv = 2166136261;
+ 	let djb = 5381;
+-	for (let index = 0; index < count; index++) {
++	let prefix = prefixCount === 0 ? formatObservationCursor(0, fnv, djb) : void 0;
++	for (let index = 0; index < observations.length; index++) {
+ 		const serialized = JSON.stringify(observations[index]);
+ 		for (let offset = 0; offset <= serialized.length; offset++) {
+ 			const code = offset === serialized.length ? 0 : serialized.charCodeAt(offset);
+ 			fnv = Math.imul(fnv ^ code, 16777619);
+ 			djb = Math.imul(djb, 33) ^ code;
+ 		}
++		if (index + 1 === prefixCount) prefix = formatObservationCursor(index + 1, fnv, djb);
+ 	}
+-	return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`;
++	return { cursor: formatObservationCursor(observations.length, fnv, djb), prefix };
+ }
+ const cancelActionSchema = v.strictObject({ action: v.literal("cancel") });
+ const deleteActionSchema = v.strictObject({ action: v.literal("delete") });
+@@ -129,14 +134,16 @@ async function getConsoleInvocationDetail(event) {
+ 	const countValue = requestURL.searchParams.get("observationCount");
+ 	const requestedCursor = requestURL.searchParams.get("observationCursor");
+ 	const observationCount = countValue === null ? void 0 : Number(countValue);
+-	const canAppend = invocation.observationsTruncated !== true && requestedCursor !== null && observationCount !== void 0 && Number.isSafeInteger(observationCount) && observationCount >= 0 && observationCount <= observations.length && requestedCursor === observationCursor(observations, observationCount);
++	const hasRequestedPrefix = invocation.observationsTruncated !== true && requestedCursor !== null && observationCount !== void 0 && Number.isSafeInteger(observationCount) && observationCount >= 0 && observationCount <= observations.length;
++	const cursors = observationCursors(observations, hasRequestedPrefix ? observationCount : void 0);
++	const canAppend = hasRequestedPrefix && requestedCursor === cursors.prefix;
+ 	const detail = {
+ 		invocation: {
+ 			...summary,
+ 			...actions ? { actions } : {},
+ 			...usage ? { usage } : {}
+ 		},
+-		observationCursor: observationCursor(observations),
++		observationCursor: cursors.cursor,
+ 		observations: canAppend ? observations.slice(observationCount) : observations
+ 	};
+ 	if (canAppend) detail.appendObservations = true;
 diff --git a/dist/src-1_MLvzNN.js b/dist/src-1_MLvzNN.js
 index 325deafd19a48280e6e5be44bf444e50efd4357f..d94c84f133b2bf758170db89eb1f234b88fac490 100644
 --- a/dist/src-1_MLvzNN.js

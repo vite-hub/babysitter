@@ -12,8 +12,11 @@ Package versions, APIs, and the pinned build stay unchanged. The existing Agent 
 | [vitehub#3724](https://github.com/vite-hub/vitehub/pull/3724), `968e32bf9da0c4fdabcfbc775093d67868b944f1` | `@vite-hub/box/dist/remote-Dndv4ERz.js`, in `@vite-hub__box@0.0.4.patch`. | Public `resolveBox()` through the Vercel adapter overlaps at most eight uploads, copies callback bytes, deduplicates exact directories, and finishes uploads before requirements and initialization. Directory, upload, callback, and abort failures preserve their reason and finish active operations before cleanup. |
 | [vitehub#3725](https://github.com/vite-hub/vitehub/pull/3725), `4d6e23306706d6070b51e1307a9e299e849919dc` | `@vite-hub/workflow/dist/vite.js`, in `@vite-hub__workflow@0.0.4.patch`. | Full discovery still rejects colliding Agent Workflow names. Standalone discovery and the public Vite plugin generate a usable standalone registry despite an Agent with the same Workflow name. |
 | [vitehub#3726](https://github.com/vite-hub/vitehub/pull/3726), `c8c88030309f679a450e573ef7e8274efd922673` | `@vite-hub/agent/dist/invocations/sqlite.js`, extending `@vite-hub__agent@0.0.4.patch`. | Public libSQL store on a legacy schema uses the capability index, keeps exact matching and cursor pages, and finds legacy, appended, invalidated, and null-cache evidence. Timestamp-range queries retain the status/updated-at planner. |
+| [vitehub#3727](https://github.com/vite-hub/vitehub/pull/3727), base `578c8d26626bf9d743535e29e712ffb0a26a5cbb`, head `774229de4b2b65a5d654ee4ee2ef1ca1ca150ce1` | `vite-hub/dist/console/runtime/server/invocation.get.js`, extending `vite-hub@0.0.4.patch`. Owner source is `packages/vite-hub/src/console/runtime/server/invocation.get.ts`. | The installed guarded route with memory and public libSQL Console journals serializes each observation once for unchanged and append polls. Exact Unicode cursor bytes, zero-prefix, changed-prefix, truncation, same-length rewrites, count/cursor validation, journal selection, and authorization remain covered. |
 
 Both independent reviews of #3726 passed at the pinned upstream head. The consumer tests here verify the compiled backport separately.
+
+Independent upstream reviews of #3727 are still pending. Its backport captures full and requested-prefix hashes in one request-local pass, with no cache outside the request. Retire only its Console route hunks after updating the pinned package to a release containing #3727; keep the build-helper and unrelated repair hunks until their own fixes are included too.
 
 ### Build-writer copies
 
@@ -47,12 +50,13 @@ The private build helpers are inlined into these packages. Patching one package 
 ```sh
 heavy pnpm install --frozen-lockfile
 heavy --light node --test tests/dependency-performance.test.ts
+heavy --light node --test tests/console-invocation-cursor.test.ts
 heavy pnpm test
 heavy pnpm build
 heavy pnpm typecheck
 ```
 
-The tests use local SQLite databases and a local Vercel SDK stand-in. They make no provider requests and use no production environment files. The two older packages that inline esbuild use the matching installed `0.27.7` binary in their build fixtures.
+The tests use local SQLite databases and a local Vercel SDK stand-in. They make no provider requests and use no production environment files. The two older packages that inline esbuild use the matching installed `0.27.7` binary in their build fixtures. The cursor tests use the installed default guarded route, with golden cursor strings captured from #57's frozen installed baseline. Both journal cases fail on that baseline because unchanged and append polls serialize three observations six and five times, respectively, then pass with this backport at three serializations each. These counts prove removed duplicate work, not a live speedup.
 
 A clean checkout needs the build before typecheck because the build generates `.vitehub` declarations. The new tests fail on the pinned packages with main's patches and pass with these patches.
 
