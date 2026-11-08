@@ -18,16 +18,17 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
   const runtime = createSshBoxRuntime({ host: 'test', transport: localTransport(), root: fleetRoot, path: process.env.PATH! })
   const input = { cwd: checkout, identity: 'test', plan: { env: {}, files: {}, state: [] }, requirements: [] }
   const plan = await runtime.prepare(input)
-  const cache = join(fleetRoot, 'pnpm-cache', 'corepack')
+  let cache = ''
   try {
     const first = await runtime.open(input, { executionAuthority: plan.executionAuthority })
     const firstWork = first.cwd
     try {
       const env = await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])
-      assert.equal(env.stdout, cache)
       assert.equal(env.code, 0)
-      assert.equal((await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'], { env: { COREPACK_HOME: '/coordinator-only' } })).stdout, cache)
-      await first.files.mkdir(cache, { recursive: true })
+      assert.ok(env.stdout.startsWith(first.cwd.replace(/\/work$/, '/home/')))
+      assert.equal((await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'], { env: { COREPACK_HOME: '/coordinator-only' } })).stdout, env.stdout)
+      cache = (await first.exec('readlink', ['-f', `${env.stdout}/v1`])).stdout.trim()
+      assert.ok(cache.startsWith(join(fleetRoot, 'pnpm-cache', 'corepack') + '/'))
       await first.files.write(join(cache, 'marker'), Buffer.from('manager cache'))
       await first.files.write(join(first.cwd, 'untracked'), Buffer.from('private workspace'))
     }
@@ -42,6 +43,8 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
     const second = await runtime.open(input, { executionAuthority: plan.executionAuthority })
     try {
       assert.notEqual(second.cwd, firstWork)
+      const managerHome = (await second.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
+      assert.equal((await second.exec('readlink', ['-f', `${managerHome}/v1`])).stdout.trim(), cache)
       assert.equal(Buffer.from((await second.files.read(join(cache, 'marker')))!).toString(), 'manager cache')
       assert.equal(await second.files.exists(join(second.cwd, 'untracked')), false)
       assert.equal((await second.exec('git', ['status', '--porcelain'])).stdout, '')
@@ -59,3 +62,39 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
   }
   finally { await rm(root, { recursive: true, force: true }) }
 })
+
+for (const scenario of ['integrity', 'defaults']) {
+  test(`fleet Corepack ${scenario} remain isolated between Boxes`, async () => {
+    await mkdir('.data/tests', { recursive: true })
+    const root = await mkdtemp(resolve('.data/tests/fleet-corepack-isolation-'))
+    const checkout = join(root, 'checkout')
+    await mkdir(checkout)
+    const pin = 'pnpm@10.33.0+sha512.'
+    const manifest = (hash: string) => writeFile(join(checkout, 'package.json'), JSON.stringify({ name: 'fixture', packageManager: pin + hash.repeat(128) }))
+    await manifest('1')
+    execFileSync('git', ['init', '-q', checkout])
+    execFileSync('git', ['-C', checkout, 'add', '.'])
+    execFileSync('git', ['-C', checkout, '-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'])
+    const runtime = createSshBoxRuntime({ host: 'test', transport: localTransport(), root: join(root, 'fleet'), path: process.env.PATH! })
+    const input = { cwd: checkout, identity: 'test', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+    const plan = await runtime.prepare(input)
+    const first = await runtime.open(input, { executionAuthority: plan.executionAuthority })
+    try {
+      const firstCache = (await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
+      const path = scenario === 'integrity' ? 'v1/marker' : 'lastKnownGood.json'
+      await first.files.mkdir(join(firstCache, 'v1'), { recursive: true })
+      await first.files.write(join(firstCache, path), Buffer.from('cached manager or default state'))
+      if (scenario === 'integrity') await manifest('0')
+      const second = await runtime.open(input, { executionAuthority: plan.executionAuthority })
+      try {
+        const secondCache = (await second.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
+        assert.equal(await second.files.exists(join(secondCache, path)), false)
+      }
+      finally { await second.close() }
+    }
+    finally {
+      await first.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
