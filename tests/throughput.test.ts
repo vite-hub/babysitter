@@ -378,7 +378,7 @@ test('repair pushes are capped per PR except for conflict repairs and spaced CI 
 test('a pass that could not push its CI repair does not start, and the prompt says whether it can push', () => {
   assert.match(source, /if \(await requiredCheckState\(snapshot\) !== "failed"\) return false;\n\t+const allowance = repairPushAllowance\(/)
   assert.match(source, /reason: "push-window",\n\t+retryAt: allowance\.nextAt \+ 6e4/)
-  assert.match(source, /const userMessage = `\$\{prompt\}\\n\\n\$\{snapshotContext\}\$\{installContext\}\$\{reviewBudgetContext\}\$\{convergenceContext\}\$\{pushContext\}`;/)
+  assert.match(source, /const userMessage = `\$\{prompt\}\$\{resumeContext\}\\n\\n\$\{snapshotContext\}\$\{installContext\}\$\{reviewBudgetContext\}\$\{convergenceContext\}\$\{pushContext\}`;/)
   assert.match(source, /<required-checks-failing>/)
 })
 
