@@ -1,0 +1,20 @@
+[
+  {
+    "label": "candidate",
+    "concurrentColdInstalls": [
+      "installed",
+      "installed"
+    ],
+    "otherBoxDefaultState": "absent",
+    "otherBoxUnpinnedVersion": "11.24.0"
+  },
+  {
+    "label": "baseline",
+    "concurrentColdInstalls": [
+      "installed",
+      "installed"
+    ],
+    "otherBoxDefaultState": "absent",
+    "otherBoxUnpinnedVersion": "11.24.0"
+  }
+]

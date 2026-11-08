@@ -1,0 +1,35 @@
+{
+  "sourceHash": "5a1537147c00dea654f4f13916a1b6cbfe1b4c8eb5b261cd09468d79e57ecb1e",
+  "results": [
+    {
+      "check": "standalone-no-corepack",
+      "status": "installed",
+      "directPnpmVersion": "10.33.0",
+      "canonicalEntries": []
+    },
+    {
+      "check": "unpinned-standalone",
+      "status": "installed",
+      "directPnpmVersion": "10.33.0",
+      "canonicalEntries": []
+    },
+    {
+      "check": "standalone-with-corepack",
+      "status": "installed",
+      "directInstallCode": 0,
+      "directPnpmVersion": "10.33.0",
+      "canonicalEntries": []
+    },
+    {
+      "check": "baseline-standalone-with-corepack",
+      "status": "installed",
+      "directPnpmVersion": "10.33.0",
+      "canonicalEntries": []
+    },
+    {
+      "check": "npm package-lock installs offline with private Corepack defaults and no canonical seed",
+      "passed": true
+    }
+  ],
+  "requests": []
+}
