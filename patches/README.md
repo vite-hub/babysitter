@@ -16,7 +16,7 @@ Package versions, APIs, and the pinned build stay unchanged. The existing Agent 
 
 Both independent reviews of #3726 passed at the pinned upstream head. The consumer tests here verify the compiled backport separately.
 
-Independent upstream reviews of #3727 are still pending. Its backport captures full and requested-prefix hashes in one request-local pass, with no cache outside the request. Retire only its Console route hunks after updating the pinned package to a release containing #3727; keep the build-helper and unrelated repair hunks until their own fixes are included too.
+Both independent reviews of #3727 and this compiled backport passed at their pinned implementation heads. The backport captures full and requested-prefix hashes in one request-local pass, with no cache outside the request. Retire only its Console route hunks after updating the pinned package to a release containing #3727; keep the build-helper and unrelated repair hunks until their own fixes are included too.
 
 ### Build-writer copies
 
