@@ -1,0 +1,1404 @@
+{
+  "base": "daf551151753b5ac88d96356db231a2c338d643a",
+  "candidateSourceSha256": "4d7a367baf7bdd3914040c3385f6949f7edf2320c2ce747820c61101c5ec01b4",
+  "corepack": "0.36.0",
+  "node": "v24.21.0",
+  "pnpm": "10.33.0",
+  "lockSha256": "8415e7b40706e88c6a4d9d5a1ab5ce566b184bfdc618eb4c25f8ba32d5072bdb",
+  "machine": {
+    "cpu": "AMD Ryzen 7 255 w/ Radeon 780M Graphics",
+    "cores": 16,
+    "platform": "linux",
+    "kernel": "7.0.0-31-generic",
+    "memoryBytes": 30776999936
+  },
+  "conditions": "ext4; local transport; network enabled; no page-cache eviction; own initially empty pnpm store; lifecycle scripts and pnpm hooks disabled by existing fleet command; each open gets a new workspace and home; baseline module extracted from base commit; candidate uses current runtime; close excluded from openMs",
+  "installs": 32,
+  "failures": 0,
+  "results": [
+    {
+      "label": "cold-store-baseline",
+      "concurrency": 1,
+      "load": [
+        0.94,
+        0.77,
+        1.17
+      ],
+      "wallIncludingCloseMs": 14345.785136,
+      "rows": [
+        {
+          "openMs": 10391.964361,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "22663039-f4a8-43d8-b0b8-06627dc2950c",
+                "mirrorMs": 2147,
+                "uploadMs": 56,
+                "installMs": 8182,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 10391
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "22663039-f4a8-43d8-b0b8-06627dc2950c",
+                "sessions": 0,
+                "totalMs": 3223
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "cold-corepack-candidate",
+      "concurrency": 1,
+      "load": [
+        1.03,
+        0.79,
+        1.17
+      ],
+      "wallIncludingCloseMs": 7475.7979129999985,
+      "rows": [
+        {
+          "openMs": 3539.5279180000016,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "41708be9-60ed-4701-b503-6dac815883ee",
+                "mirrorMs": 40,
+                "uploadMs": 58,
+                "installMs": 3434,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3539
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "41708be9-60ed-4701-b503-6dac815883ee",
+                "sessions": 0,
+                "totalMs": 3227
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-baseline",
+      "concurrency": 1,
+      "load": [
+        0.95,
+        0.78,
+        1.17
+      ],
+      "wallIncludingCloseMs": 7166.154964000001,
+      "rows": [
+        {
+          "openMs": 3261.1965649999984,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "35198008-e7fa-4ec1-88e2-32e7f144678a",
+                "mirrorMs": 37,
+                "uploadMs": 54,
+                "installMs": 3162,
+                "setupMs": 8,
+                "installed": true,
+                "totalMs": 3261
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "35198008-e7fa-4ec1-88e2-32e7f144678a",
+                "sessions": 0,
+                "totalMs": 3214
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-candidate",
+      "concurrency": 1,
+      "load": [
+        0.95,
+        0.78,
+        1.17
+      ],
+      "wallIncludingCloseMs": 6305.888085999999,
+      "rows": [
+        {
+          "openMs": 2380.2898220000025,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "d0bfd4d4-35e4-4265-b3c0-a127b398f173",
+                "mirrorMs": 39,
+                "uploadMs": 54,
+                "installMs": 2280,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2381
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "d0bfd4d4-35e4-4265-b3c0-a127b398f173",
+                "sessions": 0,
+                "totalMs": 3217
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-baseline",
+      "concurrency": 1,
+      "load": [
+        0.95,
+        0.79,
+        1.16
+      ],
+      "wallIncludingCloseMs": 7242.922386999999,
+      "rows": [
+        {
+          "openMs": 3323.508608999997,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "400f1a95-0d1a-4e40-9ec7-a5e3423f1d27",
+                "mirrorMs": 38,
+                "uploadMs": 57,
+                "installMs": 3221,
+                "setupMs": 8,
+                "installed": true,
+                "totalMs": 3324
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "400f1a95-0d1a-4e40-9ec7-a5e3423f1d27",
+                "sessions": 0,
+                "totalMs": 3213
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-candidate",
+      "concurrency": 1,
+      "load": [
+        0.88,
+        0.78,
+        1.16
+      ],
+      "wallIncludingCloseMs": 6384.371922999999,
+      "rows": [
+        {
+          "openMs": 2464.8023859999957,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "cbec0b03-0c3d-4673-862f-c58671291535",
+                "mirrorMs": 38,
+                "uploadMs": 56,
+                "installMs": 2364,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2465
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "cbec0b03-0c3d-4673-862f-c58671291535",
+                "sessions": 0,
+                "totalMs": 3217
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-baseline",
+      "concurrency": 1,
+      "load": [
+        1.19,
+        0.85,
+        1.18
+      ],
+      "wallIncludingCloseMs": 7225.748915999997,
+      "rows": [
+        {
+          "openMs": 3297.0091489999977,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "95fc9ba2-b28a-4ddd-a020-631b503804b4",
+                "mirrorMs": 38,
+                "uploadMs": 52,
+                "installMs": 3200,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3297
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "95fc9ba2-b28a-4ddd-a020-631b503804b4",
+                "sessions": 0,
+                "totalMs": 3233
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-candidate",
+      "concurrency": 1,
+      "load": [
+        1.1,
+        0.84,
+        1.17
+      ],
+      "wallIncludingCloseMs": 6321.261930000001,
+      "rows": [
+        {
+          "openMs": 2396.6171099999992,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "590b967f-5825-4ef8-9f29-7696f5223af8",
+                "mirrorMs": 35,
+                "uploadMs": 55,
+                "installMs": 2299,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2396
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "590b967f-5825-4ef8-9f29-7696f5223af8",
+                "sessions": 0,
+                "totalMs": 3222
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-baseline",
+      "concurrency": 1,
+      "load": [
+        1.09,
+        0.84,
+        1.17
+      ],
+      "wallIncludingCloseMs": 7568.187975999994,
+      "rows": [
+        {
+          "openMs": 3639.9010259999923,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "5d3b2047-6d10-4b3c-a1c3-0ce31cb5d0cc",
+                "mirrorMs": 35,
+                "uploadMs": 55,
+                "installMs": 3542,
+                "setupMs": 8,
+                "installed": true,
+                "totalMs": 3640
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "5d3b2047-6d10-4b3c-a1c3-0ce31cb5d0cc",
+                "sessions": 0,
+                "totalMs": 3230
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-candidate",
+      "concurrency": 1,
+      "load": [
+        1.23,
+        0.88,
+        1.18
+      ],
+      "wallIncludingCloseMs": 6280.803348999994,
+      "rows": [
+        {
+          "openMs": 2371.0135569999984,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "7cbde61d-6ecb-419e-9b4b-1951b1cc2386",
+                "mirrorMs": 38,
+                "uploadMs": 58,
+                "installMs": 2267,
+                "setupMs": 8,
+                "installed": true,
+                "totalMs": 2371
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "7cbde61d-6ecb-419e-9b4b-1951b1cc2386",
+                "sessions": 0,
+                "totalMs": 3210
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-baseline",
+      "concurrency": 1,
+      "load": [
+        1.13,
+        0.86,
+        1.17
+      ],
+      "wallIncludingCloseMs": 7234.6114249999955,
+      "rows": [
+        {
+          "openMs": 3328.2929139999906,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "4c9f7940-c0cb-4df1-8613-49ec1a03809a",
+                "mirrorMs": 40,
+                "uploadMs": 58,
+                "installMs": 3223,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3328
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "4c9f7940-c0cb-4df1-8613-49ec1a03809a",
+                "sessions": 0,
+                "totalMs": 3215
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "warm-store-candidate",
+      "concurrency": 1,
+      "load": [
+        1.12,
+        0.87,
+        1.17
+      ],
+      "wallIncludingCloseMs": 6275.661997000003,
+      "rows": [
+        {
+          "openMs": 2358.290636000005,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "de621c22-a549-4f1d-8fe2-2f5cdd9e1b69",
+                "mirrorMs": 38,
+                "uploadMs": 54,
+                "installMs": 2259,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2358
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "de621c22-a549-4f1d-8fe2-2f5cdd9e1b69",
+                "sessions": 0,
+                "totalMs": 3214
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-baseline",
+      "concurrency": 2,
+      "load": [
+        1.09,
+        0.87,
+        1.17
+      ],
+      "wallIncludingCloseMs": 7461.432090000002,
+      "rows": [
+        {
+          "openMs": 3558.0590559999982,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "bc35613e-66ae-4445-adb8-571f3a3198bb",
+                "mirrorMs": 42,
+                "uploadMs": 55,
+                "installMs": 3456,
+                "setupMs": 5,
+                "installed": true,
+                "totalMs": 3558
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "bc35613e-66ae-4445-adb8-571f3a3198bb",
+                "sessions": 0,
+                "totalMs": 3215
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 3566.879457999996,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "2081500e-10f3-40a4-812c-12853f968fac",
+                "mirrorMs": 41,
+                "uploadMs": 57,
+                "installMs": 3460,
+                "setupMs": 5,
+                "installed": true,
+                "totalMs": 3563
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "2081500e-10f3-40a4-812c-12853f968fac",
+                "sessions": 0,
+                "totalMs": 3206
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-candidate",
+      "concurrency": 2,
+      "load": [
+        1.01,
+        0.86,
+        1.17
+      ],
+      "wallIncludingCloseMs": 6578.248089999994,
+      "rows": [
+        {
+          "openMs": 2679.8876969999983,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "bd6c0b6d-0fdc-4fc6-b34a-f7b0fc08346b",
+                "mirrorMs": 38,
+                "uploadMs": 56,
+                "installMs": 2579,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2680
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "bd6c0b6d-0fdc-4fc6-b34a-f7b0fc08346b",
+                "sessions": 0,
+                "totalMs": 3203
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 2682.3349339999986,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "22a1020d-31cf-4450-97dc-70bf00aa3959",
+                "mirrorMs": 46,
+                "uploadMs": 51,
+                "installMs": 2576,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 2679
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "22a1020d-31cf-4450-97dc-70bf00aa3959",
+                "sessions": 0,
+                "totalMs": 3206
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-baseline",
+      "concurrency": 2,
+      "load": [
+        2.42,
+        1.17,
+        1.27
+      ],
+      "wallIncludingCloseMs": 7419.340056999994,
+      "rows": [
+        {
+          "openMs": 3489.008673999997,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "b70cec84-1fce-4234-be6c-b261d4429452",
+                "mirrorMs": 46,
+                "uploadMs": 54,
+                "installMs": 3383,
+                "setupMs": 5,
+                "installed": true,
+                "totalMs": 3488
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "b70cec84-1fce-4234-be6c-b261d4429452",
+                "sessions": 0,
+                "totalMs": 3229
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 3518.197352999996,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "a215acdd-3d4e-4222-b500-f949209c7546",
+                "mirrorMs": 55,
+                "uploadMs": 54,
+                "installMs": 3400,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3516
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "a215acdd-3d4e-4222-b500-f949209c7546",
+                "sessions": 0,
+                "totalMs": 3201
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-candidate",
+      "concurrency": 2,
+      "load": [
+        2.23,
+        1.15,
+        1.26
+      ],
+      "wallIncludingCloseMs": 6540.443743999989,
+      "rows": [
+        {
+          "openMs": 2636.7087309999915,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "751a380e-6f03-4049-b2f5-1279ed2ac9fd",
+                "mirrorMs": 38,
+                "uploadMs": 55,
+                "installMs": 2539,
+                "setupMs": 5,
+                "installed": true,
+                "totalMs": 2637
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "751a380e-6f03-4049-b2f5-1279ed2ac9fd",
+                "sessions": 0,
+                "totalMs": 3203
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 2639.8187259999977,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "6d9c8520-71d2-4700-b6f0-13522f9461fd",
+                "mirrorMs": 46,
+                "uploadMs": 53,
+                "installMs": 2531,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 2636
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "6d9c8520-71d2-4700-b6f0-13522f9461fd",
+                "sessions": 0,
+                "totalMs": 3162
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-baseline",
+      "concurrency": 2,
+      "load": [
+        2.37,
+        1.2,
+        1.27
+      ],
+      "wallIncludingCloseMs": 7349.49173400001,
+      "rows": [
+        {
+          "openMs": 3423.0198859999946,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "69523294-73c3-4a3d-a860-263f97db29d5",
+                "mirrorMs": 40,
+                "uploadMs": 55,
+                "installMs": 3322,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 3423
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "69523294-73c3-4a3d-a860-263f97db29d5",
+                "sessions": 0,
+                "totalMs": 3233
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 3441.538564000002,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "3fd8b743-7e76-48b2-b4e6-d31597afe3aa",
+                "mirrorMs": 45,
+                "uploadMs": 52,
+                "installMs": 3336,
+                "setupMs": 5,
+                "installed": true,
+                "totalMs": 3438
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "3fd8b743-7e76-48b2-b4e6-d31597afe3aa",
+                "sessions": 0,
+                "totalMs": 3223
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-candidate",
+      "concurrency": 2,
+      "load": [
+        4.98,
+        1.81,
+        1.47
+      ],
+      "wallIncludingCloseMs": 6670.889522000012,
+      "rows": [
+        {
+          "openMs": 2771.127139999997,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "b93db9de-ae23-4c87-8bcb-c9b620d41470",
+                "mirrorMs": 37,
+                "uploadMs": 54,
+                "installMs": 2673,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2771
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "b93db9de-ae23-4c87-8bcb-c9b620d41470",
+                "sessions": 0,
+                "totalMs": 3192
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 2768.279364999995,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "876de026-9f3e-44ac-864f-29256d20a845",
+                "mirrorMs": 44,
+                "uploadMs": 55,
+                "installMs": 2660,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 2765
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "876de026-9f3e-44ac-864f-29256d20a845",
+                "sessions": 0,
+                "totalMs": 3213
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-baseline",
+      "concurrency": 2,
+      "load": [
+        4.74,
+        1.82,
+        1.48
+      ],
+      "wallIncludingCloseMs": 7345.527750999987,
+      "rows": [
+        {
+          "openMs": 3472.9044220000214,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "509397ed-7190-402c-975b-71f8b95e95b2",
+                "mirrorMs": 40,
+                "uploadMs": 55,
+                "installMs": 3371,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3473
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "509397ed-7190-402c-975b-71f8b95e95b2",
+                "sessions": 0,
+                "totalMs": 3179
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 3412.874536999996,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "f287ffc8-4175-4eea-a611-8661cc4dd905",
+                "mirrorMs": 49,
+                "uploadMs": 54,
+                "installMs": 3300,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 3410
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "f287ffc8-4175-4eea-a611-8661cc4dd905",
+                "sessions": 0,
+                "totalMs": 3193
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-candidate",
+      "concurrency": 2,
+      "load": [
+        5,
+        1.92,
+        1.51
+      ],
+      "wallIncludingCloseMs": 6504.015939999983,
+      "rows": [
+        {
+          "openMs": 2629.315306000004,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "01f5732c-885f-4e5f-b3ad-2bd2ee1cb5d2",
+                "mirrorMs": 39,
+                "uploadMs": 56,
+                "installMs": 2527,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2629
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "01f5732c-885f-4e5f-b3ad-2bd2ee1cb5d2",
+                "sessions": 0,
+                "totalMs": 3155
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 2660.6494050000038,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "1bdc5f0d-2211-4fe9-ae44-025d91e914fd",
+                "mirrorMs": 47,
+                "uploadMs": 57,
+                "installMs": 2547,
+                "setupMs": 7,
+                "installed": true,
+                "totalMs": 2658
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "1bdc5f0d-2211-4fe9-ae44-025d91e914fd",
+                "sessions": 0,
+                "totalMs": 3137
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-baseline",
+      "concurrency": 2,
+      "load": [
+        4.45,
+        1.91,
+        1.51
+      ],
+      "wallIncludingCloseMs": 7108.405140999996,
+      "rows": [
+        {
+          "openMs": 3159.783220000012,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "d0c0039b-c878-4ad8-8b1d-66f47babff3a",
+                "mirrorMs": 39,
+                "uploadMs": 55,
+                "installMs": 3059,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 3159
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "d0c0039b-c878-4ad8-8b1d-66f47babff3a",
+                "sessions": 0,
+                "totalMs": 3206
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 3265.691759999987,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "3ac4cd74-7544-41a4-877b-b10ea050f3af",
+                "mirrorMs": 47,
+                "uploadMs": 55,
+                "installMs": 3154,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 3262
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "3ac4cd74-7544-41a4-877b-b10ea050f3af",
+                "sessions": 0,
+                "totalMs": 3145
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent-candidate",
+      "concurrency": 2,
+      "load": [
+        4.26,
+        1.91,
+        1.52
+      ],
+      "wallIncludingCloseMs": 6578.221920999989,
+      "rows": [
+        {
+          "openMs": 2645.341603000008,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "6b1abaf9-f951-4fc7-9b7b-8d48b1ba37f9",
+                "mirrorMs": 35,
+                "uploadMs": 55,
+                "installMs": 2550,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 2646
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "6b1abaf9-f951-4fc7-9b7b-8d48b1ba37f9",
+                "sessions": 0,
+                "totalMs": 3233
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        },
+        {
+          "openMs": 2705.2731739999726,
+          "events": [
+            {
+              "event": "box.opened",
+              "fields": {
+                "host": "local-fixture",
+                "box": "f2159bf0-f6d7-4c93-b467-1193d5817900",
+                "mirrorMs": 42,
+                "uploadMs": 54,
+                "installMs": 2600,
+                "setupMs": 6,
+                "installed": true,
+                "totalMs": 2702
+              }
+            },
+            {
+              "event": "box.closed",
+              "fields": {
+                "host": "local-fixture",
+                "box": "f2159bf0-f6d7-4c93-b467-1193d5817900",
+                "sessions": 0,
+                "totalMs": 3169
+              }
+            }
+          ],
+          "versions": {
+            "evlog": "2.29.0",
+            "h3": "2.0.1-rc.25"
+          },
+          "filesAndLinks": [
+            90267,
+            4179
+          ]
+        }
+      ]
+    }
+  ]
+}

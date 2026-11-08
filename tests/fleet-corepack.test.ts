@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { createSshBoxRuntime, localTransport } from '../server/fleet/ssh-box.ts'
 
-test('fleet Corepack cache survives failed and cancelled Boxes without sharing workspaces', async () => {
+test('fleet Corepack writes remain private across failed and cancelled Boxes', async () => {
   await mkdir('.data/tests', { recursive: true })
   const root = await mkdtemp(resolve('.data/tests/fleet-corepack-'))
   const checkout = join(root, 'checkout')
@@ -18,7 +18,6 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
   const runtime = createSshBoxRuntime({ host: 'test', transport: localTransport(), root: fleetRoot, path: process.env.PATH! })
   const input = { cwd: checkout, identity: 'test', plan: { env: {}, files: {}, state: [] }, requirements: [] }
   const plan = await runtime.prepare(input)
-  let cache = ''
   try {
     const first = await runtime.open(input, { executionAuthority: plan.executionAuthority })
     const firstWork = first.cwd
@@ -27,9 +26,8 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
       assert.equal(env.code, 0)
       assert.ok(env.stdout.startsWith(first.cwd.replace(/\/work$/, '/home/')))
       assert.equal((await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'], { env: { COREPACK_HOME: '/coordinator-only' } })).stdout, env.stdout)
-      cache = (await first.exec('readlink', ['-f', `${env.stdout}/v1`])).stdout.trim()
-      assert.ok(cache.startsWith(join(fleetRoot, 'pnpm-cache', 'corepack') + '/'))
-      await first.files.write(join(cache, 'marker'), Buffer.from('manager cache'))
+      await first.files.mkdir(join(env.stdout, 'v1'), { recursive: true })
+      await first.files.write(join(env.stdout, 'v1/marker'), Buffer.from('private manager changes'))
       await first.files.write(join(first.cwd, 'untracked'), Buffer.from('private workspace'))
     }
     finally { await first.close() }
@@ -44,8 +42,7 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
     try {
       assert.notEqual(second.cwd, firstWork)
       const managerHome = (await second.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
-      assert.equal((await second.exec('readlink', ['-f', `${managerHome}/v1`])).stdout.trim(), cache)
-      assert.equal(Buffer.from((await second.files.read(join(cache, 'marker')))!).toString(), 'manager cache')
+      assert.equal(await second.files.exists(join(managerHome, 'v1/marker')), false)
       assert.equal(await second.files.exists(join(second.cwd, 'untracked')), false)
       assert.equal((await second.exec('git', ['status', '--porcelain'])).stdout, '')
     }
@@ -56,7 +53,6 @@ test('fleet Corepack cache survives failed and cancelled Boxes without sharing w
       const env = await unpinned.exec('sh', ['-c', 'printf "%s\\n%s" "$COREPACK_HOME" "$HOME"'])
       const [corepack, home] = env.stdout.split('\n')
       assert.equal(corepack, `${home}/.cache/node/corepack`)
-      assert.notEqual(corepack, cache)
     }
     finally { await unpinned.close() }
   }

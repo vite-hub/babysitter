@@ -435,15 +435,16 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     const pin = await pinnedPackageManager(checkout)
     const pinKey = pin && createHash('sha256').update(pin).digest('hex')
     base.COREPACK_HOME = `${home}/.cache/node/corepack${pinKey ? `/${pinKey}` : ''}`
-    if (pinKey) {
-      // Corepack cache hits skip integrity checks. Share artifacts only for the same complete pin;
-      // its mutable default-version state stays in this Box's private Corepack Home.
-      const artifacts = `${options.root}/pnpm-cache/corepack/${pinKey}/v1`
-      await shell(`mkdir -p ${q(artifacts)} ${q(base.COREPACK_HOME)} && ln -sfn ${q(artifacts)} ${q(`${base.COREPACK_HOME}/v1`)}`, 'Corepack artifact cache setup', { signal: abortSignal })
-    }
     const command = await installCommand(checkout)
     if (!command) return true
-    const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { ${line} > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s; }`
+    // Corepack skips integrity checks on cache hits. Only runtime-owned downloads populate
+    // the shared seed; workers receive independent copies and can repair their manifests.
+    const cache = `${options.root}/pnpm-cache/corepack-seeds-v1/${pinKey}`
+    const seed = `set -e; cache="$1"; pin="$2"; if ! test -d "$cache/v1"; then seed=$(mktemp -d "$cache.tmp.XXXXXX"); trap 'rm -rf "$seed"' EXIT; COREPACK_HOME="$seed" corepack install --global --cache-only "$pin"; test -d "$seed/v1"; mv "$seed" "$cache"; fi`
+    const prepareCorepack = pin?.startsWith('pnpm@')
+      ? `if command -v corepack >/dev/null 2>&1; then mkdir -p ${q(`${options.root}/pnpm-cache/corepack-seeds-v1`)} ${q(base.COREPACK_HOME)} && flock ${q(`${cache}.lock`)} sh -c ${q(seed)} sh ${q(cache)} ${q(pin)} && rm -rf ${q(`${base.COREPACK_HOME}/v1`)} && cp -R ${q(`${cache}/v1`)} ${q(`${base.COREPACK_HOME}/v1`)}; fi`
+      : ':'
+    const script = (line: string) => `cd ${q(work)} && eval "$(cat)" && { { ${prepareCorepack}; } && ${line}; } > ${q(`${run}/install.log`)} 2>&1; s=$?; tail -c 4000 ${q(`${run}/install.log`)} >&2; exit $s`
     let result = await runScript(transport, script(command), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
     if (result.code !== 0 && !frozen) result = await runScript(transport, script(command.replace('--frozen-lockfile', '--no-frozen-lockfile')), { input: Buffer.from(exportsOf(environment())), signal: abortSignal })
     const record = (status: 'installed' | 'failed', reason?: string) => files.write(`${work}/.git/vitehub-install.json`, Buffer.from(JSON.stringify({ status, reason, at: new Date().toISOString() })), { signal: abortSignal })

@@ -35,15 +35,17 @@ try {
   execFileSync('git', ['-C', checkout, '-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'])
   const first = await open(true)
   try {
+    const firstHome = (await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
+    await first.files.write(`${firstHome}/v1/pnpm/10.33.0/worker-marker`, Buffer.from('private artifact changes'))
     const second = await open(false)
     try {
       assert.equal((await record(first)).status, 'installed')
       assert.equal((await record(second)).status, 'installed')
       const secondHome = (await second.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
+      assert.equal(await second.files.exists(`${secondHome}/v1/pnpm/10.33.0/worker-marker`), false)
       assert.equal(await second.files.exists(`${secondHome}/lastKnownGood.json`), false)
       const activate = await first.exec('corepack', ['install', '--global', 'pnpm@10.33.0'])
       assert.equal(activate.code, 0, activate.stderr)
-      const firstHome = (await first.exec('sh', ['-c', 'printf %s "$COREPACK_HOME"'])).stdout
       assert.equal(await first.files.exists(`${firstHome}/lastKnownGood.json`), true)
       assert.equal(await second.files.exists(`${secondHome}/lastKnownGood.json`), false)
       results.push({ check: 'same full pin reuses downloaded artifacts offline with private default state', passed: true })
@@ -60,6 +62,15 @@ try {
     assert.ok('reason' in failed && typeof failed.reason === 'string')
     assert.match(failed.reason, /Mismatch hashes/)
     results.push({ check: 'a different integrity pin is rejected after the valid version warms its cache', passed: true })
+    await invalid.files.write(`${invalid.cwd}/package.json`, Buffer.from(JSON.stringify({ name: 'corepack-isolation', private: true, packageManager: valid })))
+    const repair = await invalid.exec('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile'])
+    assert.equal(repair.code, 0, repair.stderr)
+    const unchangedBadPin = await open(false)
+    try {
+      assert.equal((await record(unchangedBadPin)).status, 'failed')
+      results.push({ check: 'repairing the manifest inside a failed Box cannot populate the original bad-pin cache', passed: true })
+    }
+    finally { await unchangedBadPin.close() }
   }
   finally { await invalid.close() }
   await setPin(valid)

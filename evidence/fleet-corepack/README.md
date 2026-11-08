@@ -1,35 +1,39 @@
-# Fleet Corepack artifact cache evidence
+# Fleet Corepack seed cache evidence
 
 [Public retained evidence](https://drop.vitehub.dev/d/j3hrmke8hqzp/babysitter-corepack-cache) for Babysitter PR #56.
 
-## Reviewed cache boundary
+## Cache boundary
 
-Each Box keeps a private `COREPACK_HOME`, including `lastKnownGood.json`. Only its `v1` artifact directory is linked to the persistent fleet cache. The shared directory is keyed by SHA-256 of the complete `packageManager` pin, including integrity. Different pins cannot populate each other's normal project cache. Unpinned projects use a private Home with no shared artifacts. A changed manifest selects the corresponding cache on dependency refresh. Every new Box still runs its frozen install in a separate workspace.
+Each Box has a private Corepack Home and private manager artifacts. For pinned pnpm with Corepack available, the runtime first prepares a canonical seed by running `corepack install --global --cache-only` with the complete pin in an empty temporary Home. Successful downloads publish atomically under a per-pin lock. The key includes the integrity hash. Failed downloads publish nothing. Each install copies the seed's `v1` into the private Box Home. Worker commands write only to that copy; no symlink or hard link connects it to the seed. The runtime refreshes the private copy when preparing changed dependencies. Other managers, unpinned projects and hosts without Corepack retain private state without seed reuse.
 
-The initial implementation at `51a4c9aec72141574bf4e4137c55f8fdf08e9893` shared all of Corepack Home. Independent reviews reproduced two defects: a warmed version bypassed a different requested hash, and one Box changed another's default version. That implementation is superseded. The files `samples.json`, `exploratory-samples.json`, `profile.json`, `behavior.json` and `regression-before.txt` describe that old implementation, not the fixed runtime.
+The cache uses a new `corepack-seeds-v1` namespace. It never consumes the earlier implementations' caches. Every Box still runs a frozen dependency install in its own workspace. Default-version state remains private.
 
-The updated runtime source SHA-256 is `bcf58400e102b14229d4a2ac27e4ab99202ecb12de56e1523c513d434e5c10d8`. Baseline runtime and fixture source are `daf551151753b5ac88d96356db231a2c338d643a`.
+Two earlier implementations are superseded. Commit `51a4c9a` shared all of Corepack Home, allowing integrity and default-version state to cross Boxes. Commit `9efac49f` separated full pins but linked worker-writable artifacts. Independent review showed that repairing a bad hash inside a Box then populated the original bad-pin bucket. The current runtime removes worker writes to shared artifacts entirely.
 
-## Fixed-runtime measurements
+Current runtime SHA-256: `4d7a367baf7bdd3914040c3385f6949f7edf2320c2ce747820c61101c5ec01b4`. Baseline runtime and benchmark checkout: `daf551151753b5ac88d96356db231a2c338d643a`.
 
-The rerun opened 32 Boxes with 32 successful installs and zero failures. Each materialized tree contained 90,267 files and 4,179 symlinks. Assertions check the installed imports, pinned pnpm version, exact lockfile bytes and Git HEAD outside the open timer. Close is also outside that timer.
+## Correctness
 
-| Box open, ms | Baseline median [min, max] | Fixed runtime median [min, max] | Samples per side |
+The real Corepack proof starts with an all-zero hash, observes the install failure, repairs only the Box's manifest and runs pnpm successfully, then opens another Box at the unchanged bad pin. That new Box still fails offline. The preceding implementation instead succeeded. See `seed-repair.json` and the checked-in `scripts/check-corepack-isolation.ts`.
+
+The same real check proves correct-pin offline reuse, private default-version state, private artifact mutations, warm-cache rejection of a different integrity hash, and recovery after failure. See `seed-isolation.json`. The changed focused regression fails on the preceding implementation's assertion and passes here. All three focused tests pass.
+
+The full 189-test suite, eight real dependency-install checks, build and package typecheck pass. The real dependency checks cover changed lockfiles, unchanged refreshes, concurrent workspaces, failed installs, repaired inputs, version changes, offline misses/reuse, cancellation and cleanup. Strict checks include the benchmark, both check scripts and the regression test. The current cache boundary still needs independent review.
+
+## Measurements
+
+The completed run opened 32 Boxes with 32 successful installs and zero failures. Every tree contains 90,267 files and 4,179 symlinks. Exact installed imports, lockfile bytes, pinned pnpm version and Git HEAD are asserted outside the open timer. Close is outside that timer too.
+
+| Box open, ms | Baseline median [min, max] | Seed/copy median [min, max] | Samples per side |
 | --- | ---: | ---: | ---: |
-| Warm store, serial | 3242.7 [2893.9, 3292.4] | 2354.9 [2345.4, 2403.1] | 5 |
-| Warm store, two concurrent | 3505.6 [3283.8, 5303.0] | 2738.4 [2540.4, 8827.5] | 10 |
+| Warm store, serial | 3323.5 [3261.2, 3639.9] | 2380.3 [2358.3, 2464.8] | 5 |
+| Warm store, two concurrent | 3457.2 [3159.8, 3566.9] | 2670.3 [2629.3, 2771.1] | 10 |
 
-Raw arrays, stage timings and load averages are in `review-fixed-samples.json`; exact summaries are in `review-fixed-summary.json`. Serial sides alternate within each pair. Concurrency is inconclusive, including a candidate outlier above eight seconds. Initial cold controls have different pnpm-store states and establish no cold speedup.
+Raw arrays, stage timings and host load are in `seed-samples.json`; exact summaries are in `seed-summary.json`. These local fixture measurements do not establish fleet throughput, provider startup or production latency. Both warm scenarios improve in this local run. Shared-host scheduling and real fleet throughput remain unverified.
 
-Conditions: shared Slimbook, Node 24.21.0, pnpm 10.33.0, Corepack 0.36.0, Linux, local shell transport, warm OS caches, registry network enabled, one initially empty fleet store for the run. Parent test/install validation jobs overlapped the beginning of the benchmark, so these are shared-host samples rather than isolated hardware timings. Artifact setup adds a transport command; its real SSH cost is unmeasured. The result does not establish fleet throughput, provider startup, a model turn or deployed latency.
+Shared Slimbook, local shell transport, warm OS cache, network enabled. Fixed baseline-first ordering within each serial pair; initial stores differ for cold controls. Parent validation completed before this run. Other agents and registry load uncontrolled. Close excluded from open timer. Node 24.21.0, pnpm 10.33.0, Corepack 0.36.0, Linux. Runtime preparation now adds a private artifact copy. Actual SSH cost is unmeasured.
 
-## Correctness checks
-
-- All three focused Corepack tests fail on assertions against the initial PR head and pass after the fix. They cover complete-pin artifact separation, private defaults, correct-pin reuse, environment filtering and failed/aborted workspace cleanup.
-- The actual Corepack reproduction warms the correct integrity pin, reuses it offline, then rejects the all-zero hash with `Mismatch hashes` in both warm and cold cases. Baseline rejects it too. See `review-fixed-integrity.json`.
-- Two concurrent cold opens succeed. After changing the default in one Box, the other has no `lastKnownGood.json` and selects the same unpinned version as baseline. See `review-fixed-defaults.json`.
-- The checked-in `check-corepack-isolation.ts` independently proves private defaults, offline same-pin reuse, incorrect-hash rejection and recovery using real Corepack. See `review-fixed-isolation.json`.
-- The full 189-test suite, eight real dependency-install checks, build and package typecheck pass. Strict checks include the benchmark, both check scripts and the regression file. Earlier independent reviews apply to the initial head; the fixed cache boundary still needs independent recheck.
+The files `samples.json`, `exploratory-samples.json`, `profile.json`, `behavior.json`, `regression-before.txt` and all `review-fixed-*.json` describe superseded implementations. They establish no result for this cache boundary.
 
 ## Reproduce
 
@@ -42,7 +46,7 @@ heavy node scripts/check-fleet-dependencies.ts
 heavy pnpm test
 heavy pnpm build
 heavy pnpm typecheck
-BENCH_BASE=daf551151753b5ac88d96356db231a2c338d643a BENCH_OUTPUT=.data/review-fixed-reproduction TRIALS=5 HEAVY_WAIT=0 heavy node scripts/bench-fleet-dependencies.ts
+BENCH_BASE=daf551151753b5ac88d96356db231a2c338d643a BENCH_OUTPUT=.data/seed-reproduction TRIALS=5 HEAVY_WAIT=0 heavy node scripts/bench-fleet-dependencies.ts
 ```
 
-The standalone pnpm binary case, actual fleet SSH, cancellation during the Corepack download, real provider startup and production are unverified. No dependency-tree reuse, production changes or live speedup are claimed.
+Actual SSH, cancellation during Corepack download, other Corepack versions and deployed performance remain unverified. No production changes or live speedup are claimed.

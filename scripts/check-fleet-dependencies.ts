@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createSshBoxRuntime, localTransport, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
 
@@ -39,10 +39,6 @@ async function installed(session: FleetBoxSession, version: number, manager = '1
 async function status(session: FleetBoxSession) { return JSON.parse(Buffer.from((await session.files.read(`${session.cwd}/.git/vitehub-install.json`))!).toString()).status }
 
 try {
-  const artifacts = join(fleetRoot, 'pnpm-cache', 'corepack', createHash('sha256').update('pnpm@10.33.0').digest('hex'), 'v1')
-  await mkdir(artifacts, { recursive: true })
-  await mkdir(cache, { recursive: true })
-  await symlink(artifacts, join(cache, 'v1'))
   for (const version of [1, 2]) {
     const pack = join(root, `pack-${version}`)
     await mkdir(join(pack, 'package'), { recursive: true })
@@ -52,6 +48,9 @@ try {
   }
   await setManifest(1)
   lockfile()
+  const artifacts = join(fleetRoot, 'pnpm-cache', 'corepack-seeds-v1', createHash('sha256').update('pnpm@10.33.0').digest('hex'), 'v1')
+  await mkdir(artifacts, { recursive: true })
+  await cp(join(cache, 'v1'), artifacts, { recursive: true })
   git('init', '-q')
   git('add', '.')
   git('-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture')
