@@ -125,6 +125,28 @@ test('a failed pass resets the workspace for the next pass on the same head', as
   assert.deepEqual([next.reused, next.reason], [false, 'failed-pass'])
 })
 
+test('a process exit during a warm pass invalidates the previous successful record', async t => {
+  const f = await fixture(t)
+  await f.pass(f.head, async entry => { await f.install(entry.work) })
+  // Exit without recording or releasing, as with a host crash or an OOM kill. The
+  // tracked tree stays clean, but dependencies may have been left half-written.
+  execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { createPullRequestWorkspaces, workspaceDecision } from ${JSON.stringify(pathToFileURL(join(dist, 'pr-workspaces.js')).href)};
+    import { writeFile } from 'node:fs/promises';
+    import { join } from 'node:path';
+    const workspaces = createPullRequestWorkspaces({ root: ${JSON.stringify(join(f.root, 'data', 'pr-workspaces'))} });
+    const entry = await workspaces.acquire('base/repo', 7);
+    if (!workspaceDecision(entry.previous, ${JSON.stringify(f.head)}, entry.existed).reuse) throw new Error('expected warm pass');
+    await writeFile(join(entry.work, 'node_modules', 'dep', 'index.js'), 'incomplete');
+    process.exit(0);
+  `], { stdio: 'pipe' })
+  const next = await f.pass(f.head, async entry => {
+    assert.equal(existsSync(join(entry.work, 'node_modules')), false)
+    assert.equal(existsSync(join(entry.work, '.git', 'vitehub-install.json')), false)
+  })
+  assert.deepEqual([next.reused, next.reason], [false, 'failed-pass'])
+})
+
 test('a dirty tree resets the workspace, and nothing a pass left in .git survives', async t => {
   const f = await fixture(t)
   await f.pass(f.head, async entry => {

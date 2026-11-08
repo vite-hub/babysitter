@@ -2267,10 +2267,10 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			return {
 diff --git a/dist/pr-workspaces.js b/dist/pr-workspaces.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..d4df48478c4db270e58c920f7e7a8bf422c48270
+index 0000000000000000000000000000000000000000..c21d89b07e5da94cca677890dbddc75ca65ce838
 --- /dev/null
 +++ b/dist/pr-workspaces.js
-@@ -0,0 +1,388 @@
+@@ -0,0 +1,391 @@
 +import { execFile } from "node:child_process";
 +import { lstat, mkdir, open, readFile, readdir, rename, rm, statfs, writeFile } from "node:fs/promises";
 +import { join, resolve } from "node:path";
@@ -2526,6 +2526,9 @@ index 0000000000000000000000000000000000000000..d4df48478c4db270e58c920f7e7a8bf4
 +				const work = join(directory, "work");
 +				await mkdir(checkout, { recursive: true });
 +				await mkdir(work, { recursive: true });
++				// Return the previous result for this pass's reuse decision, but invalidate it on disk
++				// before exposing the workspace: a process exit must not leave a successful record.
++				if (previous) await writeRecord(directory, { ...previous, ok: false });
 +				let released = false;
 +				return {
 +					directory,
