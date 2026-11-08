@@ -13,7 +13,7 @@ Package versions, APIs, and the pinned build stay unchanged. The existing Agent 
 | [vitehub#3725](https://github.com/vite-hub/vitehub/pull/3725), `4d6e23306706d6070b51e1307a9e299e849919dc` | `@vite-hub/workflow/dist/vite.js`, in `@vite-hub__workflow@0.0.4.patch`. | Full discovery still rejects colliding Agent Workflow names. Standalone discovery and the public Vite plugin generate a usable standalone registry despite an Agent with the same Workflow name. |
 | [vitehub#3726](https://github.com/vite-hub/vitehub/pull/3726), `c8c88030309f679a450e573ef7e8274efd922673` | `@vite-hub/agent/dist/invocations/sqlite.js`, extending `@vite-hub__agent@0.0.4.patch`. | Public libSQL store on a legacy schema uses the capability index, keeps exact matching and cursor pages, and finds legacy, appended, invalidated, and null-cache evidence. Timestamp-range queries retain the status/updated-at planner. |
 
-The independent behavior review of #3726 was still pending when this integration was requested. Its upstream standards review and owner validation were reported clear. The consumer tests here verify the backport separately; upstream review remains a parent integration check.
+Both independent reviews of #3726 passed at the pinned upstream head. The consumer tests here verify the compiled backport separately.
 
 ### Build-writer copies
 
