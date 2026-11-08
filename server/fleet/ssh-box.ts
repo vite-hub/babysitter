@@ -1,12 +1,12 @@
 // A Box runtime that runs repair passes on another machine over (Tailscale) SSH.
 // The coordinator keeps the GitHub credentials, the queue and the host checkout.
 // The remote host receives git objects through a per-repository mirror, a source
-// tarball without dependency trees, and installs dependencies from its own store.
+// overlay of Git metadata and changed files, and installs from its own dependency store.
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:os'
 import { createReadStream } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readdir, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, posix, relative } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -87,7 +87,11 @@ export async function runScript(transport: FleetTransport, script: string, optio
   child.stdout.on('data', chunk => stdout.push(chunk))
   child.stderr.on('data', chunk => stderr.push(chunk))
   child.stdin.on('error', () => {})
-  const stop = () => child.kill('SIGTERM')
+  const stop = () => {
+    if (options.input instanceof Readable) options.input.destroy()
+    child.stdin.destroy()
+    child.kill('SIGTERM')
+  }
   options.signal?.addEventListener('abort', stop, { once: true })
   const timer = options.timeout ? setTimeout(stop, options.timeout) : undefined
   if (options.input instanceof Readable) options.input.pipe(child.stdin)
@@ -100,6 +104,7 @@ export async function runScript(transport: FleetTransport, script: string, optio
   finally {
     clearTimeout(timer)
     options.signal?.removeEventListener('abort', stop)
+    if (options.input instanceof Readable) { options.input.unpipe(child.stdin); options.input.destroy() }
   }
 }
 
@@ -143,8 +148,88 @@ export function loopbackPorts(values: readonly string[], always: readonly number
   return [...ports].toSorted((a, b) => a - b)
 }
 
-const dependencyExcludes = ['--exclude=./.git/objects', '--exclude=node_modules', '--exclude=./.pnp.cjs', '--exclude=./.pnp.loader.mjs', '--exclude=./.pnp.data.json', '--exclude=./.yarn/cache', '--exclude=./.yarn/unplugged']
 const manifestNames = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', '.yarnrc.yml', 'bun.lock', 'bun.lockb'])
+
+/** Reuse only blobs whose raw bytes and mode match the host, including smudged files. */
+async function workspaceOverlay(checkout: string, head: string, signal?: AbortSignal) {
+  const tree = new Map((await hostGit(checkout, ['ls-tree', '-r', '-z', head])).toString('utf8').split('\0').filter(Boolean).map(record => {
+    const tab = record.indexOf('\t')
+    const [mode, kind, oid] = record.slice(0, tab).split(' ')
+    return [record.slice(tab + 1), { mode, kind, oid }]
+  }))
+  const tracked = new Set<string>()
+  const objects = new Set<string>()
+  for (const record of (await hostGit(checkout, ['ls-files', '--stage', '-z'])).toString('utf8').split('\0').filter(Boolean)) {
+    const tab = record.indexOf('\t')
+    const path = record.slice(tab + 1)
+    const [mode, oid] = record.slice(0, tab).split(' ')
+    tracked.add(path)
+    // Index entries need not be reachable from a commit, so the bundle can omit them.
+    if (mode !== '160000' && oid && oid !== tree.get(path)?.oid) objects.add(oid)
+  }
+  const parents = new Set<string>()
+  for (const path of new Set([...tracked, ...tree.keys()])) {
+    for (let parent = posix.dirname(path); parent !== '.'; parent = posix.dirname(parent)) parents.add(parent)
+  }
+  const excluded = (path: string) => path.split('/').includes('node_modules') || ['.pnp.cjs', '.pnp.loader.mjs', '.pnp.data.json', '.yarn/cache', '.yarn/unplugged'].some(name => path === name || path.startsWith(`${name}/`))
+  const paths: string[] = []
+  const files: string[] = []
+  const present = new Set<string>()
+  const remove = new Set<string>()
+  const times = new Map<number, string[]>()
+  const modes = new Map<number, string[]>()
+  const walk = async (directory: string) => {
+    for (const entry of await readdir(join(checkout, directory), { withFileTypes: true })) {
+      signal?.throwIfAborted()
+      const path = posix.join(directory, entry.name)
+      if (path === '.git' || (excluded(path) && !tracked.has(path) && !tree.has(path) && !parents.has(path))) continue
+      present.add(path)
+      if (entry.isDirectory()) {
+        paths.push(path)
+        if (tree.get(path)?.kind === 'blob') remove.add(path)
+        await walk(path)
+      }
+      else files.push(path)
+    }
+  }
+  await walk('')
+  for (let at = 0; at < files.length; at += 16) {
+    await Promise.all(files.slice(at, at + 16).map(async path => {
+      signal?.throwIfAborted()
+      const expected = tree.get(path)
+      const entry = await lstat(join(checkout, path))
+      const mode = entry.isSymbolicLink() ? '120000' : entry.mode & 0o111 ? '100755' : '100644'
+      if (expected?.kind === 'blob' && expected.mode === mode && (entry.isFile() || entry.isSymbolicLink())) {
+        const hash = createHash(head.length === 64 ? 'sha256' : 'sha1')
+        if (entry.isSymbolicLink()) {
+          const target = await readlink(join(checkout, path), { encoding: 'buffer' })
+          hash.update(`blob ${target.length}\0`).update(target)
+        }
+        else {
+          hash.update(`blob ${entry.size}\0`)
+          for await (const chunk of createReadStream(join(checkout, path), { signal })) hash.update(chunk)
+        }
+        if (hash.digest('hex') === expected.oid) {
+          const seconds = Math.floor(entry.mtimeMs / 1000)
+          const group = times.get(seconds) ?? []
+          group.push(path)
+          times.set(seconds, group)
+          if (entry.isFile()) {
+            const permissions = entry.mode & 0o777
+            const group = modes.get(permissions) ?? []
+            group.push(path)
+            modes.set(permissions, group)
+          }
+          return
+        }
+      }
+      paths.push(path)
+      remove.add(path)
+    }))
+  }
+  for (const [path, entry] of tree) if (entry.kind === 'blob' && !present.has(path)) remove.add(path)
+  return { paths: paths.toSorted(), remove: [...remove].toSorted(), objects: [...objects].toSorted(), times, modes }
+}
 
 async function hostGit(checkout: string, args: string[], input?: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GH_|GITHUB_|GIT_)/i.test(key)))
@@ -296,7 +381,6 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   const live = new Set<ChildProcessWithoutNullStreams>()
   let closing: Promise<void> | undefined
   const assertOpen = () => { if (closing) throw new Error('[fleet] Box session is closed.') }
-  let mirror: string | undefined
   let generatedCodexConfig = false
   // Hash of the dependency inputs of the last successful install in this Box. A refresh with the
   // same inputs reuses it: 2026-10-19 fleet refreshes reinstalled every time, p50 30 s.
@@ -397,7 +481,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
   /** Bring the mirror up to date with every object reachable in the host checkout. */
   const syncObjects = async (checkout: string, abortSignal?: AbortSignal) => {
     const origin = (await hostGit(checkout, ['config', '--get', 'remote.origin.url']).then(value => value.toString().trim(), () => '')) || checkout
-    mirror = `${options.root}/git/${createHash('sha256').update(origin).digest('hex').slice(0, 16)}.git`
+    const mirror = `${options.root}/git/${createHash('sha256').update(origin).digest('hex').slice(0, 16)}.git`
     const lock = `${mirror}.lock`
     const known = await shell(`mkdir -p ${q(`${options.root}/git`)} && flock ${q(lock)} sh -c 'test -d "$1" || git init -q --bare "$1"; git -C "$1" config gc.auto 0; git -C "$1" for-each-ref --format="%(objectname)" refs/fleet/known' sh ${q(mirror)}`, 'mirror preparation', { signal: abortSignal })
     const tips = known.stdout.toString('utf8').split('\n').filter(line => /^[0-9a-f]{40,64}$/.test(line))
@@ -411,9 +495,10 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
         if (String(error.stderr ?? '').includes('empty bundle')) return false
         throw new Error(`[fleet] git bundle failed: ${String(error.stderr ?? error)}`)
       })
-      if (!created) return
+      if (!created) return mirror
       const incoming = `refs/fleet/incoming/${id}`
       await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; set -- "$1" "$2" "$3" "+refs/*:$3/*"; if git bundle list-heads "$2" | grep -q " HEAD$"; then set -- "$@" "+HEAD:$3/HEAD"; fi; m="$1"; f="$2"; i="$3"; shift 3; git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" "$@"; set -- "$m" "$f" "$i"; git -C "$1" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$3/" | sort -u | git -C "$1" update-ref --stdin; git -C "$1" for-each-ref --format="delete %(refname)" "$3/" | git -C "$1" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
+      return mirror
     }
     finally {
       await rm(scratch, { recursive: true, force: true })
@@ -445,12 +530,61 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
     throw new Error(failure)
   }
 
-  /** Copy host-side files into the Box work tree as one tarball. */
-  const uploadPaths = async (checkout: string, paths: readonly string[], abortSignal?: AbortSignal) => {
-    if (!paths.length) return
-    const tar = spawn('tar', ['-C', checkout, '--null', '--no-recursion', '--ignore-failed-read', '-T', '-', '-czf', '-'], { stdio: ['pipe', 'pipe', 'ignore'] })
-    tar.stdin.end(paths.map(path => `${path}\0`).join(''))
-    await shell(`tar -C ${q(work)} --no-same-owner -xzf -`, 'manifest upload', { input: tar.stdout, signal: abortSignal })
+  const uploadPaths = async (checkout: string, paths: readonly string[], abortSignal?: AbortSignal, metadata?: Pick<Awaited<ReturnType<typeof workspaceOverlay>>, 'times' | 'modes'>) => {
+    if (!paths.length && !metadata) return
+    abortSignal?.throwIfAborted()
+    const scratch = metadata ? await mkdtemp(join(tmpdir(), 'vitehub-fleet-times-')) : undefined
+    const name = `vitehub-fleet-times-${id}`
+    const args = ['-C', checkout, '--exclude=./.git/objects', '-czf', '-', ...(metadata ? ['./.git'] : []), '--null', '--no-recursion', '--ignore-failed-read', '-T', '-']
+    try {
+      if (scratch && metadata) {
+        const commands = ['set -e']
+        // Match tar's second-resolution mtimes, including symlinks, without resending file data.
+        for (const [seconds, names] of [...metadata.times].toSorted(([a], [b]) => a - b)) {
+          const sorted = names.toSorted()
+          for (let at = 0; at < sorted.length; at += 128) commands.push(`touch -h -m -d @${seconds} -- ${sorted.slice(at, at + 128).map(path => q(`./${path}`)).join(' ')}`)
+        }
+        for (const [mode, names] of [...metadata.modes].toSorted(([a], [b]) => a - b)) {
+          const sorted = names.toSorted()
+          for (let at = 0; at < sorted.length; at += 128) commands.push(`chmod ${mode.toString(8)} -- ${sorted.slice(at, at + 128).map(path => q(`./${path}`)).join(' ')}`)
+        }
+        await writeFile(join(scratch, name), `${commands.join('\n')}\n`)
+        args.push('-C', scratch, `--transform=s|^${name}$|.git/${name}|`, name)
+      }
+      await sendArchive(args)
+    }
+    finally { if (scratch) await rm(scratch, { recursive: true, force: true }) }
+
+    async function sendArchive(args: string[]) {
+      abortSignal?.throwIfAborted()
+      const tar = spawn('tar', args, { detached: true, stdio: ['pipe', 'pipe', 'pipe'] })
+      let stderr = ''
+      let closed = false
+      tar.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-2000) })
+      tar.stdin.on('error', () => {})
+      const exited = exitCode(tar).finally(() => { closed = true })
+      const stop = () => {
+        if (!closed && tar.pid) {
+          try { process.kill(-tar.pid, 'SIGTERM') }
+          catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error }
+        }
+        tar.stdout.destroy()
+        tar.stdin.destroy()
+      }
+      abortSignal?.addEventListener('abort', stop, { once: true })
+      tar.stdin.end(paths.map(path => `./${path}\0`).join(''))
+      try {
+        if (abortSignal?.aborted) stop()
+        const restoreMetadata = metadata ? ` && cd ${q(work)} && sh ${q(`.git/${name}`)} && rm -f ${q(`.git/${name}`)}` : ''
+        const [, code] = await Promise.all([shell(`tar -C ${q(work)} --no-same-owner -xzf -${restoreMetadata}`, metadata ? 'workspace upload' : 'manifest upload', { input: tar.stdout, signal: abortSignal }), exited])
+        if (code !== 0) throw new Error(`[fleet] Workspace archive failed (${code}): ${stderr.trim()}`)
+      }
+      finally {
+        abortSignal?.removeEventListener('abort', stop)
+        stop()
+        await exited.catch(() => undefined)
+      }
+    }
   }
 
   const session: FleetBoxSession & { materialize(input: BoxRuntimeInput, abortSignal?: AbortSignal): Promise<void> } = {
@@ -469,12 +603,33 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       let stepAt = startedAt
       const step = (name: string) => { const at = Date.now(); timings[`${name}Ms`] = at - stepAt; stepAt = at }
       await shell(`mkdir -p ${q(home)} ${q(work)} ${q(tmp)} && umask 077 && mkdir -p ${q(run)}`, 'Box directory creation', { signal: abortSignal })
-      await syncObjects(checkout, abortSignal)
+      const mirror = await syncObjects(checkout, abortSignal)
       step('mirror')
       const head = (await hostGit(checkout, ['rev-parse', 'HEAD'])).toString().trim()
-      // The source tree and Git metadata, without objects or dependency trees.
-      const tar = spawn('tar', ['-C', checkout, ...dependencyExcludes, '-czf', '-', '.'], { stdio: ['ignore', 'pipe', 'ignore'] })
-      const unpacked = await shell(`tar -C ${q(work)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: tar.stdout, signal: abortSignal })
+      const overlay = await workspaceOverlay(checkout, head, abortSignal)
+      if (overlay.objects.length) {
+        const scratch = await mkdtemp(join(tmpdir(), 'vitehub-fleet-index-'))
+        try {
+          const prefix = join(scratch, 'index')
+          const hash = (await hostGit(checkout, ['pack-objects', prefix], `${overlay.objects.join('\n')}\n`)).toString().trim()
+          await shell(`flock ${q(`${mirror}.lock`)} git -C ${q(mirror)} index-pack --stdin`, 'index object transfer', { input: createReadStream(`${prefix}-${hash}.pack`), signal: abortSignal })
+        }
+        finally { await rm(scratch, { recursive: true, force: true }) }
+      }
+      // A private Git directory disables export attributes without changing the shared mirror.
+      const source = `${run}/source.git`
+      await shell(`set -e
+git init -q --bare --object-format=${head.length === 64 ? 'sha256' : 'sha1'} ${q(source)}
+printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${source}/objects/info/alternates`)}
+printf '%s\\n' '* -export-ignore -export-subst' > ${q(`${source}/info/attributes`)}
+git --git-dir=${q(source)} archive --format=tar --output=${q(`${run}/source.tar`)} ${q(head)}
+tar -C ${q(work)} --no-same-owner -xf ${q(`${run}/source.tar`)}
+cat > ${q(`${run}/remove`)}
+cd ${q(work)}
+xargs -0 -r rm -rf -- < ${q(`${run}/remove`)}
+rm -rf ${q(source)} ${q(`${run}/source.tar`)} ${q(`${run}/remove`)}`, 'source materialization', { input: Buffer.from(overlay.remove.map(path => `./${path}\0`).join('')), signal: abortSignal })
+      await uploadPaths(checkout, overlay.paths, abortSignal, overlay)
+      const unpacked = await shell(`mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} rev-parse HEAD`, 'workspace HEAD verification', { signal: abortSignal })
       if (unpacked.stdout.toString().trim() !== head) throw new Error(`[fleet] Box HEAD does not match the host checkout ${head}.`)
       step('upload')
       const inputs = await dependencyInputsHash(checkout, await dependencyInputs(checkout))

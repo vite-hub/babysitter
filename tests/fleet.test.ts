@@ -3,11 +3,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, chmodSync, symlinkSync, readlinkSync, statSync, lstatSync, utimesSync, lutimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFleet, FleetCapacityError, parseFleetHosts, remoteCodexConfig } from '../server/fleet/fleet.ts'
-import { createSshBoxRuntime, localTransport, loopbackPorts, remapLoopback, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
+import { createSshBoxRuntime, localTransport, loopbackPorts, q, remapLoopback, type FleetBoxSession } from '../server/fleet/ssh-box.ts'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim()
 
@@ -291,6 +292,175 @@ test('a fleet Box mirrors the checkout without dependency trees and round-trips 
   assert.equal((await again.session.exec('git', ['log', '--format=%s', '-2'])).stdout.trim(), 'next\nbase')
   await again.session.close()
   rmSync(root, { recursive: true, force: true })
+})
+
+test('fleet materialization reuses mirrored blobs and preserves the exact working tree and index', async () => {
+  const { root, work } = checkout()
+  writeFileSync(join(work, 'large.bin'), randomBytes(512 * 1024))
+  writeFileSync(join(work, '.gitignore'), 'node_modules\ndist\n')
+  mkdirSync(join(work, 'dist'))
+  writeFileSync(join(work, 'dist', 'generated.js'), 'tracked generated output\n')
+  writeFileSync(join(work, '.pnp.cjs'), 'tracked package input\n')
+  writeFileSync(join(work, 'private.txt'), 'private input\n')
+  writeFileSync(join(work, '.gitattributes'), 'dist/** export-ignore\nsubstitute.txt export-subst\ncrlf.txt text eol=crlf\n')
+  writeFileSync(join(work, 'crlf.txt'), 'line\n')
+  symlinkSync('large.bin', join(work, 'link-to-large'))
+  writeFileSync(join(work, 'substitute.txt'), '$Format:%H$\n')
+  writeFileSync(join(work, 'becomes-directory'), 'file\n')
+  mkdirSync(join(work, 'becomes-file'))
+  writeFileSync(join(work, 'becomes-file', 'child'), 'child\n')
+  mkdirSync(join(work, 'becomes-symlink'))
+  writeFileSync(join(work, 'becomes-symlink', 'secret'), 'tracked content\n')
+  git(work, 'add', '-f', '.gitignore', 'large.bin', 'dist/generated.js', '.pnp.cjs', 'private.txt', '.gitattributes', 'crlf.txt', 'link-to-large', 'substitute.txt', 'becomes-directory', 'becomes-file', 'becomes-symlink')
+  git(work, 'commit', '-qm', 'inputs')
+  utimesSync(join(work, 'large.bin'), 1_600_000_000, 1_600_000_000)
+  lutimesSync(join(work, 'link-to-large'), 1_500_000_000, 1_500_000_000)
+  writeFileSync(join(work, 'crlf.txt'), 'line\r\n')
+  chmodSync(join(work, 'private.txt'), 0o600)
+  writeFileSync(join(work, 'a.txt'), 'staged\n')
+  git(work, 'add', 'a.txt')
+  writeFileSync(join(work, 'a.txt'), 'unstaged\n')
+  rmSync(join(work, 'gone.txt'))
+  rmSync(join(work, 'becomes-directory'))
+  mkdirSync(join(work, 'becomes-directory'))
+  writeFileSync(join(work, 'becomes-directory', 'new'), 'new child\n')
+  rmSync(join(work, 'becomes-file'), { recursive: true })
+  writeFileSync(join(work, 'becomes-file'), 'replacement\n')
+  rmSync(join(work, 'becomes-symlink'), { recursive: true })
+  mkdirSync(join(root, 'outside'))
+  writeFileSync(join(root, 'outside', 'secret'), 'coordinator secret\n')
+  symlinkSync('../outside', join(work, 'becomes-symlink'))
+  writeFileSync(join(work, 'dist', 'required-untracked.json'), '{"required":true}\n')
+  writeFileSync(join(work, 'name\nwith newline'), 'required input\n')
+  chmodSync(join(work, 'a.txt'), 0o755)
+  const stages = ['base stage\n', 'our stage\n', 'their stage\n'].map(contents => {
+    writeFileSync(join(root, 'stage'), contents)
+    return git(work, 'hash-object', '-w', join(root, 'stage'))
+  })
+  execFileSync('git', ['-C', work, 'update-index', '--index-info'], { input: stages.map((oid, stage) => `100644 ${oid} ${stage + 1}\tconflict.txt\n`).join('') })
+  writeFileSync(join(work, 'conflict.txt'), '<<<<<<< ours\nour stage\n=======\ntheir stage\n>>>>>>> theirs\n')
+  writeFileSync(join(work, '.git', 'MERGE_HEAD'), `${git(work, 'rev-parse', 'HEAD')}\n`)
+  const archives: Buffer[] = []
+  const transport = { start(script: string) {
+    const child = localTransport().start(script)
+    if (script.includes('-xzf -')) {
+      const chunks: Buffer[] = []
+      child.stdin.on('pipe', source => source.on('data', (chunk: Buffer) => chunks.push(chunk)))
+      child.once('close', () => archives.push(Buffer.concat(chunks)))
+    }
+    return child
+  } }
+  const runtime = createSshBoxRuntime({ host: 'test', transport, root: join(root, 'remote'), path: process.env.PATH! })
+  const input = { cwd: work, identity: 'i', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+  const plan = await runtime.prepare(input)
+  const session = await runtime.open(input, { executionAuthority: plan.executionAuthority })
+  try {
+    const [archive] = archives
+    assert.ok(archive)
+    const names = execFileSync('tar', ['-tzf', '-'], { input: archive, encoding: 'utf8' })
+    assert.doesNotMatch(names, /\.\/large\.bin\n/)
+    assert.ok(archive.length < 32 * 1024, 'unchanged source blobs must not cross the transport twice')
+    assert.deepEqual(readFileSync(join(session.cwd, 'large.bin')), readFileSync(join(work, 'large.bin')))
+    assert.equal(statSync(join(session.cwd, 'large.bin')).mtimeMs, statSync(join(work, 'large.bin')).mtimeMs)
+    assert.equal(lstatSync(join(session.cwd, 'link-to-large')).mtimeMs, lstatSync(join(work, 'link-to-large')).mtimeMs)
+    assert.equal(readFileSync(join(session.cwd, 'crlf.txt'), 'utf8'), 'line\r\n')
+    assert.equal(statSync(join(session.cwd, 'private.txt')).mode & 0o777, 0o600)
+    assert.equal(readFileSync(join(session.cwd, 'dist', 'generated.js'), 'utf8'), 'tracked generated output\n')
+    assert.equal(readFileSync(join(session.cwd, '.pnp.cjs'), 'utf8'), 'tracked package input\n')
+    assert.equal(readFileSync(join(session.cwd, 'substitute.txt'), 'utf8'), '$Format:%H$\n')
+    assert.equal(readFileSync(join(session.cwd, 'a.txt'), 'utf8'), 'unstaged\n')
+    assert.equal(git(session.cwd, 'show', ':a.txt'), 'staged')
+    assert.equal(git(session.cwd, 'show', ':1:conflict.txt'), 'base stage')
+    assert.equal(git(session.cwd, 'show', ':2:conflict.txt'), 'our stage')
+    assert.equal(git(session.cwd, 'show', ':3:conflict.txt'), 'their stage')
+    assert.deepEqual(readFileSync(join(session.cwd, 'conflict.txt')), readFileSync(join(work, 'conflict.txt')))
+    assert.deepEqual(readFileSync(join(session.cwd, '.git', 'MERGE_HEAD')), readFileSync(join(work, '.git', 'MERGE_HEAD')))
+    assert.equal(existsSync(join(session.cwd, 'gone.txt')), false)
+    assert.equal(readFileSync(join(session.cwd, 'becomes-directory', 'new'), 'utf8'), 'new child\n')
+    assert.equal(readFileSync(join(session.cwd, 'becomes-file'), 'utf8'), 'replacement\n')
+    assert.equal(readlinkSync(join(session.cwd, 'becomes-symlink')), '../outside')
+    assert.doesNotMatch(names, /becomes-symlink\/secret/)
+    assert.equal(readFileSync(join(session.cwd, 'dist', 'required-untracked.json'), 'utf8'), '{"required":true}\n')
+    assert.equal(readFileSync(join(session.cwd, 'name\nwith newline'), 'utf8'), 'required input\n')
+    assert.equal(existsSync(join(session.cwd, 'node_modules')), false)
+    assert.equal(git(session.cwd, 'status', '--porcelain'), git(work, 'status', '--porcelain'))
+    assert.equal(git(session.cwd, 'ls-files', '--stage'), git(work, 'ls-files', '--stage'))
+    assert.equal(git(session.cwd, 'log', '--format=%s'), git(work, 'log', '--format=%s'))
+    writeFileSync(join(work, 'a.txt'), 'next sessions\n')
+    const concurrent = await Promise.all([open(root, work), open(root, work)])
+    try {
+      for (const { session: other } of concurrent) {
+        assert.equal(readFileSync(join(other.cwd, 'a.txt'), 'utf8'), 'next sessions\n')
+        assert.equal(git(other.cwd, 'show', ':2:conflict.txt'), 'our stage')
+      }
+      assert.equal(readFileSync(join(session.cwd, 'a.txt'), 'utf8'), 'unstaged\n')
+    }
+    finally { await Promise.all(concurrent.map(({ session: other }) => other.close())) }
+  }
+  finally {
+    await session.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fleet materialization rejects a failed local archiver even when the receiver extracts its output', async () => {
+  const { root, work } = checkout()
+  const bin = join(root, 'bin')
+  const realTar = execFileSync('which', ['tar'], { encoding: 'utf8' }).trim()
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'tar'), `#!/bin/sh\ncase "$*" in *-czf*) ${q(realTar)} "$@"; exit 17;; *) exec ${q(realTar)} "$@";; esac\n`, { mode: 0o755 })
+  const previousPath = process.env.PATH
+  process.env.PATH = `${bin}:${previousPath}`
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    await assert.rejects(async () => { opened = await open(root, work) }, /Workspace archive failed \(17\)/)
+    assert.deepEqual(execFileSync('find', [join(root, 'remote', 'boxes'), '-mindepth', '1', '-maxdepth', '1'], { encoding: 'utf8' }).trim(), '')
+    process.env.PATH = previousPath
+    opened = await open(root, work)
+    assert.equal(git(opened.session.cwd, 'rev-parse', 'HEAD'), git(work, 'rev-parse', 'HEAD'))
+  }
+  finally {
+    process.env.PATH = previousPath
+    await opened?.session.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('aborting a fleet upload stops its local archiver and removes the partial Box', { timeout: 15_000 }, async () => {
+  const { root, work } = checkout()
+  const bin = join(root, 'bin')
+  const pidFile = join(root, 'archive.pid')
+  const realTar = execFileSync('which', ['tar'], { encoding: 'utf8' }).trim()
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'tar'), `#!/bin/sh\ncase "$*" in *-czf*) echo $$ > ${q(pidFile)}; exec sleep 30;; *) exec ${q(realTar)} "$@";; esac\n`, { mode: 0o755 })
+  const previousPath = process.env.PATH
+  process.env.PATH = `${bin}:${previousPath}`
+  const controller = new AbortController()
+  const { runtime } = runtimeFor(root)
+  const input = { cwd: work, identity: 'i', plan: { env: {}, files: {}, state: [] }, requirements: [] }
+  const plan = await runtime.prepare(input)
+  const opening = runtime.open(input, { executionAuthority: plan.executionAuthority, signal: controller.signal })
+  const rejected = assert.rejects(opening, { name: 'AbortError' })
+  let pid: number | undefined
+  try {
+    const deadline = Date.now() + 5000
+    while (!existsSync(pidFile) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.ok(existsSync(pidFile), 'the local archiver must start before cancellation')
+    const archivePid = Number(readFileSync(pidFile, 'utf8').trim())
+    pid = archivePid
+    controller.abort()
+    await new Promise(resolve => setTimeout(resolve, 200))
+    assert.throws(() => process.kill(archivePid, 0), { code: 'ESRCH' })
+    await rejected
+    assert.equal(execFileSync('find', [join(root, 'remote', 'boxes'), '-mindepth', '1', '-maxdepth', '1'], { encoding: 'utf8' }).trim(), '')
+  }
+  finally {
+    controller.abort()
+    if (pid) { try { process.kill(pid, 'SIGKILL') } catch {} }
+    await rejected
+    process.env.PATH = previousPath
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('a fleet refresh reinstalls only when manifests, lockfile or patches changed since the last good install', async () => {
