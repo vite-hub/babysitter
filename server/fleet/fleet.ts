@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createSshBoxRuntime, pruneSessionArchive, q, runScript, sshTransport, type FleetTransport } from './ssh-box.ts'
+import { createSshBoxRuntime, killByHome, pruneSessionArchive, q, runScript, sshTransport, type FleetTransport } from './ssh-box.ts'
 
 export interface FleetHostConfig {
   /** Label used in logs and status. */
@@ -120,7 +120,7 @@ export function createFleet(options: FleetOptions) {
         // Boxes left by an earlier coordinator process have no owner. This process
         // is the only coordinator for this root, so stop and remove them.
         const root = `${home}/.vitehub-fleet/boxes`
-        await runScript(host.transport, `for f in ${q(root)}/*/run/*.pid; do test -f "$f" && kill -s KILL -- "-$(cat "$f")" 2>/dev/null; done; rm -rf ${q(root)}`, { timeout: 120_000 })
+        await runScript(host.transport, `for f in ${q(root)}/*/run/*.pid; do test -f "$f" && kill -s KILL -- "-$(cat "$f")" 2>/dev/null; done; ${killByHome(`${root}/`)}; rm -rf ${q(root)}`, { timeout: 120_000 })
         host.swept = true
         log('host.swept', { host: host.config.name })
       }
