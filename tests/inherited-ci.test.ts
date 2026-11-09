@@ -183,3 +183,12 @@ test('a narrower PR command still inherits the base failures it names, and only 
   assert.equal(sameActionFailure(pr(['FAIL @vite-hub/kv (build: failed (exit 2))']), base), false)
   assert.equal(sameActionFailure(pr([' Errors  2 errors']), base), false)
 })
+
+test('the live inherited-failure proof compares against the base branch tip, not the PR base.sha', () => {
+  // vitehub#3715's base.sha was a day-old commit with no ci run, so every fresh verification refused.
+  const source = readFileSync(join(dist, 'server-DZOuXkga.js'), 'utf8')
+  const verify = source.slice(source.indexOf('async function verifyInheritedMerge'), source.indexOf('async function requiredCheckState'))
+  assert.match(verify, /const \[baseSha\] = await readRest\(`repos\/\$\{repository\}\/git\/ref\/heads\/\$\{encodeURIComponent\(base\)\}`, "\.object\.sha", signal\)/)
+  assert.match(verify, /reviewed\?\.baseRefOid !== prBaseSha/)
+  assert.match(verify, /readInheritedBaseFailures\(fresh, signal, baseSha\)/)
+})
