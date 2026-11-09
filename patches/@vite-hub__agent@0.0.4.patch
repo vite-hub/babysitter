@@ -2260,10 +2260,33 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..592e341f23fe34fb2c9913d0796559df
 -export { createBabysitterProcessHost };
 +export { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, sweepBabysitterWorkspaces };
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d25db95e2 100644
+index 294f1e2c8555665b76c430601664183fd0a4606f..043aafaf61ec2bfb5d3e2dc91892ccc76a3d33c1 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
-@@ -741,6 +741,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -185,11 +185,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		}
+ 		return statements;
+ 	};
+-	/** Reads the observation rows of one invocation in the order that they extend its record. */
++	// Unary + sorts the selected rows instead of scanning payloads through the position index.
+ 	const observationRowsStatement = (id, observationNames) => ({
+ 		args: observationNames === void 0 ? [id] : [id, observationNames],
+ 		sql: `SELECT position, observation FROM ${observationTable}
+-      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`
++      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === void 0 ? "position" : "+position"}`
+ 	});
+ 	const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs);
+ 	const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords");
+@@ -569,6 +569,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
+       )`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+         ON ${observationTable} (invocation_sequence, position)`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
++        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`);
+ 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+         AFTER DELETE ON ${table}
+         BEGIN
+@@ -741,6 +743,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
  				args.push(...statuses);
  			}
@@ -2275,7 +2298,7 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			const agentName = listOptions.agentName?.trim();
  			if (agentName) {
  				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
-@@ -770,11 +775,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -770,11 +777,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				args.push(`%${escapeLike(search.toLowerCase())}%`);
  			}
  			args.push(limit + 1);
@@ -2291,6 +2314,26 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..240db3ff82923fbe4f81caf21bb1844d
  			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
  			const page = records.slice(0, limit);
  			return {
+diff --git a/dist/invocations-D_U9V1-3.js b/dist/invocations-D_U9V1-3.js
+index d974ac483402bc80ac4b27ef35e1560af158289a..3768c75dca76ba4f7d0c2574738cd1c7fdfe7e40 100644
+--- a/dist/invocations-D_U9V1-3.js
++++ b/dist/invocations-D_U9V1-3.js
+@@ -1865,12 +1865,9 @@ function createMemoryAgentInvocationStore() {
+ 		get(id, options) {
+ 			const record = records.get(id);
+ 			if (!record) return void 0;
+-			const cloned = cloneRecord(record);
+-			if (options?.observationNames) {
+-				const names = new Set(options.observationNames);
+-				cloned.observations = cloned.observations.filter((observation) => names.has(observation.name));
+-			}
+-			return cloned;
++			if (!options?.observationNames) return cloneRecord(record);
++			const names = new Set(options.observationNames);
++			return cloneRecord({ ...record, observations: record.observations.filter((observation) => names.has(observation.name)) });
+ 		},
+ 		getSummary(id) {
+ 			const record = records.get(id);
 diff --git a/dist/pr-workspaces.js b/dist/pr-workspaces.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..c21d89b07e5da94cca677890dbddc75ca65ce838

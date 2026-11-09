@@ -1,0 +1,543 @@
+Node 24.21.0, Linux, pnpm 10.33.0.
+Stack base: f91aba402bc4dbab8e2b8db840702429ca5e6c24, Babysitter #64.
+Validated implementation: 199e5151ed5afacf7799ee277eb824f5e4a6db9d.
+ViteHub package pin: 1ba6ed37a895e63d77e74695c7f7602fa96ffa7c.
+Journal source: d260a4c4b5a1d0475c50aceee503cbdff2ff0479, ViteHub #3766.
+Console source: 96c593e26fe2c514761c1fdc252d29907d0ede9c, ViteHub #3769.
+
+Frozen install with empty node_modules, .vitehub, .output, and an empty isolated pnpm store.
+$ pnpm install --frozen-lockfile --store-dir $TASK/fresh-store
+exit 0
+
+devDependencies:
++ @types/node 25.9.5
++ typescript 6.0.3
+
+╭ Warning ─────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   Ignored build scripts: @mongodb-js/zstd@7.0.0, @swc/core@1.15.3,           │
+│   cbor-extract@2.2.2, cpu-features@0.0.10, esbuild@0.18.20,                  │
+│   esbuild@0.25.12, esbuild@0.27.7, esbuild@0.28.2, msgpackr-extract@3.0.4,   │
+│   node-liblzma@2.2.0, ssh2@1.17.0, vue-demi@0.14.10.                         │
+│   Run "pnpm approve-builds" to pick which dependencies should be allowed     │
+│   to run scripts.                                                            │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Done in 7.4s using pnpm v10.33.0
+
+Install-input digests before install, after install, and after all gates are byte-identical.
+$ cmp install-before.sha256 install-after.sha256
+exit 0
+$ cmp install-before.sha256 install-after-gates.sha256
+exit 0
+
+Baseline consumer run replaces only the three journal/Console modules in memory with saved pre-backport sources. Corrected provider modules stay installed. Every test fails on its intended assertion.
+$ node --import $TASK/modules.mjs --test --test-reporter=spec tests/journal-console-performance.test.ts
+expected exit 1
+✖ memory journal clones only selected observation payloads for [] (3.638274ms)
+✖ memory journal clones only selected observation payloads for ["agent.invocation.finish"] (0.746867ms)
+✖ SQLite journal indexes selected names and returns append order across an additive reopen (181.032857ms)
+ℹ Selected observation query plan: [{"id":4,"parent":0,"notused":0,"detail":"SEARCH vitehub_agent_invocations_observations USING INDEX vitehub_agent_invocations_observations_invocation (invocation_sequence=?)"},{"id":7,"parent":0,"notused":0,"detail":"SCALAR SUBQUERY 1"},{"id":11,"parent":7,"notused":0,"detail":"SEARCH vitehub_agent_invocations USING COVERING INDEX sqlite_autoindex_vitehub_agent_invocations_1 (id=?)"},{"id":28,"parent":0,"notused":0,"detail":"LIST SUBQUERY 2"},{"id":30,"parent":28,"notused":0,"detail":"SCAN json_each VIRTUAL TABLE INDEX 1:"}]
+✖ Console resets an opaque legacy cursor once and resumes empty and appended polls (665.941825ms)
+✖ Console hashes 0 retained observations in bounded batches and resets a changed prefix (28.100968ms)
+✖ Console hashes 2 retained observations in bounded batches and resets a changed prefix (21.809881ms)
+✖ Console hashes 31 retained observations in bounded batches and resets a changed prefix (16.957666ms)
+✖ Console hashes 32 retained observations in bounded batches and resets a changed prefix (28.615469ms)
+✖ Console hashes 33 retained observations in bounded batches and resets a changed prefix (19.620306ms)
+✖ Console hashes 63 retained observations in bounded batches and resets a changed prefix (6.400712ms)
+✖ Console hashes 64 retained observations in bounded batches and resets a changed prefix (7.818152ms)
+✖ Console hashes 65 retained observations in bounded batches and resets a changed prefix (8.019599ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 0
+ℹ fail 12
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1804.204614
+
+✖ failing tests:
+
+test at tests/journal-console-performance.test.ts:45:3
+✖ memory journal clones only selected observation payloads for [] (3.638274ms)
+  AssertionError [ERR_ASSERTION]: excluded payloads must never be cloned
+
+  1 !== 0
+
+      at TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:59:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:45:3
+✖ memory journal clones only selected observation payloads for ["agent.invocation.finish"] (0.746867ms)
+  AssertionError [ERR_ASSERTION]: excluded payloads must never be cloned
+
+  1 !== 0
+
+      at TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:59:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:72:1
+✖ SQLite journal indexes selected names and returns append order across an additive reopen (181.032857ms)
+  AssertionError [ERR_ASSERTION]: [{"id":4,"parent":0,"notused":0,"detail":"SEARCH vitehub_agent_invocations_observations USING INDEX vitehub_agent_invocations_observations_invocation (invocation_sequence=?)"},{"id":7,"parent":0,"notused":0,"detail":"SCALAR SUBQUERY 1"},{"id":11,"parent":7,"notused":0,"detail":"SEARCH vitehub_agent_invocations USING COVERING INDEX sqlite_autoindex_vitehub_agent_invocations_1 (id=?)"},{"id":28,"parent":0,"notused":0,"detail":"LIST SUBQUERY 2"},{"id":30,"parent":28,"notused":0,"detail":"SCAN json_each VIRTUAL TABLE INDEX 1:"}]
+      at TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:104:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:132:1
+✖ Console resets an opaque legacy cursor once and resumes empty and appended polls (665.941825ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + true
+  - undefined
+
+      at TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:137:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 0 retained observations in bounded batches and resets a changed prefix (28.100968ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:139:22)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 2 retained observations in bounded batches and resets a changed prefix (21.809881ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 31 retained observations in bounded batches and resets a changed prefix (16.957666ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 32 retained observations in bounded batches and resets a changed prefix (28.615469ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 33 retained observations in bounded batches and resets a changed prefix (19.620306ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 63 retained observations in bounded batches and resets a changed prefix (6.400712ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 64 retained observations in bounded batches and resets a changed prefix (7.818152ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at tests/journal-console-performance.test.ts:151:3
+✖ Console hashes 65 retained observations in bounded batches and resets a changed prefix (8.019599ms)
+  AssertionError [ERR_ASSERTION]: serialize observations in arrays
+      at JSON.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:163:16)
+      at Object.apply (node:internal/test_runner/mock/mock:805:20)
+      at observationCursor (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:13:27)
+      at getConsoleInvocationDetail (file://$DEPS/vite-hub/dist/console/runtime/server/invocation.get.js:132:254)
+      at async TestContext.<anonymous> (file://$WORKTREE/tests/journal-console-performance.test.ts:170:22)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+
+$ pnpm test
+exit 0
+All test results and totals are retained below. Incidental fixture stderr, including local /proc permission noise, is omitted.
+✔ thread resolution and a council score table reuse the assessment while merge gates still run (8.547296ms)
+✔ readCheckLogs returns a complete requested tail or named range from a long failed-step log (25.789985ms)
+✔ checks stay running for GitHub queue and run limits, not 30 minutes (3.650247ms)
+✔ two minor automated-review rounds settle review like a spent push budget (2.456113ms)
+✔ settled automated review no longer waits for a running review (2.262942ms)
+✔ a CI check queued for hours still counts as running, unless it passed GitHub limits (713.326779ms)
+✔ settled review merges without waiting for a running review, and the result keeps its severity (1.664563ms)
+✔ compacting strips color codes and branch listings (2.135754ms)
+✔ compacting keeps the tail of an oversized log (11.016594ms)
+✔ the excerpt shows a failure after a long successful build (34.24042ms)
+✔ log readers use the large buffer and the failure excerpt (4.070133ms)
+✔ dependency preflight names changed inputs before validation and refresh preserves pending repairs (730.065346ms)
+✔ overlapping refresh retries share one install and a transport failure releases the refresh allowance (6.935702ms)
+✔ admission uses fresh local capacity while remote health is pending (255.365802ms)
+✔ admission uses a responsive remote without waiting for another host (379.186825ms)
+✔ placement bypasses a pending probe and keeps fair slot reservations (278.024341ms)
+✔ expired health admits only active reservations until a fresh probe recovers (307.706144ms)
+✔ local memory pressure retains active reservations without admitting local overflow (144.696106ms)
+✔ a Box failure invalidates placement already awaiting cached health (450.15605ms)
+✔ saturated hosts refresh without holding admission open (191.28948ms)
+✔ standalone pnpm installs without invoking an available Corepack (5245.613322ms)
+✔ cancelled Corepack downloads release their pin lock and remove staging files (3659.704547ms)
+✔ fleet Corepack writes remain private across failed and cancelled Boxes (19684.65821ms)
+✔ fleet Corepack integrity remain isolated between Boxes (7744.415185ms)
+✔ fleet Corepack defaults remain isolated between Boxes (7216.841558ms)
+✔ closing a Box kills processes that left its process group, and only those (6438.901264ms)
+✔ a Box installs a hook-checksummed lockfile frozen, without running the hook or changing the lockfile (1673.319369ms)
+✔ a lockfile without a hook checksum keeps the plain frozen install (5.181361ms)
+✔ copies the Codex session logs out of the Box before close removes it (5067.497139ms)
+✔ logs how long each Box step took (3584.076318ms)
+✔ prunes archived session logs older than the retention (3.342061ms)
+✔ parses host lists and drops empty slots (3.292678ms)
+✔ remote Codex config keeps providers and reads the bearer from the environment (0.74856ms)
+✔ forwards loopback ports named by the provider launch (0.742368ms)
+✔ provider processes use the host ports their tunnel was given (5137.797903ms)
+✔ fills local slots first, then healthy hosts, without overflowing local capacity (1405.894382ms)
+✔ keeps slot ceilings under concurrent placement requests (57.592906ms)
+✔ moves work to a healthy remote host when local memory is constrained (1490.726955ms)
+✔ limits remote admissions by memory and pressure without local overflow (69.214783ms)
+✔ admission refreshes local resources before the scheduler claims work (72.279325ms)
+✔ rejects a remote host under memory pressure (1337.141313ms)
+✔ a fleet Box mirrors the checkout without dependency trees and round-trips edits (15182.040428ms)
+✔ a fleet refresh reinstalls only when manifests, lockfile or patches changed since the last good install (3764.749881ms)
+✔ the patched framework caps dependency refreshes per pass (50.888517ms)
+✔ the patched framework accepts tunnelled Box runtimes and places passes before installing (51.547048ms)
+✔ App credentials preserve the immutable ID used by the host and activity channel (95.817037ms)
+✔ host activity reuses the original App comment across a rename and restart (25.238374ms)
+✔ renamed App activity webhooks do not wake a waiting PR, while real feedback does (21.014664ms)
+✔ a repaired inbox removes persisted App activity and keeps ordinary feedback (6.067007ms)
+✔ saved installation blockers share the worker session row and leave historical rows inactive (191.577399ms)
+✔ patched host ignores stale synthetic PR refs and checks out the current source fork branch (1622.940895ms)
+✔ the gate covers typecheck, test and dependency installs, not other package-manager commands (4.925032ms)
+✔ BABYSITTER_HEAVY_SLOTS heavy commands run at once, and the rest wait (3780.873599ms)
+✔ pnpm and npm installs through Corepack share the slots with typecheck and tests (2890.072188ms)
+✔ a command holding a slot runs nested heavy commands without waiting on itself (1246.231965ms)
+✔ missing slot locks fail closed, and missing extra slots fall back to the ones present (75.904365ms)
+✔ a pnpm 11 lockfile with two documents and hash-only patches installs (314.439458ms)
+✔ a manifest that names a missing patch file fails with a clear reason (16.284948ms)
+✔ pnpm supply-chain trust settings pass validation (163.721901ms)
+✔ an unknown trust policy value is still rejected (49.017588ms)
+✔ a proven inherited failure does not require another assessment to merge (3.439032ms)
+✔ own CI excludes only the exact inherited run, keeping PR regressions blocked (0.926122ms)
+✔ inherited CI does not waive required checks or unassessed review feedback (1.185958ms)
+✔ matching job names cannot hide different failures or unavailable logs (0.757055ms)
+✔ only the authorized required checks on ViteHub main accept inherited failure evidence (3.07448ms)
+✔ new runs, app bindings, status failures and pending checks cannot be waived (0.654875ms)
+✔ the inherited-check bypass preserves other branch protections (0.908368ms)
+✔ the merge request binds the bypass flag and exact head to GitHub’s receipt (2.117581ms)
+✔ failure evidence uses Actions job IDs, which differ from check-run IDs (1.763298ms)
+✔ failure comparison uses command output, excluding shell metadata and the generic exit code (2.865389ms)
+✔ the inherited-failure proof can read a large job log with escape sequences (2.274124ms)
+✔ a narrower PR command still inherits the base failures it names, and only those (0.926753ms)
+✔ the live inherited-failure proof compares against the base branch tip, not the PR base.sha (1.017623ms)
+✔ memory journal clones only selected observation payloads for [] (3.505587ms)
+✔ memory journal clones only selected observation payloads for ["agent.invocation.finish"] (3.716ms)
+✔ SQLite journal indexes selected names and returns append order across an additive reopen (233.311895ms)
+ℹ Selected observation query plan: [{"id":4,"parent":0,"notused":0,"detail":"SEARCH vitehub_agent_invocations_observations USING INDEX vitehub_agent_invocations_observations_invocation_name (invocation_sequence=? AND <expr>=?)"},{"id":7,"parent":0,"notused":0,"detail":"SCALAR SUBQUERY 1"},{"id":11,"parent":7,"notused":0,"detail":"SEARCH vitehub_agent_invocations USING COVERING INDEX sqlite_autoindex_vitehub_agent_invocations_1 (id=?)"},{"id":25,"parent":0,"notused":0,"detail":"LIST SUBQUERY 2"},{"id":27,"parent":25,"notused":0,"detail":"SCAN json_each VIRTUAL TABLE INDEX 1:"},{"id":56,"parent":0,"notused":0,"detail":"USE TEMP B-TREE FOR ORDER BY"}]
+✔ Console resets an opaque legacy cursor once and resumes empty and appended polls (803.3979ms)
+✔ Console hashes 0 retained observations in bounded batches and resets a changed prefix (51.959781ms)
+✔ Console hashes 2 retained observations in bounded batches and resets a changed prefix (54.206613ms)
+✔ Console hashes 31 retained observations in bounded batches and resets a changed prefix (32.231894ms)
+✔ Console hashes 32 retained observations in bounded batches and resets a changed prefix (51.890982ms)
+✔ Console hashes 33 retained observations in bounded batches and resets a changed prefix (26.782121ms)
+✔ Console hashes 63 retained observations in bounded batches and resets a changed prefix (20.565143ms)
+✔ Console hashes 64 retained observations in bounded batches and resets a changed prefix (19.351022ms)
+✔ Console hashes 65 retained observations in bounded batches and resets a changed prefix (18.452411ms)
+✔ a pending merge request is polled less often as it ages (1.043451ms)
+✔ a merge request still pending after 30 minutes stops with the reason (0.317925ms)
+✔ a stopped merge releases its fence, parks without a retry, and is not requested again on the same head (0.50805ms)
+✔ a valid hook-checksummed lockfile installs frozen without executing hooks or changing checkout inputs (1746.102535ms)
+✔ a pass on the head the previous pass pushed keeps the workspace and its dependencies (1562.697953ms)
+✔ a head pushed by someone else resets the workspace (589.290834ms)
+✔ a failed pass resets the workspace for the next pass on the same head (555.656477ms)
+✔ a process exit during a warm pass invalidates the previous successful record (508.600219ms)
+✔ a dirty tree resets the workspace, and nothing a pass left in .git survives (697.472446ms)
+✔ a workspace without a record or Git metadata starts over (563.578314ms)
+✔ a broken persistent clone is cloned again (486.697212ms)
+✔ the entry lock serializes passes on one PR (54.615528ms)
+✔ a terminal PR loses its workspace, and the inbox reports the transition (29.537094ms)
+✔ the sweep removes terminal, unknown and idle entries, then least recently used ones over budget (67.681666ms)
+✔ the sweep measures an entry whose size is older than its last pass (18.16857ms)
+✔ startup sweeps of TMPDIR and the legacy checkout pool leave the PR workspaces alone (39.299823ms)
+✔ the Babysitter pass runs in the PR workspace and records what it left (3.585776ms)
+✔ pool limits come from the environment with sane defaults (0.797271ms)
+✔ generated instruction cleanup tolerates a file that becomes remove (117.75043ms)
+✔ generated instruction cleanup tolerates a file that becomes conflict (245.945233ms)
+✔ the resume rule: warm workspace, a pass that pushed or waited, same base and release (3.07431ms)
+✔ a fresh pass drops the stored cursor, and a resumed pass reads it once (3.581188ms)
+✔ runProvider honors run.providerSession: a fresh run invalidates instead of consuming and reports back (1.570217ms)
+✔ a resumed thread still receives the full current PR snapshot (2.77473ms)
+✔ the Babysitter keeps the stable thread id in a PR workspace and records what may be resumed (1.404307ms)
+✔ a real provider run reads run.providerSession: it resumes a stored cursor, or drops it when fresh (1894.050393ms)
+✔ a private repository without rulesets or protection requires no checks (4.006153ms)
+✔ a 403 on a protected branch stays unknown (0.392123ms)
+✔ a 403 without a readable branch summary stays unknown (0.420266ms)
+✔ published Babysitter keeps the durable wait and review contract (1.282479ms)
+✔ published checkout code uses complete source history (3.404247ms)
+✔ published CI recovery and admission guards are present (2.223609ms)
+✔ published scheduler preserves active repairs across new webhook evidence (2.743442ms)
+✔ Babysitter can leave Actions untouched while keeping check evidence and merge gates (1.829712ms)
+✔ Pullfrog P2 and P3 findings alone do not block a merge (0.430375ms)
+✔ the main guardian opens repair PRs the Babysitter accepts (0.510955ms)
+✔ a declined review thread gets its reason as a reply before it is resolved (4.194445ms)
+✔ a fixed thread may omit the reason, and every other outcome needs one (1.498522ms)
+✔ an already resolved thread gets no reply (0.649064ms)
+✔ the worker tool requires an outcome and the third review round asks for a class-level fix (1.264185ms)
+✔ Workspace instance 1 reads mounted paths without inspecting siblings, reuse=false (336.020682ms)
+✔ Workspace instance 1 reads mounted paths without inspecting siblings, reuse=true (52.551278ms)
+✔ Workspace instance 2 reads mounted paths without inspecting siblings, reuse=false (272.574337ms)
+✔ Workspace instance 2 reads mounted paths without inspecting siblings, reuse=true (76.349857ms)
+✔ Agent skips schema-free snapshots and retains schema and direct-runtime mutation validation (699.73614ms)
+✔ agent retraces query overlap absent from some successful host variants (261.894573ms)
+✔ agent retraces computed overlap absent from some successful host variants (170.586248ms)
+✔ agent traces static dependencies once per host variant and retains their current bytes (279.342335ms)
+✔ database retraces query overlap absent from some successful host variants (165.769841ms)
+✔ database retraces computed overlap absent from some successful host variants (147.286791ms)
+✔ database traces static dependencies once per host variant and retains their current bytes (280.004744ms)
+✔ queue retraces query overlap absent from some successful host variants (138.223982ms)
+✔ queue retraces computed overlap absent from some successful host variants (92.67972ms)
+✔ queue traces static dependencies once per host variant and retains their current bytes (177.013349ms)
+✔ schedule retraces query overlap absent from some successful host variants (122.312211ms)
+✔ schedule retraces computed overlap absent from some successful host variants (129.399837ms)
+✔ schedule traces static dependencies once per host variant and retains their current bytes (159.281255ms)
+✔ workflow retraces query overlap absent from some successful host variants (104.559078ms)
+✔ workflow retraces computed overlap absent from some successful host variants (82.281432ms)
+✔ workflow traces static dependencies once per host variant and retains their current bytes (149.232811ms)
+✔ the admission token budget lists only invocations updated since its last read (5.779851ms)
+✔ check webhooks match pending heads in SQL instead of parsing every leased or waiting snapshot (1.138419ms)
+✔ stale CI evidence is deleted in SQL, and metadata prefixes read a key range (2.595174ms)
+✔ a version 1 inbox moves the JSON columns last and fills the pending-head columns (147.453944ms)
+✔ an updatedSince listing returns what a filtered walk of the whole journal returns (584.670412ms)
+✔ Agent State write transactions commit with synchronous NORMAL on a WAL file (92.382172ms)
+✔ scheduler includes the CI recovery lane and stack-aware queue state (5.251002ms)
+✔ admission pauses model passes while leaving durable host state visible (1.965596ms)
+✔ parks on one head count against the no-progress budget, and exhausted heads still merge (7.30948ms)
+✔ a cancelled model pass on one head counts against the no-progress budget (4.108004ms)
+✔ provider capacity has a bounded pending queue (1.358691ms)
+✔ a model quota cooldown keeps host merges running while GitHub limits stop the scheduler (6.762028ms)
+✔ a provider rate limit pauses model passes briefly and resumes them at lower concurrency (8.668683ms)
+✔ a pass that runs out of provider retries waits for the cooldown instead of failing the PR (1.954616ms)
+✔ PRs with a reviewed current head are claimed before model passes (1.220182ms)
+✔ a new main commit does not reopen an assessed review (5.742149ms)
+✔ an assessed bot thread left open does not block a green PR (1.958493ms)
+✔ a direct merge first updates a branch whose files changed on main after its checks ran (5.842256ms)
+✔ a live merge read waits for GitHub to compute mergeability (1.735075ms)
+✔ provider breaker ignores malformed JSON and recognizes HTTP rate limits (0.466373ms)
+✔ Codex usage limits enter quota recovery without failing the PR (0.272048ms)
+✔ dependency installs share a few slots and wait instead of discarding the checkout (2.087114ms)
+✔ a rejected lockfile waits for a new push instead of reinstalling every few minutes (1.965245ms)
+✔ a pass waits for checks that still run on its head, even beside an early failure (3.443871ms)
+✔ green PRs without a stored review are claimed before PRs that need model passes (1.940199ms)
+✔ failed checks from an older base get one model-free retest on the current base (6.756167ms)
+✔ inherited Actions failures are evaluated per run instead of parking behind main (3.422711ms)
+✔ a cancelled check run does not replace a finished run of the same check (1.422251ms)
+✔ a pass that reports its pushed head as reviewed records the feedback it inspected (0.992196ms)
+✔ an exhausted head gets one more pass for a new conflict or new bot feedback, once each (3.07972ms)
+✔ a repair-main PR never exhausts its no-progress budget (2.237104ms)
+✔ a pass whose wait loses to new bot evidence still counts (1.853527ms)
+✔ a conflict repair continues when its base only moved forward (0.847125ms)
+✔ transient GitHub reads and token requests are retried, writes are not (0.937604ms)
+✔ a lockfile the frozen install rejects goes to a model pass on the same head (6.980797ms)
+✔ a failed dependency install never blocks the pass (1.040937ms)
+✔ a pass interrupted by provider rate limits keeps the same-head budget (1.364271ms)
+✔ a refused update-branch for a stacked PR falls back to the merges API (1.106179ms)
+✔ a transient network error retries the pass instead of failing it (1.725798ms)
+✔ a head that already contains the base passes the stale-base overlap gate (0.627323ms)
+✔ no deferral waits for the Codex review (5.080712ms)
+✔ a main repair PR is claimed before every other PR (0.784998ms)
+✔ no PR stays parked until a person acts (7.697827ms)
+✔ a reviewed head counts as assessed even when the pass parks on an external reason (0.945198ms)
+✔ repair pushes are capped per PR except for conflict repairs and spaced CI repairs (5.877412ms)
+✔ a pass that could not push its CI repair does not start, and the prompt says whether it can push (5.813754ms)
+✔ a green PR behind a strict base is updated instead of skipped (0.546102ms)
+✔ a pass that reviewed the unchanged head keeps its result when events arrived during the pass (19.077681ms)
+✔ after the review push budget, bot feedback and review checks stop waking passes (15.106354ms)
+✔ the review push record counts review-driven pushes once per head (0.497531ms)
+✔ after the review push budget, a green PR merges despite review bots (4.444342ms)
+✔ a PR gets at most dailyPassBudget model passes in 24 hours, with exemptions (6.238829ms)
+✔ an assessed head merges past failing review checks without an exact evidence key (0.232145ms)
+✔ reconcile deliveries of unchanged reviews keep their ID across probes (1.938826ms)
+✔ a reviewed head with failing required checks waits only while the push cap blocks its repair (1.326591ms)
+✔ new checks and bot reviews do not reject a pass, and a real evidence change ends it at once (9.331383ms)
+✔ inherited base failures and retests reach a base tested more than 100 pushes ago (1.68432ms)
+✔ a pass the provider fails early gives its daily pass and exemption back (1.961749ms)
+✔ unattended Codex passes get network access in their workspace-write sandbox (10.822862ms)
+✔ stack children repair in parallel but never merge into their open parent (7.05771ms)
+✔ unknown GitHub mergeability delays a pass by at most 10 minutes per head (4.722562ms)
+✔ a priority label puts a PR first after main repairs and lifts its daily pass budget (3.216025ms)
+✔ host installs accept a project blockExoticSubdeps setting (0.408674ms)
+✔ a priority-labelled PR is not refused by the repair push cap (3.038833ms)
+✔ in a repository without required checks, failing own CI blocks the merge (4.66229ms)
+✔ a fleet Box gives its own package-manager caches to the unattended Codex sandbox (1.001694ms)
+✔ a ready PR that cannot reach the default branch parks, and a parked stack child learns its parent merged (8.069712ms)
+✔ a reviewed draft waits for ready_for_review instead of retrying every two minutes (1.979312ms)
+✔ CI recovery leaves a head with a spent repair budget to its cooldown wake (1.494475ms)
+✔ a required check that never reported on a finished head gets a fresh run instead of a two-minute wait (1.235751ms)
+✔ old compile-cache files go first, then the oldest until the cache fits its budget (1341.830193ms)
+✔ abandoned pass workspaces are removed, unless recent, queued, or in use (61.613976ms)
+✔ an unreadable state DB keeps every workspace but still prunes the compile cache (31.073156ms)
+✔ symlinked cache directories and roots are never traversed (726.299683ms)
+✔ retention refuses any root that is not a service tmp directory (23.961214ms)
+✔ runner and network errors are infrastructure (4.998909ms)
+✔ failures a PR can cause are not infrastructure (0.301904ms)
+✔ a PR whose failures it did not cause waits without a pass (1.262331ms)
+✔ one failure the PR may have caused still gets a repair pass (0.206987ms)
+✔ a gate job that only reports other jobs' results takes their cause (0.909191ms)
+✔ the unrelated-failure park runs before any budget park and before the model starts (0.95716ms)
+✔ a runner error gets a fresh CI run through a branch update, once per head and base (1.099957ms)
+✔ workers keep the host installation only after a successful install, locally and in a Box (6.724607ms)
+ℹ tests 228
+ℹ suites 0
+ℹ pass 228
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 34910.436548
+
+$ BABYSITTER_PUBLIC_URL=https://babysitter.invalid pnpm build
+exit 0
+.output/server/_libs/h3+rou3+srvx+vite-hub__source.mjs      438.14 kB │ gzip:    99.08 kB
+.output/server/_libs/isomorphic-git+[...].mjs               588.57 kB │ gzip:   129.56 kB
+.output/server/_libs/@ai-sdk/gateway+[...].mjs              673.08 kB │ gzip:   153.52 kB
+.output/server/_libs/@chat-adapter/shared+[...].mjs         673.16 kB │ gzip:   146.34 kB
+.output/server/_libs/ai.mjs                                 721.04 kB │ gzip:   146.15 kB
+.output/server/_libs/vite-hub__workspace.mjs              1,274.32 kB │ gzip:   268.90 kB
+.output/server/_libs/effect+t3tools__contracts.mjs        1,676.91 kB │ gzip:   372.54 kB
+.output/server/_libs/just-bash+sprintf-js+turndown.mjs    1,721.25 kB │ gzip:   408.11 kB
+.output/server/_libs/@t3tools/provider-runtime+[...].mjs  2,617.33 kB │ gzip:   418.44 kB
+.output/server/_libs/@vite-hub/agent.mjs                  5,309.19 kB │ gzip: 1,231.38 kB
+
+✓ built in 7.55s
+ℹ Generated .output/nitro.json
+
+[nitro] ✔ You can preview this build using npx vite preview
+
+$ pnpm typecheck
+exit 0
+
+> babysitter@ typecheck $WORKTREE
+> tsc --noEmit
+
+
+
+Patch and pin preservation
+Preserved all 18 unrelated Agent patch sections byte for byte and every pre-existing SQLite repair hunk.
+Every other stacked patch is byte-identical to the remote stack base, including provider-runtime and all five provider-tracing owners.
+Package manifest, complete override pins, package versions, and all package tarball resolutions are unchanged.
