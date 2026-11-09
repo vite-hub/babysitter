@@ -397,3 +397,112 @@ $ heavy BABYSITTER_PUBLIC_URL=https://babysitter.invalid pnpm build
 $ heavy pnpm typecheck
 > babysitter@ typecheck <checkout>
 > tsc --noEmit
+
+Provider per-module coverage safety follow-up
+Baseline Babysitter head af10c994ab9203d2eeade0c75b939c6bdbfa7059
+Upstream provider head 5d5f734d8c0ab929f110b4c0612f11c17fb1a03f
+
+$ heavy --light node --test --test-name-pattern="retraces .* overlap" tests/startup-performance.test.ts
+heavy: waiting because all 1 light slots are busy (up to 0s, 0 = no limit). See `heavy status`.
+heavy: got slimbook-heavy-light.lock after 4s
+✖ agent retraces query overlap absent from some successful host variants (363.945094ms)
+✖ agent retraces computed overlap absent from some successful host variants (101.007482ms)
+✖ database retraces query overlap absent from some successful host variants (120.262988ms)
+✖ database retraces computed overlap absent from some successful host variants (72.973672ms)
+✖ queue retraces query overlap absent from some successful host variants (133.272824ms)
+✖ queue retraces computed overlap absent from some successful host variants (216.500349ms)
+✖ schedule retraces query overlap absent from some successful host variants (399.38934ms)
+✖ schedule retraces computed overlap absent from some successful host variants (120.031715ms)
+✖ workflow retraces query overlap absent from some successful host variants (98.144779ms)
+✖ workflow retraces computed overlap absent from some successful host variants (81.776281ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 0
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1856.789762
+
+All ten failures: AssertionError [ERR_ASSERTION]: retains the worker dependency after retracing the shared module
+The earlier assertions confirm all five entry builds succeeded and only some metafiles contain dist/shared.ts.
+
+Final provider safety verification exits
+red	1
+install	0
+preservation	0
+focused	0
+suite	0
+public-bundles	0
+build	0
+typecheck	0
+
+Pins/resolutions, workspace and provider-runtime patches/hash unchanged. All five patches differ only by the per-module guard and generated index hashes. Complete existing Agent repairs preserved.
+Frozen install input SHA-256 digests match before and after installation.
+
+$ heavy pnpm install --frozen-lockfile --store-dir <empty-isolated-store>
+Done in 8.1s using pnpm v10.33.0
+
+$ heavy node --test tests/startup-performance.test.ts
+✔ Workspace instance 1 reads mounted paths without inspecting siblings, reuse=false (137.049536ms)
+✔ Workspace instance 1 reads mounted paths without inspecting siblings, reuse=true (23.2123ms)
+✔ Workspace instance 2 reads mounted paths without inspecting siblings, reuse=false (66.511072ms)
+✔ Workspace instance 2 reads mounted paths without inspecting siblings, reuse=true (23.108745ms)
+✔ Agent skips schema-free snapshots and retains schema and direct-runtime mutation validation (433.291508ms)
+✔ agent retraces query overlap absent from some successful host variants (155.402188ms)
+✔ agent retraces computed overlap absent from some successful host variants (111.780882ms)
+✔ agent traces static dependencies once per host variant and retains their current bytes (175.290341ms)
+✔ database retraces query overlap absent from some successful host variants (138.870782ms)
+✔ database retraces computed overlap absent from some successful host variants (79.940807ms)
+✔ database traces static dependencies once per host variant and retains their current bytes (133.369224ms)
+✔ queue retraces query overlap absent from some successful host variants (85.592337ms)
+✔ queue retraces computed overlap absent from some successful host variants (71.240958ms)
+✔ queue traces static dependencies once per host variant and retains their current bytes (135.622638ms)
+✔ schedule retraces query overlap absent from some successful host variants (97.267851ms)
+✔ schedule retraces computed overlap absent from some successful host variants (74.720886ms)
+✔ schedule traces static dependencies once per host variant and retains their current bytes (159.009183ms)
+✔ workflow retraces query overlap absent from some successful host variants (138.210287ms)
+✔ workflow retraces computed overlap absent from some successful host variants (73.692311ms)
+✔ workflow traces static dependencies once per host variant and retains their current bytes (155.794201ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2601.372125
+
+$ heavy pnpm test
+✔ workers keep the host installation only after a successful install, locally and in a Box (4.214081ms)
+ℹ tests 216
+ℹ suites 0
+ℹ pass 216
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 33346.613624
+
+$ heavy node evidence/startup-performance/public-consumer-bundles.mjs
+@vite-hub/agent/vite: bundled public entry and hubAgent export, dependencies external
+@vite-hub/database/vite: bundled public entry and hubDb export, dependencies external
+@vite-hub/queue/vite: bundled public entry and hubQueue export, dependencies external
+@vite-hub/schedule/vite: bundled public entry and hubSchedule export, dependencies external
+@vite-hub/workflow/vite: bundled public entry and hubWorkflow export, dependencies external
+
+$ BABYSITTER_PUBLIC_URL=https://babysitter.invalid heavy pnpm build
+.output/server/_libs/@vite-hub/agent.mjs                  5,309.04 kB │ gzip: 1,231.43 kB
+
+✓ built in 14.88s
+ℹ Generated .output/nitro.json
+
+[nitro] ✔ You can preview this build using npx vite preview
+
+$ heavy pnpm typecheck
+
+> babysitter@ typecheck <checkout>
+> tsc --noEmit
+
+
+All five public Vite entry bundles also pass node --check. Dependencies remain external in these smoke bundles. The consumer regressions separately build and execute the retained worker tree.

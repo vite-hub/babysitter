@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { createRequire, registerHooks } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -24,7 +25,15 @@ async function helpers(directory: string, symbol: string, trace = false) {
       let source = String(loaded.source)
       if (trace) {
         source = source.replace(/import \{ build([, }])/, 'import { build as probeBuild$1')
-        source += '\nexport const probeCalls = []; const build = options => { probeCalls.push(options); return probeBuild(options); };'
+        source += `
+export const probeCalls = [];
+export const probeResults = [];
+const build = async options => {
+  probeCalls.push(options);
+  const result = await probeBuild(options);
+  probeResults.push({ options, inputs: Object.keys(result.metafile.inputs) });
+  return result;
+};`
       }
       return { ...loaded, source: `${source}\nexport { ${symbol} as probe };` }
     },
@@ -139,6 +148,53 @@ test('Agent skips schema-free snapshots and retains schema and direct-runtime mu
 })
 
 for (const name of ['agent', 'database', 'queue', 'schedule', 'workflow']) {
+  for (const [kind, request] of [
+    ['query', 'import Worker from "../dist/shared.ts?worker"; export { Worker }'],
+    ['computed', 'const target = "../dist/shared.ts"; export const load = () => import(target)'],
+  ]) {
+    test(`${name} retraces ${kind} overlap absent from some successful host variants`, async () => {
+      const root = await mkdtemp(join(tmpdir(), 'babysitter-trace-overlap-'))
+      try {
+        const directory = join(packageRoot(`@vite-hub/${name}`), 'dist')
+        const { probe: retain, probeCalls, probeResults } = await helpers(directory, 'retainProviderOutputSources', true)
+        await mkdir(join(root, 'server/platform'), { recursive: true })
+        await mkdir(join(root, 'dist/lib'), { recursive: true })
+        await writeFile(join(root, '.git'), 'fixture boundary\n')
+        await writeFile(join(root, 'package.json'), '{"type":"module"}')
+        const entry = join(root, 'server/entry.ts')
+        const worker = join(root, 'dist/shared.ts')
+        const target = join(root, 'dist/worker-value.ts')
+        await writeFile(entry, `export { value } from "./platform"; ${request}\n`)
+        await writeFile(join(root, 'server/platform/package.json'), '{"main":"../../dist/shared.ts","module":"./index.ts","type":"module"}')
+        await writeFile(join(root, 'server/platform/index.ts'), 'export const value = "fallback"\n')
+        await writeFile(worker, 'export { value } from "./lib"\n')
+        await writeFile(join(root, 'dist/lib/package.json'), '{"main":"./node.ts","module":"./index.ts","type":"module"}')
+        await writeFile(join(root, 'dist/lib/node.ts'), 'export const value = "node"\n')
+        await writeFile(join(root, 'dist/lib/index.ts'), 'export { value } from "../worker-value"\n')
+        await writeFile(target, 'export const value = "worker"\n')
+
+        probeCalls.length = 0
+        probeResults.length = 0
+        const retained = await retain({ artifactDir: join(root, '.vitehub/sources'), paths: [entry], roots: [root] })
+        const initialCalls = probeCalls.filter(call => call.entryPoints[0] === entry)
+        const initialResults = probeResults.filter(result => result.options.entryPoints[0] === entry)
+        assert.equal(initialCalls.length, 5, 'all five initial host variants ran')
+        assert.equal(initialResults.length, 5, 'all five initial host variants succeeded')
+        assert.ok(initialResults.some(result => result.inputs.includes('dist/shared.ts')), 'some variants load the shared module')
+        assert.ok(initialResults.some(result => !result.inputs.includes('dist/shared.ts')), 'some successful variants omit the shared module')
+        assert.ok(existsSync(retained.resolve(target)), 'retains the worker dependency after retracing the shared module')
+        assert.equal(await readFile(retained.resolve(target), 'utf8'), await readFile(target, 'utf8'))
+        const { probe: bundle } = await helpers(directory, 'bundleEsmEntry')
+        const output = join(root, '.vitehub/worker.mjs')
+        await bundle(retained.resolve(worker), output, {
+          conditions: ['workerd', 'worker', 'browser', 'default'], platform: 'neutral', rootDir: retained.resolve(root),
+        })
+        assert.equal((await import(pathToFileURL(output).href)).value, 'worker')
+      }
+      finally { await rm(root, { recursive: true, force: true }) }
+    })
+  }
+
   test(`${name} traces static dependencies once per host variant and retains their current bytes`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'babysitter-trace-'))
     try {

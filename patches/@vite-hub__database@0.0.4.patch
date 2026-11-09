@@ -1,5 +1,5 @@
 diff --git a/dist/vite-CdW0qAxA.js b/dist/vite-CdW0qAxA.js
-index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..706c0beb21b6922a1f7f29537dd3cc25445a9f02 100644
+index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..e32f5d3b78ef5c8f05fea75484ba76946b5af251 100644
 --- a/dist/vite-CdW0qAxA.js
 +++ b/dist/vite-CdW0qAxA.js
 @@ -1613,7 +1613,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
@@ -10,7 +10,7 @@ index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..706c0beb21b6922a1f7f29537dd3cc25
 +			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
 +				const source = resolve(root, path);
 +				importedSources.add(source);
-+				if (results.length === traceBuildVariants.length) tracedEntries.add(source);
++				if (results.length === traceBuildVariants.length && results.every((variant) => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source);
 +			}
  			for (const path of importedSourceHints) {
  				importedSources.add(path);

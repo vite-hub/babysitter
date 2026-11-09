@@ -1,10 +1,10 @@
 10907e91b27ac66ba10ac6f61cdc012207d6316b8d8fe1a375e168259b8ff863  package.json
 33f35fcf7fcbafaddefded7dfca7866001d66a3d17f4f21ff7f467f8b6e42eca  pnpm-workspace.yaml
-9a19ba29e9a3f1ffcea36118c56170fa280082454cb44d458d4a75d91a23222b  pnpm-lock.yaml
+ed1dd80f24d15b1dcb88b1faf4e59ba0481b678b6178f736a81c9f6a162043ed  pnpm-lock.yaml
 db497d984d114454e2aeb3cb1ed4d7b2a77e3d458ab2664bd6cdcf9612c6008a  patches/@t3tools__provider-runtime@0.0.33.patch
-bf8fd9af9ccb6a461124cb48364d0a509adc05543b95349b8cd3363ea806c2bf  patches/@vite-hub__agent@0.0.4.patch
-a953618dd9a7584d5770753e2c1f6c2f740c752f5e978fc90b84ddccf50f0a87  patches/@vite-hub__database@0.0.4.patch
-178104f13a022bff2d7e552025d568010f089a67e5277075dac80b4ea97f5ebc  patches/@vite-hub__queue@0.0.4.patch
-56d6318ca11d0e0262245123e1001c5c43098a1aed0d3cac8e721d89bb71c6c4  patches/@vite-hub__schedule@0.0.4.patch
-6db2bdc6f8e7165b7760e555c23ba2c99c1f84820bca3d9670f94dc96e6883b4  patches/@vite-hub__workflow@0.0.4.patch
+94fb75744e15f505a517bfae2a7f0029bf58816b257b5697f139a68faa592ecd  patches/@vite-hub__agent@0.0.4.patch
+606f24edc73143caa1980f3691fff6883b493e201a2a48a36726fdf55403a6a0  patches/@vite-hub__database@0.0.4.patch
+f60f5189a0a7f0e23744975c51ce443cb7824221592a45bdb4f7f2e5b5f945ef  patches/@vite-hub__queue@0.0.4.patch
+50cc229e685129bc78d910955ad91e04bb10794cd4f0fdaa5d4ee40a4a8ea6be  patches/@vite-hub__schedule@0.0.4.patch
+7d0d9c44d600a487466917a73f4d52b7a27cc22d6b318493aad7ed986decd765  patches/@vite-hub__workflow@0.0.4.patch
 4b94023c4f1a4e6a024ca3ac93364fa01d07744874ecb50215cf2c43c84235c5  patches/@vite-hub__workspace@0.0.4.patch
