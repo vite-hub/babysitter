@@ -1,0 +1,17 @@
+diff --git a/dist/vite.js b/dist/vite.js
+index cc59a66fcca5d4389db37a0480af110c756c9677..9cef4286b8d1c4280b42ce863daf4e976cf25064 100644
+--- a/dist/vite.js
++++ b/dist/vite.js
+@@ -2499,7 +2499,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);

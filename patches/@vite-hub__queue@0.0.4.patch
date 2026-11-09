@@ -1,0 +1,17 @@
+diff --git a/dist/vite-CXqqIlUp.js b/dist/vite-CXqqIlUp.js
+index 0d4ad98f3e14f0a6336e98c85dfa1602de964062..5d231a516168f752ba600fa1c7c83f4f031f97d1 100644
+--- a/dist/vite-CXqqIlUp.js
++++ b/dist/vite-CXqqIlUp.js
+@@ -2536,7 +2536,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
