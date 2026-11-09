@@ -77,6 +77,14 @@ export function localTransport(): FleetTransport {
 
 export const q = (value: string) => `'${value.replaceAll('\'', `'"'"'`)}'`
 
+/**
+ * Shell that kills every process whose HOME starts with `prefix`. Each command a Box runs inherits the
+ * Box's HOME, but Codex starts tool commands in their own sessions, so a process group kill misses them.
+ * On 2026-11-09 ten `tsc --noEmit` runs left by closed Boxes filled ServaRICA's memory and swap.
+ */
+export const killByHome = (prefix: string) =>
+  `for e in /proc/[0-9]*/environ; do tr '\\0' '\\n' < "$e" 2>/dev/null | awk -v p=${q(`HOME=${prefix}`)} 'index($0, p) == 1 { found = 1 } END { exit !found }' && { p=\${e#/proc/}; kill -s KILL "\${p%/environ}" 2>/dev/null; }; done; true`
+
 export interface RunResult { code: number, stdout: Buffer, stderr: string }
 
 export async function runScript(transport: FleetTransport, script: string, options: { input?: Uint8Array | Readable, signal?: AbortSignal, timeout?: number } = {}): Promise<RunResult> {
@@ -575,7 +583,7 @@ async function createSession(input: BoxRuntimeInput, options: SshBoxRuntimeOptio
       return closing ??= (async () => {
         const startedAt = Date.now()
         const kill = (signalName: string) => `for f in ${q(run)}/*.pid; do test -f "$f" && kill -s ${signalName} -- "-$(cat "$f")" 2>/dev/null; done; true`
-        await runScript(transport, `${kill('TERM')}; sleep 2; ${kill('KILL')}`, { timeout: 30_000 }).catch(() => undefined)
+        await runScript(transport, `${kill('TERM')}; sleep 2; ${kill('KILL')}; ${killByHome(home)}`, { timeout: 30_000 }).catch(() => undefined)
         // Codex writes its session log in the Box Home, which the rm below deletes. Copy it first so
         // fleet passes can be measured like local ones. A failed copy never keeps the Box.
         const sessions = options.sessionArchive
