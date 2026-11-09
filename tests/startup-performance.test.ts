@@ -200,6 +200,8 @@ for (const name of ['agent', 'database', 'queue', 'schedule', 'workflow']) {
     try {
       const { probe: retain, probeCalls } = await helpers(join(packageRoot(`@vite-hub/${name}`), 'dist'), 'retainProviderOutputSources', true)
       await mkdir(join(root, 'server'))
+      // Keep source-root discovery inside the fixture when tmpdir is under a workspace.
+      await writeFile(join(root, '.git'), 'fixture boundary\n')
       await writeFile(join(root, 'package.json'), '{"type":"module"}')
       const entry = join(root, 'server/entry.ts')
       const dependency = join(root, 'server/dependency.ts')
@@ -220,7 +222,6 @@ for (const name of ['agent', 'database', 'queue', 'schedule', 'workflow']) {
       await mkdir(join(root, 'server/platform'))
       await mkdir(join(root, 'server/lib'))
       await mkdir(join(root, 'dist'))
-      await writeFile(join(root, '.git'), 'fixture boundary\n')
       await writeFile(entry, 'export { value } from "./shared.ts"; export { host } from "./platform"\n')
       await writeFile(join(root, 'server/shared.ts'), 'export { value } from "./lib"\n')
       await writeFile(join(root, 'server/platform/package.json'), '{"main":"./node.ts","module":"./node.ts","type":"module"}')
