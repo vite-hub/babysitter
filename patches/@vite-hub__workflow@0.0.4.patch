@@ -1,7 +1,34 @@
 diff --git a/dist/vite.js b/dist/vite.js
-index cc59a66fcca5d4389db37a0480af110c756c9677..215bc6ec8472f291d540b5e32121eea2e867d53b 100644
+index cc59a66fcca5d4389db37a0480af110c756c9677..28eceb0a8484d5a772d1b6f5b01c1b87070527b1 100644
 --- a/dist/vite.js
 +++ b/dist/vite.js
+@@ -69,7 +69,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
+ 	}
+ 	return candidates;
+ }
+-function createResolvedAliasPlugin(aliases, aliasResolveDir) {
++function createResolvedAliasPlugin(aliases, aliasResolveDir, resolveEntryPackageAliases = true) {
+ 	const entries = Object.entries(aliases || {});
+ 	if (!entries.length) return;
+ 	const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
+@@ -111,7 +111,7 @@ function createResolvedAliasPlugin(aliases, aliasResolveDir) {
+ 					await canonicalizeSpecifier();
+ 					match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix }) => prefix ? canonicalSpecifier.startsWith(canonicalAlias) : canonicalSpecifier === canonicalAlias);
+ 				}
+-				if (!match && isAbsolute(args.path)) for (const alias of aliases) {
++				if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) for (const alias of aliases) {
+ 					if (isAbsolute(alias.specifier)) continue;
+ 					const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier;
+ 					const aliasSegments = packageAlias.split("/");
+@@ -428,7 +428,7 @@ async function bundleEsmEntry(entryFile, outfile, options = {}) {
+ 	const viteAliasPlugin = createViteAliasPlugin(options.alias);
+ 	const frameworkRuntime = (Array.isArray(options.alias) ? options.alias.flatMap((alias) => typeof alias.find === "string" ? [alias.find] : []) : Object.keys(options.alias || {})).some((specifier) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"));
+ 	const plugins = [];
+-	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd());
++	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd(), options.resolveEntryPackageAliases);
+ 	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
+ 	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
+ 	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
 @@ -2499,7 +2499,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
  				})]);
  				if (result?.status === "fulfilled") results.push(result.value);
@@ -15,3 +42,48 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..215bc6ec8472f291d540b5e32121eea2
  			for (const path of importedSourceHints) {
  				importedSources.add(path);
  				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
+@@ -3341,6 +3345,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+ 					});
+ 					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
+ 						...options.bundleOptions,
++						resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 						define: {
+ 							...options.bundleDefines,
+ 							...options.bundleOptions?.define
+@@ -3458,6 +3463,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+ 		}
+ 		await bundleEsmEntry(options.bundleEntry, serverEntry, {
+ 			...options.bundleOptions,
++			resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...options.bundleOptions?.define
+@@ -3569,6 +3575,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+ 		await mkdir(dirname(outfile), { recursive: true });
+ 		await bundleEsmEntry(func.bundleEntry, outfile, {
+ 			...func.bundleOptions,
++			resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...func.bundleOptions.define
+@@ -4641,7 +4648,7 @@ function discoverWorkflowDefinitions(options) {
+ 		handler: file,
+ 		name,
+ 		source: "vite-suffix"
+-	}) })]), discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"), folderDefinitions, discoverAgentWorkflowDefinitions(roots, serverScanDirs));
++	}) })]), discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"), folderDefinitions, options.mode === "standalone" ? [] : discoverAgentWorkflowDefinitions(roots, serverScanDirs));
+ }
+ //#endregion
+ //#region ../internal/src/agent-workflow.ts
+@@ -6002,9 +6009,10 @@ function isWorkflowDevDefinition(definition) {
+ }
+ function discoverWorkflowDevDefinitions(rootDir, serverDirs) {
+ 	return discoverWorkflowDefinitions({
++		mode: "standalone",
+ 		rootDir,
+ 		serverDirs
+-	}).filter(isWorkflowDevDefinition);
++	});
+ }
+ function createWorkflowDevRegistryModule(registryFile, definitions, importBase = workflowPackageName) {
+ 	return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase });

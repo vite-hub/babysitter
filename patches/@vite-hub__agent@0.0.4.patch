@@ -2259,61 +2259,6 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..592e341f23fe34fb2c9913d0796559df
  //#endregion
 -export { createBabysitterProcessHost };
 +export { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, sweepBabysitterWorkspaces };
-diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index 294f1e2c8555665b76c430601664183fd0a4606f..043aafaf61ec2bfb5d3e2dc91892ccc76a3d33c1 100644
---- a/dist/invocations/sqlite.js
-+++ b/dist/invocations/sqlite.js
-@@ -185,11 +185,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 		}
- 		return statements;
- 	};
--	/** Reads the observation rows of one invocation in the order that they extend its record. */
-+	// Unary + sorts the selected rows instead of scanning payloads through the position index.
- 	const observationRowsStatement = (id, observationNames) => ({
- 		args: observationNames === void 0 ? [id] : [id, observationNames],
- 		sql: `SELECT position, observation FROM ${observationTable}
--      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`
-+      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === void 0 ? "position" : "+position"}`
- 	});
- 	const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs);
- 	const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords");
-@@ -569,6 +569,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
-       )`);
- 			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
-         ON ${observationTable} (invocation_sequence, position)`);
-+			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
-+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`);
- 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
-         AFTER DELETE ON ${table}
-         BEGIN
-@@ -741,6 +743,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
- 				args.push(...statuses);
- 			}
-+			// With a status list this range uses the (status, updated_at) index instead of reading every row.
-+			if (hasRuntimeType(listOptions.updatedSince, "string")) {
-+				filters.push("updated_at >= ?");
-+				args.push(listOptions.updatedSince);
-+			}
- 			const agentName = listOptions.agentName?.trim();
- 			if (agentName) {
- 				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
-@@ -770,11 +777,14 @@ function createLibsqlAgentInvocationStore(options = {}) {
- 				args.push(`%${escapeLike(search.toLowerCase())}%`);
- 			}
- 			args.push(limit + 1);
-+			const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
- 			const records = (await client.execute({
- 				args,
-+				// An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
-+				// that sort from reading the summary of every match, which sits behind the large search column.
- 				sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
-           THEN json_remove(record, '$.observations') END) AS summary
--          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
-+          FROM ${table}${hasRuntimeType(listOptions.updatedSince, "string") ? ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?)` : where} ORDER BY sequence DESC${hasRuntimeType(listOptions.updatedSince, "string") ? "" : " LIMIT ?"}`
- 			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
- 			const page = records.slice(0, limit);
- 			return {
 diff --git a/dist/invocations-D_U9V1-3.js b/dist/invocations-D_U9V1-3.js
 index d974ac483402bc80ac4b27ef35e1560af158289a..3768c75dca76ba4f7d0c2574738cd1c7fdfe7e40 100644
 --- a/dist/invocations-D_U9V1-3.js
@@ -2334,6 +2279,82 @@ index d974ac483402bc80ac4b27ef35e1560af158289a..3768c75dca76ba4f7d0c2574738cd1c7
  		},
  		getSummary(id) {
  			const record = records.get(id);
+diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
+index 294f1e2c8555665b76c430601664183fd0a4606f..4b0a69a2ea1a8a2c3c708b4a7277d035cf8cca89 100644
+--- a/dist/invocations/sqlite.js
++++ b/dist/invocations/sqlite.js
+@@ -185,11 +185,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		}
+ 		return statements;
+ 	};
+-	/** Reads the observation rows of one invocation in the order that they extend its record. */
++	// Unary + sorts the selected rows instead of scanning payloads through the position index.
+ 	const observationRowsStatement = (id, observationNames) => ({
+ 		args: observationNames === void 0 ? [id] : [id, observationNames],
+ 		sql: `SELECT position, observation FROM ${observationTable}
+-      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`
++      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === void 0 ? "position" : "+position"}`
+ 	});
+ 	const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs);
+ 	const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords");
+@@ -530,6 +530,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
+         WHERE agent_name IS NULL OR agent_name = ''`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
+         ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
++        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
+         ON ${table} (${triggeredByProjection()}, agent_name)`);
+ 			await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
+@@ -569,6 +571,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
+       )`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+         ON ${observationTable} (invocation_sequence, position)`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
++        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`);
+ 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+         AFTER DELETE ON ${table}
+         BEGIN
+@@ -741,6 +745,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+ 				args.push(...statuses);
+ 			}
++			// With a status list this range uses the (status, updated_at) index instead of reading every row.
++			if (hasRuntimeType(listOptions.updatedSince, "string")) {
++				filters.push("updated_at >= ?");
++				args.push(listOptions.updatedSince);
++			}
+ 			const agentName = listOptions.agentName?.trim();
+ 			if (agentName) {
+ 				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
+@@ -748,6 +757,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 			}
+ 			const capabilityId = listOptions.capabilityId?.trim();
+ 			if (capabilityId) {
++				filters.push(`(capability_ids IS NULL OR EXISTS (
++          SELECT 1 FROM json_each(capability_ids) AS capability WHERE capability.value = ?
++        ))`);
++				args.push(capabilityId);
+ 				filters.push(`(EXISTS (SELECT 1
+           FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
+           WHERE capability.value = ?)
+@@ -770,11 +783,15 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 				args.push(`%${escapeLike(search.toLowerCase())}%`);
+ 			}
+ 			args.push(limit + 1);
++			const where = filters.length ? ` WHERE ${filters.join(" AND ")}` : "";
++			const selectedTable = capabilityId && !hasRuntimeType(listOptions.updatedSince, "string") ? `${table} INDEXED BY ${table}_sequence_capability_ids` : table;
+ 			const records = (await client.execute({
+ 				args,
++				// An updated_at range is sorted by sequence after the index search. Sorting only sequences keeps
++				// that sort from reading the summary of every match, which sits behind the large search column.
+ 				sql: `SELECT sequence, COALESCE(summary, CASE WHEN json_valid(record)
+           THEN json_remove(record, '$.observations') END) AS summary
+-          FROM ${table}${filters.length ? ` WHERE ${filters.join(" AND ")}` : ""} ORDER BY sequence DESC LIMIT ?`
++          FROM ${selectedTable}${hasRuntimeType(listOptions.updatedSince, "string") ? ` WHERE sequence IN (SELECT sequence FROM ${table}${where} ORDER BY sequence DESC LIMIT ?)` : where} ORDER BY sequence DESC${hasRuntimeType(listOptions.updatedSince, "string") ? "" : " LIMIT ?"}`
+ 			})).rows.map((row) => deserializeSummary(row.summary, row.sequence)).filter((record) => Boolean(record));
+ 			const page = records.slice(0, limit);
+ 			return {
 diff --git a/dist/pr-workspaces.js b/dist/pr-workspaces.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..c21d89b07e5da94cca677890dbddc75ca65ce838
@@ -5848,9 +5869,36 @@ index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6
      email: string;
    }>;
 diff --git a/dist/vite.js b/dist/vite.js
-index 9dfeca5165c9ef86e74112b232a2c6922f906049..adaf5eb3d52d8382e58ba426101d2a278d78e7eb 100644
+index 9dfeca5165c9ef86e74112b232a2c6922f906049..bfb35f7664ba14516f1fa4ecf1f0011317fb3edc 100644
 --- a/dist/vite.js
 +++ b/dist/vite.js
+@@ -524,7 +524,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
+ 	}
+ 	return candidates;
+ }
+-function createResolvedAliasPlugin(aliases, aliasResolveDir) {
++function createResolvedAliasPlugin(aliases, aliasResolveDir, resolveEntryPackageAliases = true) {
+ 	const entries = Object.entries(aliases || {});
+ 	if (!entries.length) return;
+ 	const resolvedEntries = Promise.all(entries.map(async ([encodedSpecifier, replacement]) => {
+@@ -566,7 +566,7 @@ function createResolvedAliasPlugin(aliases, aliasResolveDir) {
+ 					await canonicalizeSpecifier();
+ 					match = aliases.find(({ canonicalSpecifier: canonicalAlias, prefix }) => prefix ? canonicalSpecifier.startsWith(canonicalAlias) : canonicalSpecifier === canonicalAlias);
+ 				}
+-				if (!match && isAbsolute(args.path)) for (const alias of aliases) {
++				if (!match && (resolveEntryPackageAliases || args.kind !== "entry-point") && isAbsolute(args.path)) for (const alias of aliases) {
+ 					if (isAbsolute(alias.specifier)) continue;
+ 					const packageAlias = alias.prefix ? alias.specifier.replace(/\/$/, "") : alias.specifier;
+ 					const aliasSegments = packageAlias.split("/");
+@@ -883,7 +883,7 @@ async function bundleEsmEntry(entryFile, outfile, options = {}) {
+ 	const viteAliasPlugin = createViteAliasPlugin(options.alias);
+ 	const frameworkRuntime = (Array.isArray(options.alias) ? options.alias.flatMap((alias) => typeof alias.find === "string" ? [alias.find] : []) : Object.keys(options.alias || {})).some((specifier) => specifier === "vite-hub" || specifier.startsWith("vite-hub/"));
+ 	const plugins = [];
+-	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd());
++	const resolvedAliasPlugin = createResolvedAliasPlugin(Array.isArray(options.alias) ? void 0 : options.alias, options.workingDir ?? options.rootDir ?? process.cwd(), options.resolveEntryPackageAliases);
+ 	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
+ 	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
+ 	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
 @@ -2665,7 +2665,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
  				})]);
  				if (result?.status === "fulfilled") results.push(result.value);
@@ -5864,3 +5912,27 @@ index 9dfeca5165c9ef86e74112b232a2c6922f906049..adaf5eb3d52d8382e58ba426101d2a27
  			for (const path of importedSourceHints) {
  				importedSources.add(path);
  				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
+@@ -3400,6 +3404,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+ 					});
+ 					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
+ 						...options.bundleOptions,
++						resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 						define: {
+ 							...options.bundleDefines,
+ 							...options.bundleOptions?.define
+@@ -3517,6 +3522,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+ 		}
+ 		await bundleEsmEntry(options.bundleEntry, serverEntry, {
+ 			...options.bundleOptions,
++			resolveEntryPackageAliases: options.bundleOptions?.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...options.bundleOptions?.define
+@@ -3628,6 +3634,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+ 		await mkdir(dirname(outfile), { recursive: true });
+ 		await bundleEsmEntry(func.bundleEntry, outfile, {
+ 			...func.bundleOptions,
++			resolveEntryPackageAliases: func.bundleOptions.resolveEntryPackageAliases ?? false,
+ 			define: {
+ 				...options.bundleDefines,
+ 				...func.bundleOptions.define
