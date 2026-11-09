@@ -32,3 +32,4 @@ patchedDependencies:
   '@vite-hub/schedule@0.0.4': patches/@vite-hub__schedule@0.0.4.patch
   '@vite-hub/workflow@0.0.4': patches/@vite-hub__workflow@0.0.4.patch
   '@vite-hub/workspace@0.0.4': patches/@vite-hub__workspace@0.0.4.patch
+  vite-hub@0.0.4: patches/vite-hub@0.0.4.patch

@@ -48,3 +48,25 @@ Read `pnpm patch --help`. Use `pnpm patch <package>@0.0.4`, keep existing patche
 Workspace has two peer instances. Select `0.0.4` and answer **no** to pnpm 10.33.0's "Apply this patch to all versions?" prompt. Its all-versions patch commit compares against the registry release instead of this Git-hosted preview and can generate an unrelated package-wide replacement. The version-specific patch still applies to both peer instances. Generate patches and lock hashes with `pnpm patch-commit <edit-directory>`. In a non-interactive shell, use `CI=true pnpm --config.frozen-lockfile=false patch-commit <edit-directory>` so pnpm can replace `node_modules` and regenerate patch hashes. Then verify a frozen install with empty `node_modules` and an empty isolated store.
 
 Retire the performance hunks after upgrading to a build containing all three source fixes. Keep unrelated Agent and provider-runtime repairs until their replacements are verified separately. Every consuming repository needs its own backports until it upgrades.
+
+## Filtered journal reads and native Console cursors
+
+These backports extend the same pinned preview and retain the complete patches above.
+
+| Upstream source | Installed owner | Consumer proof and retirement |
+| --- | --- | --- |
+| [Agent journal #3766](https://github.com/vite-hub/vitehub/pull/3766), [`d260a4c4b5a1d0475c50aceee503cbdff2ff0479`](https://github.com/vite-hub/vitehub/commit/d260a4c4b5a1d0475c50aceee503cbdff2ff0479) | `@vite-hub/agent/dist/invocations-D_U9V1-3.js` and `dist/invocations/sqlite.js` | Memory reads select observations before cloning their payloads. SQLite adds the observation-name expression index and uses filtered `ORDER BY +position`; full reads keep the position index. Consumer tests verify skipped payload clones, mutation isolation, the real query plan, append order, empty selections, and additive reopening. Remove only these hunks after a preview includes #3766 and these tests pass without them. |
+| [Console #3769](https://github.com/vite-hub/vitehub/pull/3769), [`96c593e26fe2c514761c1fdc252d29907d0ede9c`](https://github.com/vite-hub/vitehub/commit/96c593e26fe2c514761c1fdc252d29907d0ede9c) | `vite-hub/dist/console/runtime/server/invocation.get.js` | Request-local SHA256 hashes JSON in batches of at most 32 observations, splitting at the requested prefix. The installed artifact predates the combined prefix/full pass, so this backport includes that pass while keeping its existing request adapter and response fields. An opaque legacy cursor resets once, then append polls resume. Remove the `vite-hub@0.0.4` patch after a preview includes #3769 and the consumer tests pass without it. |
+
+An inventory of all installed ViteHub packages found one copy of each implementation above. The journal already supports `observationNames`, so both memory and SQLite changes apply. No newer journal schema, exports, types, request-context adapter, or compiled modules are copied into this older artifact. SQLite's index is additive and leaves stored records readable by the prior build.
+
+`tests/journal-console-performance.test.ts` runs against the installed packages with a real file-backed SQLite client and the real Console detail endpoint. It covers empty and appended polls, batch boundaries, Unicode and escapes, rewritten prefixes, invalid counts, and truncated histories. Private Console installation is exposed through a Node load hook without changing package files. The same tests run against saved pre-backport module sources for the failing-before check. Logs and install checksums are retained in `evidence/journal-console`.
+
+```sh
+heavy --light node --test tests/journal-console-performance.test.ts
+heavy pnpm test
+BABYSITTER_PUBLIC_URL=https://babysitter.invalid heavy pnpm build
+heavy pnpm typecheck
+```
+
+Extend these patches through the version-specific `pnpm patch` / `pnpm patch-commit` workflow above. Verify that the edit directory contains every existing repair before editing. Generate both Agent and `vite-hub` patches, then run a frozen install with empty `node_modules` and an empty isolated store and check that the lockfile and patch checksums do not change. Keep package pins, tarball resolutions, and all unrelated repair hunks intact. The tests establish reduced duplicate work and preserved behavior; they do not claim memory, p95, or production latency improvements.
