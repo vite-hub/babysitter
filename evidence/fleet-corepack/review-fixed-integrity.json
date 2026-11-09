@@ -1,0 +1,40 @@
+[
+  {
+    "label": "candidate-valid-pin-seeds-cache",
+    "pin": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+    "status": "installed",
+    "reusedCache": false,
+    "mismatch": false
+  },
+  {
+    "label": "candidate-valid-pin-reuses-cache-offline",
+    "pin": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+    "status": "installed",
+    "reusedCache": true,
+    "mismatch": false
+  },
+  {
+    "label": "candidate-wrong-integrity-warm",
+    "pin": "pnpm@10.33.0+sha512.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "status": "failed",
+    "reason": "Mismatch hashes",
+    "reusedCache": false,
+    "mismatch": true
+  },
+  {
+    "label": "baseline-wrong-integrity-fresh",
+    "pin": "pnpm@10.33.0+sha512.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "status": "failed",
+    "reason": "Mismatch hashes",
+    "reusedCache": false,
+    "mismatch": true
+  },
+  {
+    "label": "candidate-wrong-integrity-cold",
+    "pin": "pnpm@10.33.0+sha512.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "status": "failed",
+    "reason": "Mismatch hashes",
+    "reusedCache": false,
+    "mismatch": true
+  }
+]

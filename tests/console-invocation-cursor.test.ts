@@ -15,6 +15,7 @@ const { createLibsqlAgentInvocationStore } = await import(pathToFileURL(require.
 const agentRequire = createRequire(require.resolve('@vite-hub/agent/package.json'))
 const { createClient } = agentRequire('@libsql/client')
 const timestamp = '2026-11-08T00:00:00.000Z'
+const emptyCursor = '0-4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
 const observations = [1, 2, 3].map(sequence => ({
   name: 'cursor.consumer.observation',
   sequence,
@@ -63,11 +64,11 @@ for (const journal of ['memory', 'sqlite']) {
     const initial = await read()
     assert.deepEqual(initial.observations, observations.slice(0, 2))
     assert.equal(initial.invocation.traceId, `${journal}-cursor-test`)
-    assert.equal(initial.observationCursor, '2-qfhh6x-msj41x')
+    assert.equal(initial.observationCursor, '2-ddac9b008d22db832df476ff56d034005490a37a6e84fb7df9c497e94d237f68')
     assert.equal(initial.appendObservations, undefined)
     await store.update('cursor-test', { observation: observations[2], timestamp })
     const complete = await read()
-    assert.equal(complete.observationCursor, '3-awn1hj-1jn86hv')
+    assert.equal(complete.observationCursor, '3-e18c0117f26cf38eb089747314a4123052358ad4f72d8a0eeb26381063ab13db')
     assert.deepEqual(complete.observations, observations)
 
     const serializations: number[] = []
@@ -79,8 +80,7 @@ for (const journal of ['memory', 'sqlite']) {
       let result
       try {
         result = await read({ observationCount: String(count), observationCursor: cursor })
-        serializations.push(stringify.mock.calls.filter(({ arguments: args }) => {
-          const value: unknown = args[0]
+        serializations.push(stringify.mock.calls.flatMap(({ arguments: [value] }) => Array.isArray(value) ? value : [value]).filter((value: unknown) => {
           return value !== null && typeof value === 'object' && 'name' in value && value.name === 'cursor.consumer.observation'
         }).length)
       }
@@ -89,7 +89,16 @@ for (const journal of ['memory', 'sqlite']) {
       assert.equal(result.observationCursor, complete.observationCursor)
       assert.deepEqual(result.observations, expected)
     }
-    const zero = await read({ observationCount: '0', observationCursor: '0-ztntfp-45h' })
+    for (const [observationCount, observationCursor] of [['0', '0-ztntfp-45h'], ['2', '2-qfhh6x-msj41x'], ['3', '3-awn1hj-1jn86hv']] as const) {
+      const legacy = await read({ observationCount, observationCursor })
+      assert.equal(legacy.appendObservations, undefined)
+      assert.equal(legacy.observationCursor, complete.observationCursor)
+      assert.deepEqual(legacy.observations, observations)
+      const resumed = await read({ observationCount: '3', observationCursor: legacy.observationCursor })
+      assert.equal(resumed.appendObservations, true)
+      assert.deepEqual(resumed.observations, [])
+    }
+    const zero = await read({ observationCount: '0', observationCursor: emptyCursor })
     assert.equal(zero.appendObservations, true)
     assert.deepEqual(zero.observations, observations)
 
@@ -112,16 +121,16 @@ for (const journal of ['memory', 'sqlite']) {
       assert.deepEqual(result.observations, observations)
     }
     for (const observationCount of ['', '  ', '0.0']) {
-      assert.equal((await read({ observationCount, observationCursor: '0-ztntfp-45h' })).appendObservations, true)
+      assert.equal((await read({ observationCount, observationCursor: emptyCursor })).appendObservations, true)
     }
     await store.create(record('truncated', observations, true))
     const truncated = await read({ observationCount: '3', observationCursor: complete.observationCursor }, 'truncated')
     assert.equal(truncated.appendObservations, undefined)
     assert.deepEqual(truncated.observations, observations)
     await store.create(record('empty', []))
-    const empty = await read({ observationCount: '0', observationCursor: '0-ztntfp-45h' }, 'empty')
+    const empty = await read({ observationCount: '0', observationCursor: emptyCursor }, 'empty')
     assert.equal(empty.appendObservations, true)
-    assert.equal(empty.observationCursor, '0-ztntfp-45h')
+    assert.equal(empty.observationCursor, emptyCursor)
     assert.deepEqual(empty.observations, [])
 
     // The same ID, length, and timestamp must still detect a rewritten prefix.
@@ -157,8 +166,7 @@ for (const journal of ['memory', 'sqlite']) {
         const denied = await invocationHandler({ req: new Request('http://localhost/_vitehub/api/invocations/cursor-test'), context: {} })
         assert.ok(denied instanceof Response)
         assert.equal(denied.status, 403)
-        assert.equal(stringify.mock.calls.filter(({ arguments: args }) => {
-          const value: unknown = args[0]
+        assert.equal(stringify.mock.calls.flatMap(({ arguments: [value] }) => Array.isArray(value) ? value : [value]).filter((value: unknown) => {
           return value !== null && typeof value === 'object' && 'name' in value && value.name === 'cursor.consumer.observation'
         }).length, 0)
       }

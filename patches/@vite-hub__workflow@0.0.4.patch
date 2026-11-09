@@ -1,5 +1,5 @@
 diff --git a/dist/vite.js b/dist/vite.js
-index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e0017898476159f39b 100644
+index cc59a66fcca5d4389db37a0480af110c756c9677..28eceb0a8484d5a772d1b6f5b01c1b87070527b1 100644
 --- a/dist/vite.js
 +++ b/dist/vite.js
 @@ -69,7 +69,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
@@ -29,7 +29,20 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e001789847
  	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
  	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
  	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
-@@ -3341,6 +3341,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+@@ -2499,7 +2499,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length && results.every((variant) => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
+@@ -3341,6 +3345,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
  					});
  					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
  						...options.bundleOptions,
@@ -37,7 +50,7 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e001789847
  						define: {
  							...options.bundleDefines,
  							...options.bundleOptions?.define
-@@ -3458,6 +3459,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+@@ -3458,6 +3463,7 @@ async function writeVercelDeploymentOutput(options, signal) {
  		}
  		await bundleEsmEntry(options.bundleEntry, serverEntry, {
  			...options.bundleOptions,
@@ -45,7 +58,7 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e001789847
  			define: {
  				...options.bundleDefines,
  				...options.bundleOptions?.define
-@@ -3569,6 +3571,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+@@ -3569,6 +3575,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
  		await mkdir(dirname(outfile), { recursive: true });
  		await bundleEsmEntry(func.bundleEntry, outfile, {
  			...func.bundleOptions,
@@ -53,7 +66,7 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e001789847
  			define: {
  				...options.bundleDefines,
  				...func.bundleOptions.define
-@@ -4641,7 +4644,7 @@ function discoverWorkflowDefinitions(options) {
+@@ -4641,7 +4648,7 @@ function discoverWorkflowDefinitions(options) {
  		handler: file,
  		name,
  		source: "vite-suffix"
@@ -62,7 +75,7 @@ index cc59a66fcca5d4389db37a0480af110c756c9677..3eddc9871c8dc549061d68e001789847
  }
  //#endregion
  //#region ../internal/src/agent-workflow.ts
-@@ -6002,9 +6005,10 @@ function isWorkflowDevDefinition(definition) {
+@@ -6002,9 +6009,10 @@ function isWorkflowDevDefinition(definition) {
  }
  function discoverWorkflowDevDefinitions(rootDir, serverDirs) {
  	return discoverWorkflowDefinitions({

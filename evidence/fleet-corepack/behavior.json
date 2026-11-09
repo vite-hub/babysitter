@@ -1,0 +1,18 @@
+{
+  "node": "v24.21.0",
+  "packageManagers": [
+    "10.33.0",
+    "10.34.6"
+  ],
+  "checks": [
+    "fresh Box installs version 1 offline with the cached pinned pnpm; lifecycle scripts stay disabled",
+    "changed lockfile replaces dependency version 1 with version 2 and preserves the exact lockfile",
+    "unchanged refresh keeps the installed dependency correct",
+    "concurrent Boxes install into separate workspaces; source changes stay in their own Box",
+    "a mismatched lockfile records a failed install without stale dependencies; repaired inputs install successfully",
+    "offline setup fails for an uncached pinned pnpm version instead of using the cached wrong version",
+    "retry downloads the requested pnpm version and installs successfully",
+    "cancellation after install removes the workspace; the next offline Box installs successfully from package caches"
+  ],
+  "failures": 0
+}

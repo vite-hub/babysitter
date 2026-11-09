@@ -1,3 +1,42 @@
+diff --git a/dist/metadata-target-CvgSeYiZ.js b/dist/metadata-target-CvgSeYiZ.js
+index 6a8a6c3f7cfbc238aa76e48eca10fecdfce1f082..61ab52da5109dd74082011da2ecfc0c2fa2e885e 100644
+--- a/dist/metadata-target-CvgSeYiZ.js
++++ b/dist/metadata-target-CvgSeYiZ.js
+@@ -363,13 +363,14 @@ async function invalidateSourceSnapshot(store, workspace, sourceKey) {
+ 		status: "updating"
+ 	});
+ }
+-async function hasCurrentSourceSnapshot(store, workspace, source, verifyOwnership = false, activeSources = []) {
++async function hasCurrentSourceSnapshot(store, workspace, source, verifyOwnership = false, activeSources = [], path) {
+ 	const configHash = await sourceConfigHash(source, store);
+ 	const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source);
+ 	if (meta?.status !== "ready" || meta.configHash !== configHash) return false;
+ 	if (verifyOwnership === "workspace") {
+ 		if (Object.keys(meta.items || {}).length === 0 && meta.ownsMount !== false && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false;
+-		for (const path of Object.keys(meta.items || {})) {
++		const paths = path === void 0 ? Object.keys(meta.items || {}) : Object.hasOwn(meta.items || {}, path) ? [path] : [];
++		for (const path of paths) {
+ 			const file = await store.readFile(path);
+ 			if (!file) return false;
+ 			const inlineOwner = file.metadata?.workspaceSourceOwner;
+@@ -380,12 +381,13 @@ async function hasCurrentSourceSnapshot(store, workspace, source, verifyOwnershi
+ 		}
+ 		return true;
+ 	}
+-	return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta, activeSources);
++	return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta, activeSources, path);
+ }
+-async function snapshotHasCurrentOwners(store, workspace, source, meta, activeSources = []) {
++async function snapshotHasCurrentOwners(store, workspace, source, meta, activeSources = [], path) {
+ 	if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false;
+-	const listed = source.mountPath ? new Map((await store.list(source.mountPath, { recursive: true })).map((entry) => [entry.path, entry])) : void 0;
+-	for (const path of Object.keys(meta.items || {})) {
++	const listed = path === void 0 && source.mountPath ? new Map((await store.list(source.mountPath, { recursive: true })).map((entry) => [entry.path, entry])) : void 0;
++	const paths = path === void 0 ? Object.keys(meta.items || {}) : Object.hasOwn(meta.items || {}, path) ? [path] : [];
++	for (const path of paths) {
+ 		const stat = listed?.get(path) ?? await store.stat(path);
+ 		if (await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) continue;
+ 		const owner = await readWorkspaceFileOwner(store, path);
 diff --git a/dist/vite-Dis0PuLn.js b/dist/vite-Dis0PuLn.js
 index 339eee1eee613265516d25df6bbf1e534606e139..fe97e60967aa6bd8770547d9262be4708b04ea10 100644
 --- a/dist/vite-Dis0PuLn.js
@@ -53,3 +92,77 @@ index 339eee1eee613265516d25df6bbf1e534606e139..fe97e60967aa6bd8770547d9262be470
  			define: {
  				...options.bundleDefines,
  				...func.bundleOptions.define
+diff --git a/dist/workspace-ClTI0QiD.js b/dist/workspace-ClTI0QiD.js
+index 7abc63e72f1d6e9144b34d7da0bc3323d675fff2..501a12953b1d2dcd9d63dac049717b0bee31c6ad 100644
+--- a/dist/workspace-ClTI0QiD.js
++++ b/dist/workspace-ClTI0QiD.js
+@@ -469,14 +469,14 @@ function createWorkspaceSourceView(definition, store, options = {}) {
+ 		}
+ 		return matched;
+ 	}
+-	async function ensurePrepared(sourceKey) {
++	async function ensurePrepared(sourceKey, path) {
+ 		const source = sources.find((item) => item.key === sourceKey);
+ 		if (!source) return;
+ 		if (source.materialize === "startup" && completedSources.has(sourceKey)) {
+-			if (await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots, options.reuseStartupSnapshots ? sources : void 0)) return;
++			if (await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots, options.reuseStartupSnapshots ? sources : void 0, path)) return;
+ 			completedSources.delete(sourceKey);
+ 		}
+-		if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source, true, sources)) {
++		if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source, true, sources, path)) {
+ 			reusedStartupSources.add(sourceKey);
+ 			return;
+ 		}
+@@ -565,7 +565,7 @@ function createWorkspaceSourceView(definition, store, options = {}) {
+ 		});
+ 		return await current;
+ 	}
+-	async function ensureMaterialized(sourceKey, verifyRootOwnership = true) {
++	async function ensureMaterialized(sourceKey, verifyRootOwnership = true, path) {
+ 		const source = sources.find((item) => item.key === sourceKey);
+ 		if (!source) return;
+ 		const verifyOwnership = options.reuseStartupSnapshots ? true : verifyRootOwnership || source.mountPath || !sources.some((item) => !item.mountPath && item.materialize === "lazy") ? "workspace" : false;
+@@ -582,16 +582,16 @@ function createWorkspaceSourceView(definition, store, options = {}) {
+ 		}
+ 		if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
+ 			const maxAge = source.cache && source.cache.maxAge;
+-			if (source.materialize === "startup" ? await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : void 0) : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return;
++			if (source.materialize === "startup" ? await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : void 0, path) : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return;
+ 			materializedSources.delete(sourceKey);
+ 		}
+ 		if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
+-			if (await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : void 0)) return;
++			if (await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership, options.reuseStartupSnapshots ? sources : void 0, path)) return;
+ 			completedSources.delete(sourceKey);
+ 			reusedStartupSources.delete(sourceKey);
+ 		}
+ 		const recovery = pendingBySource.get(sourceKey);
+-		if (recovery && recovery !== pending) return await ensureMaterialized(sourceKey, verifyRootOwnership);
++		if (recovery && recovery !== pending) return await ensureMaterialized(sourceKey, verifyRootOwnership, path);
+ 		await materializeSerialized({ sources: [sourceKey] });
+ 	}
+ 	async function ensureMaterializedSources(items = sources) {
+@@ -894,19 +894,19 @@ function createWorkspaceSourceView(definition, store, options = {}) {
+ 			if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options);
+ 			const resolution = resolveWorkspacePath(definition, path);
+ 			if (resolution.type === "source") {
+-				await ensurePrepared(resolution.sourceKey);
++				await ensurePrepared(resolution.sourceKey, resolution.workspacePath);
+ 				if (isLiveSource(resolution.sourceKey)) {
+ 					const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source));
+ 					return decodeFile(await sourceItemContent(item), options);
+ 				}
+-				if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey);
++				if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath);
+ 				const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge;
+ 				let shouldRefreshCachedLazy = false;
+ 				if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey) || Boolean(await readCurrentSourceSnapshot(store, definition.name, resolution.source));
+ 				if (shouldRefreshCachedLazy) await ensureMaterialized(resolution.sourceKey);
+ 				const file = await store.readFile(resolution.workspacePath);
+ 				if (file) return decodeFile(file.content, options);
+-				await ensureMaterialized(resolution.sourceKey);
++				await ensureMaterialized(resolution.sourceKey, true, resolution.workspacePath);
+ 				return await readResolvedSourceFile(resolution, store, sourceContext, options);
+ 			}
+ 			await materializeRootStartupSources(false);

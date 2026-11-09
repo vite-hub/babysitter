@@ -1,0 +1,33 @@
+{
+  "base": "daf551151753b5ac88d96356db231a2c338d643a",
+  "candidateSourceSha256": "5a1537147c00dea654f4f13916a1b6cbfe1b4c8eb5b261cd09468d79e57ecb1e",
+  "installs": 32,
+  "failures": 0,
+  "conditions": "Shared Slimbook, local shell transport, warm OS cache, network enabled. Fixed baseline-first serial pairs. Initial cold-control stores differ. Parent validation completed before the run. Other host and registry load uncontrolled. Close excluded from open timer.",
+  "scenarios": {
+    "warm-store-baseline": {
+      "n": 5,
+      "medianMs": 3123.1035450000054,
+      "minMs": 2940.6553490000006,
+      "maxMs": 3297.8957679999876
+    },
+    "warm-store-candidate": {
+      "n": 5,
+      "medianMs": 2418.8688600000023,
+      "minMs": 2386.260691999996,
+      "maxMs": 2432.3508240000083
+    },
+    "concurrent-baseline": {
+      "n": 10,
+      "medianMs": 3418.317459999991,
+      "minMs": 3346.073273999995,
+      "maxMs": 5855.675344999996
+    },
+    "concurrent-candidate": {
+      "n": 10,
+      "medianMs": 2789.681131000005,
+      "minMs": 2676.1491099999985,
+      "maxMs": 4784.465181000007
+    }
+  }
+}
