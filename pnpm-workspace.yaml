@@ -27,3 +27,8 @@ overrides:
 patchedDependencies:
   '@t3tools/provider-runtime@0.0.33': patches/@t3tools__provider-runtime@0.0.33.patch
   '@vite-hub/agent@0.0.4': patches/@vite-hub__agent@0.0.4.patch
+  '@vite-hub/database@0.0.4': patches/@vite-hub__database@0.0.4.patch
+  '@vite-hub/queue@0.0.4': patches/@vite-hub__queue@0.0.4.patch
+  '@vite-hub/schedule@0.0.4': patches/@vite-hub__schedule@0.0.4.patch
+  '@vite-hub/workflow@0.0.4': patches/@vite-hub__workflow@0.0.4.patch
+  '@vite-hub/workspace@0.0.4': patches/@vite-hub__workspace@0.0.4.patch

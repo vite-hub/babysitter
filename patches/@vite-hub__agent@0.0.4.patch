@@ -253,6 +253,32 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..b1adabe922bccf6f284870998d95409b
  //#endregion
 -export { createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u };
 +export { botAuthor as b, createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u, matchesMergeReviewEvidence as v };
+diff --git a/dist/capability-runtime-CutChxpO.js b/dist/capability-runtime-CutChxpO.js
+index c0cbf7d548db1904edcae7f75ae72ff235e5ffdf..8dabf678817c1b39447416819e319264244b4179 100644
+--- a/dist/capability-runtime-CutChxpO.js
++++ b/dist/capability-runtime-CutChxpO.js
+@@ -2357,9 +2357,10 @@ async function resolveAgentCapabilities(options, runtime, input, workspace, work
+ 	const inputMessages = getRunMessages(currentInput);
+ 	let messages = memoizeMessageAttachmentData(inputMessages);
+ 	if (messages !== inputMessages) currentInput = withMessages(currentInput, messages);
++	const trackInputData = invocationOptions.trackInputData !== false;
+ 	let initialInputDataReference = currentInput.data;
+-	let initialInputData = snapshotCapabilityData(currentInput.data);
+-	const inputDataChanged = () => currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData);
++	let initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : void 0;
++	const inputDataChanged = () => trackInputData && (currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData));
+ 	let tools;
+ 	const driverContributions = [];
+ 	let capabilityScope;
+@@ -2705,7 +2706,7 @@ async function resolveAgentCapabilities(options, runtime, input, workspace, work
+ 			setInputDataBaseline(input) {
+ 				currentInput = input;
+ 				initialInputDataReference = currentInput.data;
+-				initialInputData = snapshotCapabilityData(currentInput.data);
++				initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : void 0;
+ 			},
+ 			response,
+ 			registries,
 diff --git a/dist/channels-CHMum11Z.js b/dist/channels-CHMum11Z.js
 index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0fb044c763 100644
 --- a/dist/channels-CHMum11Z.js
@@ -5669,6 +5695,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..2c90320ffa763cb4c88d7a713861fc57
  //#endregion
 -export { isProviderRateLimit as n, createBabysitterRuntime as t };
 +export { isProviderRateLimit as n, missingRequiredChecks as mr, createBabysitterRuntime as t, checksStillRunning as w, wakeReasons as x, repairContextKey as y, reviewPushBudgetWork as z, dailyPassExemption as q, pushCause as k, repairPushAllowance as r, failedOwnActions as fa, sameActionFailure as sf, failureSignatures as fsg, inheritedCheckEvaluation as ic, inheritedBypassSafety as bs, requestAsyncMerge as am, matchingActionFailure as mf, parseFailedActionOutput as pf, pendingMergeWait as pw, infrastructureFailureLine as il, unrelatedFailureWait as uw, jobFailureFacts as jf };
+diff --git a/dist/src-DBofpFt6.js b/dist/src-DBofpFt6.js
+index cc71c804d50665822434d5038bffbc46e21d49d8..bc02dd1f991b5e8115e2cd78fdfe9b2567de987c 100644
+--- a/dist/src-DBofpFt6.js
++++ b/dist/src-DBofpFt6.js
+@@ -3308,6 +3308,7 @@ async function createAgentInvocationContext(definition, context, input, invocati
+ 			invoker,
+ 			model: agentModel,
+ 			resolveCapabilityCli,
++			trackInputData: internalDefinition?.[baseAgentData] !== void 0,
+ 			workspaceDefinition: resolvedWorkspaceDefinition
+ 		});
+ 		const knownUnavailable = (capabilities) => resolveReadiness().then((status) => {
 diff --git a/dist/state/sqlite.js b/dist/state/sqlite.js
 index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..dcce61b76f1911eea48e57265c7d691b278bd788 100644
 --- a/dist/state/sqlite.js
@@ -5766,3 +5804,20 @@ index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6
      login: string;
      email: string;
    }>;
+diff --git a/dist/vite.js b/dist/vite.js
+index 9dfeca5165c9ef86e74112b232a2c6922f906049..adaf5eb3d52d8382e58ba426101d2a278d78e7eb 100644
+--- a/dist/vite.js
++++ b/dist/vite.js
+@@ -2665,7 +2665,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length && results.every((variant) => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
