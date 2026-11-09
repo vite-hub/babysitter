@@ -43,9 +43,11 @@ test('a PR whose failures it did not cause waits without a pass', () => {
   assert.equal(inherited.reason, 'No repair pass: this PR did not cause its failing checks. ci / test fails the same way on main; the host retests this PR when main passes.')
   assert.equal(inherited.retryAt, now + 15 * 60_000)
   const runner = unrelatedFailureWait([{ name: 'ci / build', cause: 'infrastructure', line: 'npm error code ECONNRESET' }], 'main', now)
-  assert.match(runner.reason, /ci \/ build \(npm error code ECONNRESET\) hit a runner or network error; a rerun of the job clears it\.$/)
-  // The rerun sends a check webhook, so a runner error alone needs no timed retry.
-  assert.equal(runner.retryAt, undefined)
+  assert.match(runner.reason, /ci \/ build \(npm error code ECONNRESET\) hit a runner or network error; the host updates the branch for a fresh run\.$/)
+  // The App cannot rerun jobs, so a branch that could not be updated is tried again after the base moves.
+  assert.equal(runner.infrastructure, true)
+  assert.equal(runner.retryAt, now + 60 * 60_000)
+  assert.equal(inherited.infrastructure, false)
   const both = unrelatedFailureWait([{ name: 'ci / test', cause: 'inherited' }, { name: 'ci / build', cause: 'infrastructure', line: 'x' }], 'main', now)
   assert.deepEqual(both.checks, ['ci / test', 'ci / build'])
 })
@@ -78,4 +80,14 @@ test('the unrelated-failure park runs before any budget park and before the mode
   // The park records no progress kind, so it spends neither the no-progress nor the push budget.
   const park = source.slice(source.indexOf('const parkUnrelatedFailures'), source.indexOf('const reviewDrivenPush'))
   assert.doesNotMatch(park, /progress:|repair-pushes|recordModelPass/)
+})
+
+test('a runner error gets a fresh CI run through a branch update, once per head and base', () => {
+  // vitehub#3534 waited 14 hours on a setup-deno 504: the App has actions: read, and nothing retried it.
+  const source = readFileSync(server, 'utf8')
+  const retest = source.slice(source.indexOf('async function retestInfrastructureFailure'), source.indexOf('async function retestOnCurrentBase'))
+  assert.match(retest, /previous\.head === head && previous\.base === pr\.base\.sha \|\| previous\.at > Date\.now\(\) - 36e5/)
+  assert.match(retest, /await updateBranch\(owner, repository, number, head, signal, pr\)/)
+  const park = source.slice(source.indexOf('const parkUnrelatedFailures'), source.indexOf('const reviewDrivenPush'))
+  assert.match(park, /unrelated\.infrastructure && await retestInfrastructureFailure\(snapshot, owner, passSignal\)/)
 })
