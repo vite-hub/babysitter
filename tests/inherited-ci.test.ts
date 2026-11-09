@@ -8,7 +8,7 @@ let modules = dirname(realpathSync(fileURLToPath(import.meta.resolve('vite-hub/a
 while (!modules.endsWith('/node_modules')) modules = dirname(modules)
 const dist = join(modules, '@vite-hub/agent/dist')
 const { s: directMergeReadiness } = await import(join(dist, 'babysitter-ZENI2mzg.js'))
-const { fa: failedOwnActions, sf: sameActionFailure, ic: inheritedCheckEvaluation, bs: inheritedBypassSafety, am: requestAsyncMerge, mf: matchingActionFailure, pf: parseFailedActionOutput } = await import(join(dist, 'server-DZOuXkga.js'))
+const { fa: failedOwnActions, sf: sameActionFailure, ic: inheritedCheckEvaluation, bs: inheritedBypassSafety, am: requestAsyncMerge, mf: matchingActionFailure, pf: parseFailedActionOutput, fsg: failureSignatures } = await import(join(dist, 'server-DZOuXkga.js'))
 const head = 'a'.repeat(40)
 const check = (id: number, name: string, conclusion = 'failure') => ({
   id, name, head_sha: head, status: 'completed', conclusion,
@@ -167,4 +167,19 @@ test('the inherited-failure proof can read a large job log with escape sequences
   const reader = source.slice(source.indexOf('async function failedStepOutput'), source.indexOf('return parseFailedActionOutput(log)'))
   assert.match(reader, /"--allow-escape-sequences", `repos\/\$\{repository\}\/actions\/jobs\/\$\{jobId\}\/logs`/)
   assert.match(reader, /maxBuffer: CI_LOG_MAX_BUFFER/)
+})
+
+test('a narrower PR command still inherits the base failures it names, and only those', () => {
+  // vitehub PRs test changed packages, main tests all of them; both failed test-api.test-d.ts on 2026-11-08.
+  const log = (command: string, output: string[]) => [
+    `##[group]Run ${command}`, '##[endgroup]', ...output, '##[error]Process completed with exit code 1.',
+  ].join('\n')
+  const typeFailure = [' FAIL  test/test-api.test-d.ts > keeps local test shapes compatible', '##[error]TypeCheckError: Type mismatch', 'FAIL vite-hub (build: passed, test: failed (exit 1))']
+  const base = parseFailedActionOutput(log('node test/run-package-task.mjs test --packages vite-hub', ['ℹ dist/vite.js 72.45 kB', ' Test Files  1 failed | 291 passed (292)', ...typeFailure, ' FAIL  test/other.test.ts > a main-only failure']))
+  const pr = (extra: string[] = []) => parseFailedActionOutput(log('node test/run-package-task.mjs test --packages "$PACKAGES"', ['ℹ dist/vite.js 71.02 kB', ' Test Files  1 failed | 289 passed (290)', ...typeFailure, ...extra]))
+  assert.deepEqual(failureSignatures(pr()), new Set(typeFailure.map(line => line.trim())))
+  assert.equal(sameActionFailure(pr(), base), true)
+  assert.equal(sameActionFailure(pr([' FAIL  test/new.test.ts > a PR regression']), base), false)
+  assert.equal(sameActionFailure(pr(['FAIL @vite-hub/kv (build: failed (exit 2))']), base), false)
+  assert.equal(sameActionFailure(pr([' Errors  2 errors']), base), false)
 })
