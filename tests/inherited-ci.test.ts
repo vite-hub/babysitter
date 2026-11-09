@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -159,4 +159,12 @@ test('failure comparison uses command output, excluding shell metadata and the g
   assert.equal(sameActionFailure(parseFailedActionOutput(log(['Error: new PR failure'])), baseline), false)
   assert.equal(sameActionFailure(parseFailedActionOutput(log([])), baseline), false)
   assert.equal(parseFailedActionOutput('truncated output'), undefined)
+})
+
+test('the inherited-failure proof can read a large job log with escape sequences', () => {
+  // gh 2.103 exits non-zero on such logs without the flag, and the proof then treats the failure as the PR's own.
+  const source = readFileSync(join(dist, 'server-DZOuXkga.js'), 'utf8')
+  const reader = source.slice(source.indexOf('async function failedStepOutput'), source.indexOf('return parseFailedActionOutput(log)'))
+  assert.match(reader, /"--allow-escape-sequences", `repos\/\$\{repository\}\/actions\/jobs\/\$\{jobId\}\/logs`/)
+  assert.match(reader, /maxBuffer: CI_LOG_MAX_BUFFER/)
 })
