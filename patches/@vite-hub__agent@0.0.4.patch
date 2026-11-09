@@ -253,6 +253,32 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..b1adabe922bccf6f284870998d95409b
  //#endregion
 -export { createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u };
 +export { botAuthor as b, createBabysitterAdmission as a, feedbackFingerprints as c, resolveBabysitterMerge as d, snapshotCheckEvidence as f, babysitterModelAdmission as i, liveMergeReadiness as l, babysitterPassResultSchema as n, resolveBabysitterAdmissionLimits as o, createBabysitterPassResultSchema as p, resolveBabysitterLifecycleFilter as r, directMergeReadiness as s, babysitter as t, mergeReviewEvidenceKey as u, matchesMergeReviewEvidence as v };
+diff --git a/dist/capability-runtime-CutChxpO.js b/dist/capability-runtime-CutChxpO.js
+index c0cbf7d548db1904edcae7f75ae72ff235e5ffdf..8dabf678817c1b39447416819e319264244b4179 100644
+--- a/dist/capability-runtime-CutChxpO.js
++++ b/dist/capability-runtime-CutChxpO.js
+@@ -2357,9 +2357,10 @@ async function resolveAgentCapabilities(options, runtime, input, workspace, work
+ 	const inputMessages = getRunMessages(currentInput);
+ 	let messages = memoizeMessageAttachmentData(inputMessages);
+ 	if (messages !== inputMessages) currentInput = withMessages(currentInput, messages);
++	const trackInputData = invocationOptions.trackInputData !== false;
+ 	let initialInputDataReference = currentInput.data;
+-	let initialInputData = snapshotCapabilityData(currentInput.data);
+-	const inputDataChanged = () => currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData);
++	let initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : void 0;
++	const inputDataChanged = () => trackInputData && (currentInput.data !== initialInputDataReference || !capabilityDataEqual(currentInput.data, initialInputData));
+ 	let tools;
+ 	const driverContributions = [];
+ 	let capabilityScope;
+@@ -2705,7 +2706,7 @@ async function resolveAgentCapabilities(options, runtime, input, workspace, work
+ 			setInputDataBaseline(input) {
+ 				currentInput = input;
+ 				initialInputDataReference = currentInput.data;
+-				initialInputData = snapshotCapabilityData(currentInput.data);
++				initialInputData = trackInputData ? snapshotCapabilityData(currentInput.data) : void 0;
+ 			},
+ 			response,
+ 			registries,
 diff --git a/dist/channels-CHMum11Z.js b/dist/channels-CHMum11Z.js
 index 22f15389abd3eb51043062ef199911ff5cf5cb1a..c23345bdf7693fe1cad72259a6d59a0fb044c763 100644
 --- a/dist/channels-CHMum11Z.js
@@ -2233,10 +2259,44 @@ index ff6b24aacc1f70784ae4f368f7e75ae427c3754d..592e341f23fe34fb2c9913d0796559df
  //#endregion
 -export { createBabysitterProcessHost };
 +export { createBabysitterProcessHost, cleanupLegacyBabysitterCheckouts, sweepBabysitterWorkspaces };
+diff --git a/dist/invocations-D_U9V1-3.js b/dist/invocations-D_U9V1-3.js
+index d974ac483402bc80ac4b27ef35e1560af158289a..3768c75dca76ba4f7d0c2574738cd1c7fdfe7e40 100644
+--- a/dist/invocations-D_U9V1-3.js
++++ b/dist/invocations-D_U9V1-3.js
+@@ -1865,12 +1865,9 @@ function createMemoryAgentInvocationStore() {
+ 		get(id, options) {
+ 			const record = records.get(id);
+ 			if (!record) return void 0;
+-			const cloned = cloneRecord(record);
+-			if (options?.observationNames) {
+-				const names = new Set(options.observationNames);
+-				cloned.observations = cloned.observations.filter((observation) => names.has(observation.name));
+-			}
+-			return cloned;
++			if (!options?.observationNames) return cloneRecord(record);
++			const names = new Set(options.observationNames);
++			return cloneRecord({ ...record, observations: record.observations.filter((observation) => names.has(observation.name)) });
+ 		},
+ 		getSummary(id) {
+ 			const record = records.get(id);
 diff --git a/dist/invocations/sqlite.js b/dist/invocations/sqlite.js
-index 294f1e2c8555665b76c430601664183fd0a4606f..e831d52b078427b0d1d32752f5f2945bd244575b 100644
+index 294f1e2c8555665b76c430601664183fd0a4606f..4b0a69a2ea1a8a2c3c708b4a7277d035cf8cca89 100644
 --- a/dist/invocations/sqlite.js
 +++ b/dist/invocations/sqlite.js
+@@ -185,11 +185,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+ 		}
+ 		return statements;
+ 	};
+-	/** Reads the observation rows of one invocation in the order that they extend its record. */
++	// Unary + sorts the selected rows instead of scanning payloads through the position index.
+ 	const observationRowsStatement = (id, observationNames) => ({
+ 		args: observationNames === void 0 ? [id] : [id, observationNames],
+ 		sql: `SELECT position, observation FROM ${observationTable}
+-      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY position`
++      WHERE invocation_sequence = (SELECT sequence FROM ${table} WHERE id = ?)${observationNames === void 0 ? "" : " AND json_extract(observation, '$.name') IN (SELECT value FROM json_each(?))"} ORDER BY ${observationNames === void 0 ? "position" : "+position"}`
+ 	});
+ 	const maxAgeMs = retentionValue(options.maxAgeMs, defaultMaxAgeMs, "maxAgeMs", maximumDateMs);
+ 	const maxRecords = retentionValue(options.maxRecords, defaultMaxRecords, "maxRecords");
 @@ -530,6 +530,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
          WHERE agent_name IS NULL OR agent_name = ''`);
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
@@ -2246,7 +2306,16 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..e831d52b078427b0d1d32752f5f2945b
  			await client.execute(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
          ON ${table} (${triggeredByProjection()}, agent_name)`);
  			await client.execute(`CREATE TABLE IF NOT EXISTS ${table}_claims (
-@@ -741,6 +743,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -569,6 +571,8 @@ function createLibsqlAgentInvocationStore(options = {}) {
+       )`);
+ 			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+         ON ${observationTable} (invocation_sequence, position)`);
++			await client.execute(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
++        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`);
+ 			await client.execute(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+         AFTER DELETE ON ${table}
+         BEGIN
+@@ -741,6 +745,11 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				filters.push(`status IN (${statuses.map(() => "?").join(", ")})`);
  				args.push(...statuses);
  			}
@@ -2258,7 +2327,7 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..e831d52b078427b0d1d32752f5f2945b
  			const agentName = listOptions.agentName?.trim();
  			if (agentName) {
  				filters.push("(agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))");
-@@ -748,6 +755,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -748,6 +757,10 @@ function createLibsqlAgentInvocationStore(options = {}) {
  			}
  			const capabilityId = listOptions.capabilityId?.trim();
  			if (capabilityId) {
@@ -2269,7 +2338,7 @@ index 294f1e2c8555665b76c430601664183fd0a4606f..e831d52b078427b0d1d32752f5f2945b
  				filters.push(`(EXISTS (SELECT 1
            FROM json_each(CASE WHEN json_valid(record) THEN record ELSE '{}' END, '$.capabilityIds') AS capability
            WHERE capability.value = ?)
-@@ -770,11 +781,15 @@ function createLibsqlAgentInvocationStore(options = {}) {
+@@ -770,11 +783,15 @@ function createLibsqlAgentInvocationStore(options = {}) {
  				args.push(`%${escapeLike(search.toLowerCase())}%`);
  			}
  			args.push(limit + 1);
@@ -5690,6 +5759,18 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..2c90320ffa763cb4c88d7a713861fc57
  //#endregion
 -export { isProviderRateLimit as n, createBabysitterRuntime as t };
 +export { isProviderRateLimit as n, missingRequiredChecks as mr, createBabysitterRuntime as t, checksStillRunning as w, wakeReasons as x, repairContextKey as y, reviewPushBudgetWork as z, dailyPassExemption as q, pushCause as k, repairPushAllowance as r, failedOwnActions as fa, sameActionFailure as sf, failureSignatures as fsg, inheritedCheckEvaluation as ic, inheritedBypassSafety as bs, requestAsyncMerge as am, matchingActionFailure as mf, parseFailedActionOutput as pf, pendingMergeWait as pw, infrastructureFailureLine as il, unrelatedFailureWait as uw, jobFailureFacts as jf };
+diff --git a/dist/src-DBofpFt6.js b/dist/src-DBofpFt6.js
+index cc71c804d50665822434d5038bffbc46e21d49d8..bc02dd1f991b5e8115e2cd78fdfe9b2567de987c 100644
+--- a/dist/src-DBofpFt6.js
++++ b/dist/src-DBofpFt6.js
+@@ -3308,6 +3308,7 @@ async function createAgentInvocationContext(definition, context, input, invocati
+ 			invoker,
+ 			model: agentModel,
+ 			resolveCapabilityCli,
++			trackInputData: internalDefinition?.[baseAgentData] !== void 0,
+ 			workspaceDefinition: resolvedWorkspaceDefinition
+ 		});
+ 		const knownUnavailable = (capabilities) => resolveReadiness().then((status) => {
 diff --git a/dist/state/sqlite.js b/dist/state/sqlite.js
 index 3cef06fbeaf70aae4a98164ec000c0769cb5700e..dcce61b76f1911eea48e57265c7d691b278bd788 100644
 --- a/dist/state/sqlite.js
@@ -5788,7 +5869,7 @@ index bf6dc89fd51a1db522e507f4cf0d5706f8e9fe5d..ac84ebd92efb959dfedfd6fbf0ddb1d6
      email: string;
    }>;
 diff --git a/dist/vite.js b/dist/vite.js
-index 9dfeca5165c9ef86e74112b232a2c6922f906049..7cf2a948eeeb593489f73db78d15b2584d7ceaf7 100644
+index 9dfeca5165c9ef86e74112b232a2c6922f906049..bfb35f7664ba14516f1fa4ecf1f0011317fb3edc 100644
 --- a/dist/vite.js
 +++ b/dist/vite.js
 @@ -524,7 +524,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
@@ -5818,7 +5899,20 @@ index 9dfeca5165c9ef86e74112b232a2c6922f906049..7cf2a948eeeb593489f73db78d15b258
  	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
  	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
  	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
-@@ -3400,6 +3400,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+@@ -2665,7 +2665,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length && results.every((variant) => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
+@@ -3400,6 +3404,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
  					});
  					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
  						...options.bundleOptions,
@@ -5826,7 +5920,7 @@ index 9dfeca5165c9ef86e74112b232a2c6922f906049..7cf2a948eeeb593489f73db78d15b258
  						define: {
  							...options.bundleDefines,
  							...options.bundleOptions?.define
-@@ -3517,6 +3518,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+@@ -3517,6 +3522,7 @@ async function writeVercelDeploymentOutput(options, signal) {
  		}
  		await bundleEsmEntry(options.bundleEntry, serverEntry, {
  			...options.bundleOptions,
@@ -5834,7 +5928,7 @@ index 9dfeca5165c9ef86e74112b232a2c6922f906049..7cf2a948eeeb593489f73db78d15b258
  			define: {
  				...options.bundleDefines,
  				...options.bundleOptions?.define
-@@ -3628,6 +3630,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+@@ -3628,6 +3634,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
  		await mkdir(dirname(outfile), { recursive: true });
  		await bundleEsmEntry(func.bundleEntry, outfile, {
  			...func.bundleOptions,

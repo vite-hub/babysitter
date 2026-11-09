@@ -1,0 +1,26 @@
+{
+  "reachablePackages": 27,
+  "owners": [
+    {
+      "package": "vite-hub",
+      "file": "dist/console/runtime/server/invocation.get.js",
+      "implementations": [
+        "function observationCursors("
+      ]
+    },
+    {
+      "package": "@vite-hub/agent",
+      "file": "dist/invocations-D_U9V1-3.js",
+      "implementations": [
+        "function createMemoryAgentInvocationStore("
+      ]
+    },
+    {
+      "package": "@vite-hub/agent",
+      "file": "dist/invocations/sqlite.js",
+      "implementations": [
+        "const observationRowsStatement ="
+      ]
+    }
+  ]
+}

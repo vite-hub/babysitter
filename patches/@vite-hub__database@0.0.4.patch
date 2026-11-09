@@ -1,5 +1,5 @@
 diff --git a/dist/vite-CdW0qAxA.js b/dist/vite-CdW0qAxA.js
-index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..6a0be359d6bb2d153210f6916b3435684bd74018 100644
+index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..ad6081b926c6ec325ccf2572fd65424a99943611 100644
 --- a/dist/vite-CdW0qAxA.js
 +++ b/dist/vite-CdW0qAxA.js
 @@ -729,7 +729,7 @@ function collectPackageExportCandidates(packageName, exportsValue, packageRelati
@@ -29,7 +29,20 @@ index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..6a0be359d6bb2d153210f6916b343568
  	if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin);
  	plugins.push(...options.plugins ?? [], createFileUrlPlugin());
  	if (viteAliasPlugin) plugins.push(viteAliasPlugin);
-@@ -2360,6 +2360,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
+@@ -1613,7 +1613,11 @@ async function traceImportedSources(paths, root, configuredRoots) {
+ 				})]);
+ 				if (result?.status === "fulfilled") results.push(result.value);
+ 			}
+-			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) importedSources.add(resolve(root, path));
++			for (const result of results) for (const path of Object.keys(result.metafile.inputs)) {
++				const source = resolve(root, path);
++				importedSources.add(source);
++				if (results.length === traceBuildVariants.length && results.every((variant) => Object.hasOwn(variant.metafile.inputs, path))) tracedEntries.add(source);
++			}
+ 			for (const path of importedSourceHints) {
+ 				importedSources.add(path);
+ 				if (traceableSourceExtensions.has(extname(path)) && !tracedEntries.has(path)) pendingEntries.push(path);
+@@ -2360,6 +2364,7 @@ async function writeCloudflareDeploymentOutput(options, signal) {
  					});
  					await bundleEsmEntry(options.bundleEntry, stagedWorkerOutfile, {
  						...options.bundleOptions,
@@ -37,7 +50,7 @@ index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..6a0be359d6bb2d153210f6916b343568
  						define: {
  							...options.bundleDefines,
  							...options.bundleOptions?.define
-@@ -2477,6 +2478,7 @@ async function writeVercelDeploymentOutput(options, signal) {
+@@ -2477,6 +2482,7 @@ async function writeVercelDeploymentOutput(options, signal) {
  		}
  		await bundleEsmEntry(options.bundleEntry, serverEntry, {
  			...options.bundleOptions,
@@ -45,7 +58,7 @@ index 1da5e8d44cae9b9fdc06066809ce56b0a3f70bb4..6a0be359d6bb2d153210f6916b343568
  			define: {
  				...options.bundleDefines,
  				...options.bundleOptions?.define
-@@ -2588,6 +2590,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
+@@ -2588,6 +2594,7 @@ async function writeNetlifyDeploymentOutput(options, signal) {
  		await mkdir(dirname(outfile), { recursive: true });
  		await bundleEsmEntry(func.bundleEntry, outfile, {
  			...func.bundleOptions,

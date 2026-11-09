@@ -1,3 +1,69 @@
+diff --git a/dist/console/runtime/server/invocation.get.js b/dist/console/runtime/server/invocation.get.js
+index 4361e8c6e504258ff103306d4fc0552b05da5d40..43ba13a031ce0fa48b958494a72269a3240af3ab 100644
+--- a/dist/console/runtime/server/invocation.get.js
++++ b/dist/console/runtime/server/invocation.get.js
+@@ -1,3 +1,4 @@
++import { createHash } from "node:crypto";
+ import { r as getConsoleInvocations, u as invocationUsage } from "../../../invocations-5_YsIYn_.js";
+ import { t as viteHubErrorDiagnostics } from "../../../error-diagnostics-CHkLSv8A.js";
+ import { i as consoleRequestURL, n as consoleRequestError, r as consoleRequestJSON, t as assertConsoleRequest } from "../../../request-D-SUKcD3.js";
+@@ -6,18 +7,26 @@ import { r as getConsoleAgentDefinition, t as consoleAgentInvokerProfiles } from
+ import { agentInvocationRerunInput } from "@vite-hub/agent";
+ import * as v from "valibot";
+ //#region src/console/runtime/server/invocation.get.ts
+-function observationCursor(observations, count = observations.length) {
+-	let fnv = 2166136261;
+-	let djb = 5381;
+-	for (let index = 0; index < count; index++) {
+-		const serialized = JSON.stringify(observations[index]);
+-		for (let offset = 0; offset <= serialized.length; offset++) {
+-			const code = offset === serialized.length ? 0 : serialized.charCodeAt(offset);
+-			fnv = Math.imul(fnv ^ code, 16777619);
+-			djb = Math.imul(djb, 33) ^ code;
+-		}
++function formatObservationCursor(count, digest) {
++	return `${count.toString(36)}-${digest}`;
++}
++const observationCursorBatchSize = 32;
++function observationCursors(observations, prefixCount) {
++	const hash = createHash("sha256").update("[");
++	let prefix = prefixCount === 0 ? formatObservationCursor(0, hash.copy().update("]").digest("hex")) : undefined;
++	for(let start = 0; start < observations.length;){
++		const end = Math.min(start + observationCursorBatchSize, prefixCount !== undefined && prefixCount > start ? prefixCount : observations.length);
++		if (start > 0) hash.update(",");
++		hash.update(JSON.stringify(observations.slice(start, end)).slice(1, -1));
++		if (end === prefixCount && end < observations.length) prefix = formatObservationCursor(end, hash.copy().update("]").digest("hex"));
++		start = end;
+ 	}
+-	return `${count.toString(36)}-${(fnv >>> 0).toString(36)}-${(djb >>> 0).toString(36)}`;
++	const cursor = formatObservationCursor(observations.length, hash.update("]").digest("hex"));
++	if (prefixCount === observations.length) prefix = cursor;
++	return {
++		cursor,
++		prefix
++	};
+ }
+ const cancelActionSchema = v.strictObject({ action: v.literal("cancel") });
+ const deleteActionSchema = v.strictObject({ action: v.literal("delete") });
+@@ -129,14 +138,16 @@ async function getConsoleInvocationDetail(event) {
+ 	const countValue = requestURL.searchParams.get("observationCount");
+ 	const requestedCursor = requestURL.searchParams.get("observationCursor");
+ 	const observationCount = countValue === null ? void 0 : Number(countValue);
+-	const canAppend = invocation.observationsTruncated !== true && requestedCursor !== null && observationCount !== void 0 && Number.isSafeInteger(observationCount) && observationCount >= 0 && observationCount <= observations.length && requestedCursor === observationCursor(observations, observationCount);
++	const hasRequestedPrefix = invocation.observationsTruncated !== true && requestedCursor !== null && observationCount !== void 0 && Number.isSafeInteger(observationCount) && observationCount >= 0 && observationCount <= observations.length;
++	const cursors = observationCursors(observations, hasRequestedPrefix ? observationCount : void 0);
++	const canAppend = hasRequestedPrefix && requestedCursor === cursors.prefix;
+ 	const detail = {
+ 		invocation: {
+ 			...summary,
+ 			...actions ? { actions } : {},
+ 			...usage ? { usage } : {}
+ 		},
+-		observationCursor: observationCursor(observations),
++		observationCursor: cursors.cursor,
+ 		observations: canAppend ? observations.slice(observationCount) : observations
+ 	};
+ 	if (canAppend) detail.appendObservations = true;
 diff --git a/dist/src-1_MLvzNN.js b/dist/src-1_MLvzNN.js
 index 325deafd19a48280e6e5be44bf444e50efd4357f..d94c84f133b2bf758170db89eb1f234b88fac490 100644
 --- a/dist/src-1_MLvzNN.js
