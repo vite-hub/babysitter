@@ -53,6 +53,15 @@ test('a model quota cooldown keeps host merges running while GitHub limits stop 
   assert.match(source, /forgeBlockedUntil > Date\.now\(\)\) \{\n[^\n]*\n\t+return;/)
 })
 
+test('a GitHub rate limit stops forge requests briefly and doubles only while blocks repeat', () => {
+  // A flat hour after every GitHub limit, including secondary limits that lift within minutes,
+  // left vitehub idle for an hour at a time on 2026-11-10 while the hourly quota had room.
+  assert.doesNotMatch(source, /metaNumber\("forge-quota-blocked-until"\) \?\? 0, Date\.now\(\) \+ 36e5\)/)
+  assert.match(source, /if \(current > now\) return true;/)
+  assert.match(source, /now - lastBlock < 72e5 \? Math\.min\(\(await pullRequestInbox\.metaNumber\("forge-quota-strikes"\) \?\? 0\) \+ 1, 5\) : 1/)
+  assert.match(source, /const blockedUntil = now \+ Math\.min\(3e5 \* 2 \*\* \(strikes - 1\), 36e5\);/)
+})
+
 test('a provider rate limit pauses model passes briefly and resumes them at lower concurrency', () => {
   // Codex 429s clear within minutes. A fixed hour left the model about 9 minutes of work per hour.
   assert.doesNotMatch(source, /setMeta\("provider-quota-blocked-until", Date\.now\(\) \+ 36e5\)/)
