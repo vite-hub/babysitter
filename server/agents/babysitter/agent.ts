@@ -43,9 +43,10 @@ const maintainers = loginList(process.env.BABYSITTER_MAINTAINERS, ['onmax'])
 const contributors = loginList(process.env.BABYSITTER_CONTRIBUTORS, ['OrlS15'])
 const contributorMergeGate = maintainerApprovalForContributors(contributors, maintainers)
 // Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
-// commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
-// repair PRs (scripts/main-guardian.mjs). Dependabot opens the GitHub Actions bumps.
-const authors: readonly string[] = [...maintainers, ...contributors, 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vitehub-bot[bot]', 'vitehub-bot']
+// commit step re-checks through GraphQL, so list both. The GitHub App opens the main-guardian
+// repair PRs (scripts/main-guardian.mjs); it was renamed from vitehub-bot to vite-hub, so list
+// both names. Dependabot opens the GitHub Actions bumps.
+const authors: readonly string[] = [...maintainers, ...contributors, 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vite-hub[bot]', 'vite-hub', 'vitehub-bot[bot]', 'vitehub-bot']
 
 const admissionInputTokens = {
   hourly: inputTokenLimit('BABYSITTER_HOURLY_INPUT_TOKENS'),
