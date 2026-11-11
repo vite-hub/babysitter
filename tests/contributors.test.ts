@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loginList, maintainerApprovalForContributors } from '../server/agents/babysitter/contributors.ts'
+import { loginList, maintainerApprovalForContributors, ownDraftsReady } from '../server/agents/babysitter/contributors.ts'
 
 const ready = maintainerApprovalForContributors(['OrlS15'], ['onmax'])
 const head = 'a'.repeat(40)
@@ -40,4 +40,15 @@ test('only maintainers approve, and their latest decisive review wins', () => {
 test('login lists fall back when the variable is empty', () => {
   assert.deepEqual(loginList(undefined, ['onmax']), ['onmax'])
   assert.deepEqual(loginList(' a, b ', ['onmax']), ['a', 'b'])
+})
+
+test('maintainer and bot drafts on a repository branch are marked ready, outside drafts are not', () => {
+  const drafts = ownDraftsReady(['onmax', 'renovate[bot]'])
+  const draft = (author: string, headRepo: string) => ({ repository: 'vite-hub/drop', snapshot: { pr: { user: { login: author }, head: { repo: { full_name: headRepo } } } } })
+  assert.equal(drafts(draft('onmax', 'vite-hub/drop')), true)
+  assert.equal(drafts(draft('Onmax', 'Vite-Hub/Drop')), true)
+  assert.equal(drafts(draft('renovate[bot]', 'vite-hub/drop')), true)
+  assert.equal(drafts(draft('OrlS15', 'vite-hub/drop')), false)
+  assert.equal(drafts(draft('onmax', 'onmax/drop')), false)
+  assert.equal(drafts({ repository: 'vite-hub/drop', snapshot: {} }), false)
 })

@@ -708,7 +708,15 @@ test('a ready PR that cannot reach the default branch parks, and a parked stack 
 test('a reviewed draft waits for ready_for_review instead of retrying every two minutes', () => {
   // 2026-11-01: drafts #3024, #3029 and drop#63 had their direct merge refused as "draft" every two
   // minutes; #3029 reached generation 1929.
-  assert.match(source, /if \(!requiredChecksFailed && inboxClaim\.snapshot\.pr\?\.draft === true\) \{\n\t+await pullRequestInbox\.finish\(inboxClaim, \{\n[^\n]*\n\t+wait: \{\n\t+\.\.\.createCheckWait\(inboxClaim\.snapshot, waitPolicy\),\n\t+kind: "external",\n\t+reason: "draft"/)
+  const draft = source.slice(source.indexOf('if (!requiredChecksFailed && inboxClaim.snapshot.pr?.draft === true) {'))
+  assert.match(draft, /^[^]*?return;\n\t+\}\n\t+await pullRequestInbox\.finish\(inboxClaim, \{\n[^\n]*\n\t+wait: \{\n\t+\.\.\.createCheckWait\(inboxClaim\.snapshot, waitPolicy\),\n\t+kind: "external",\n\t+reason: "draft"/)
+})
+
+test('the merge gate marks a maintainer draft ready instead of waiting on it', () => {
+  // 2026-11-11: 9 of 11 open drop PRs and about 25 vitehub PRs sat on the "draft" wait, all opened by onmax's agents.
+  assert.match(source, /if \(!requiredChecksFailed && inboxClaim\.snapshot\.pr\?\.draft === true\) \{\n(\t+\/\/[^\n]*\n)+\t+if \(merge\.markDraftsReady && await markDraftReady\(inboxClaim\.snapshot, owner, passSignal\)\) \{/)
+  assert.match(source, /"pr",\n\t+"ready",\n\t+String\(number\),\n\t+"--repo",\n\t+repository/)
+  assert.match(source, /\.\.\.markDraftsReady \? \{ markDraftsReady \} : \{\}/)
 })
 
 test('CI recovery leaves a head with a spent repair budget to its cooldown wake', () => {

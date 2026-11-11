@@ -6,7 +6,7 @@ import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
 import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
-import { loginList, maintainerApprovalForContributors } from './contributors.ts'
+import { loginList, maintainerApprovalForContributors, ownDraftsReady } from './contributors.ts'
 
 const telemetry = createAgentEvlog({
   service: 'babysitter',
@@ -97,7 +97,8 @@ export default defineAgent({
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
-    merge: { strategy: 'direct', method: 'squash', ready: contributorMergeGate },
+    // Maintainers' agents open PRs as drafts; the merge gate marks those ready instead of waiting forever.
+    merge: { strategy: 'direct', method: 'squash', ready: contributorMergeGate, markDraftsReady: ownDraftsReady(authors.filter(name => !contributors.includes(name))) },
   },
   workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
