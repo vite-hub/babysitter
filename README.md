@@ -39,7 +39,9 @@ The preset keeps model passes for real repair work:
   `false` to read CI evidence and keep normal merge gates without requesting reruns.
 
 The included configuration enables direct squash merges for PRs authored by `onmax`.
-Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
+It also repairs PRs from outside contributors (`BABYSITTER_CONTRIBUTORS`, default `OrlS15`),
+but merges one only after a maintainer (`BABYSITTER_MAINTAINERS`, default `onmax`) approves
+its current head. A push after the approval needs a new approval. Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
 head, required checks, reviews, feedback and default branch. Open stack children wait
 for their parent. Source branches remain intact.
 

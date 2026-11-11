@@ -6,6 +6,7 @@ import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
 import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
+import { loginList, maintainerApprovalForContributors } from './contributors.ts'
 
 const telemetry = createAgentEvlog({
   service: 'babysitter',
@@ -38,6 +39,14 @@ function inputTokenLimit(name: string) {
   return value
 }
 
+const maintainers = loginList(process.env.BABYSITTER_MAINTAINERS, ['onmax'])
+const contributors = loginList(process.env.BABYSITTER_CONTRIBUTORS, ['OrlS15'])
+const contributorMergeGate = maintainerApprovalForContributors(contributors, maintainers)
+// Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
+// commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
+// repair PRs (scripts/main-guardian.mjs). Dependabot opens the GitHub Actions bumps.
+const authors: readonly string[] = [...maintainers, ...contributors, 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vitehub-bot[bot]', 'vitehub-bot']
+
 const admissionInputTokens = {
   hourly: inputTokenLimit('BABYSITTER_HOURLY_INPUT_TOKENS'),
   daily: inputTokenLimit('BABYSITTER_DAILY_INPUT_TOKENS'),
@@ -54,10 +63,8 @@ export default defineAgent({
         allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
           .split(/[,\s]+/).filter(Boolean),
       },
-      // Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
-      // commit step re-checks through GraphQL, so list both. vitehub-bot opens the main-guardian
-      // repair PRs (scripts/main-guardian.mjs). Dependabot opens the GitHub Actions bumps.
-      author: { allow: ['onmax', 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vitehub-bot[bot]', 'vitehub-bot'] },
+      // Contributors' PRs get the same repairs; merge.ready below holds their merge for a maintainer.
+      author: { allow: authors },
       // A person working a PR by hand labels it so no pass pushes over their work.
       labels: { deny: ['babysitter:skip'] },
     },
@@ -90,7 +97,7 @@ export default defineAgent({
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
-    merge: { strategy: 'direct', method: 'squash' },
+    merge: { strategy: 'direct', method: 'squash', ready: contributorMergeGate },
   },
   workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
