@@ -65,7 +65,9 @@ test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
 test('the main guardian opens repair PRs the Babysitter accepts', () => {
   // 2026-10-18: main stayed red because PR CI runs only fast checks and nothing repaired main.
   const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
-  assert.match(appSource, /const authors: readonly string\[\] = \[.*'vitehub-bot\[bot\]', 'vitehub-bot'\]/)
+  // 2026-11-11: after the App was renamed to vite-hub, its repair PR #3911 went terminal on the
+  // author filter, the guardian kept waiting on it, and main stayed red for hours.
+  assert.match(appSource, /const authors: readonly string\[\] = \[.*'vite-hub\[bot\]', 'vite-hub',.*'vitehub-bot\[bot\]', 'vitehub-bot'\]/)
   assert.match(appSource, /author: \{ allow: authors \}/)
   const guardian = readFileSync(new URL('../scripts/main-guardian.mjs', import.meta.url), 'utf8')
   assert.match(guardian, /const branchPrefix = 'babysitter\/repair-main-'/)
