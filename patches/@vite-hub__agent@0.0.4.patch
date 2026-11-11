@@ -1340,14 +1340,13 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  		channel(channelOptions = {}) {
  			return github({
  				...channelOptions,
-@@ -2848,19 +3264,22 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2848,19 +3264,21 @@ function createGitHubPullRequestOperations(github, options) {
  				String(runId),
  				"--repo",
  				repository,
 -				"--log-failed"
 -			], commandOptions);
-+				"--log-failed",
-+				"--allow-escape-sequences"
++				"--log-failed"
 +			], {
 +				...commandOptions,
 +				maxBuffer: CI_LOG_MAX_BUFFER
@@ -1369,7 +1368,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  			await snapshot();
  			const result = await github.command(["api", `/repos/${repository}/actions/runs/${runId}`], commandOptions);
  			const run = v.parse(v.object({
-@@ -2878,13 +3297,13 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2878,13 +3296,12 @@ function createGitHubPullRequestOperations(github, options) {
  				String(runId),
  				"--repo",
  				repository,
@@ -1380,8 +1379,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
 -				text: logs.stdout.slice(0, limit),
 -				truncated: logs.stdout.length > limit
 -			};
-+				"--log-failed",
-+				"--allow-escape-sequences"
++				"--log-failed"
 +			], {
 +				...commandOptions,
 +				maxBuffer: CI_LOG_MAX_BUFFER
@@ -1390,7 +1388,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  		},
  		async comment(body) {
  			nonempty(body, "Comment");
-@@ -2914,8 +3333,14 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2914,8 +3331,14 @@ function createGitHubPullRequestOperations(github, options) {
  				`body=${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`
  			], commandOptions);
  		},
@@ -1406,7 +1404,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  			const current = await snapshot();
  			const thread = v.parse(v.object({ node: v.nullable(v.object({
  				pullRequest: v.object({ id: v.string() }),
-@@ -2924,6 +3349,10 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2924,6 +3347,10 @@ function createGitHubPullRequestOperations(github, options) {
  			if (!thread.node || thread.node.pullRequest.id !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.");
  			if (thread.node.isResolved) return;
  			await snapshot();
@@ -1417,7 +1415,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  			await graphQL(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}`, { id });
  		},
  		async updateMetadata(input) {
-@@ -2948,6 +3377,10 @@ function createGitHubPullRequestOperations(github, options) {
+@@ -2948,6 +3375,10 @@ function createGitHubPullRequestOperations(github, options) {
  			}
  			await github.command(args, commandOptions);
  		},
@@ -1428,7 +1426,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  		async refreshDependencies() {
  			if (!options.refreshDependencies) throw new Error("This worker has no dependency refresh operation.");
  			await snapshot();
-@@ -3053,8 +3486,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
+@@ -3053,8 +3484,12 @@ function createGitHubRequiredCheckPolicyReader(read, options = {}) {
  		const prefix = `repos/${repository}`, encodedBranch = encodeURIComponent(branch);
  		const [rules, classic] = await Promise.all([requestAllRules(`${prefix}/rules/branches/${encodedBranch}`), request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`)]);
  		try {
@@ -1443,7 +1441,7 @@ index 47439debe041e64f83a8b764b4924f118eb8dcbc..2f85cd5c2b763de2ef0fc652b8b51339
  			let classicSource = "protection-endpoint";
  			if (classic.status === 200) required.push(...classicChecks(classic.data));
  			else if (classic.status === 403 || classic.status === 404) {
-@@ -3190,4 +3627,4 @@ function combine(states) {
+@@ -3190,4 +3625,4 @@ function combine(states) {
  	return states.includes("pending") ? "pending" : "passed";
  }
  //#endregion

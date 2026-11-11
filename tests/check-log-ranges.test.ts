@@ -28,5 +28,5 @@ test('readCheckLogs returns a complete requested tail or named range from a long
   assert.match(server, /return operations\.readCheckLogs\(input\.runId, input\)/)
   const source = readFileSync(join(dist, 'github-C5fJH50u.js'), 'utf8')
   assert.match(source, /return checkLogExcerpt\(logs\.stdout, 2e5, selection\)/)
-  assert.match(source, /"--log-failed",\s*"--allow-escape-sequences"/)
+  assert.match(source, /"--log-failed"\s*\]/)
 })
