@@ -59,7 +59,42 @@ Tuples are supported too: `extends: ['babysitter', { concurrency: 2, merge: fals
 Preset defaults merge with the `babysitter` block, then tuple settings. Arrays replace.
 External presets use an explicit package import.
 
-## Run
+## Run your own
+
+Fork this repository and review `server/agents/babysitter/agent.ts`: its author list, review
+checks and model instructions are ours. Then:
+
+1. Create a GitHub App under Settings → Developer settings → GitHub Apps.
+   - Webhook URL: `https://<your-host>/api/webhooks/github`, with a random webhook secret.
+   - Repository permissions: Contents, Pull requests, Issues and Checks read and write; Actions,
+     Commit statuses and Metadata read. Add Workflows write if repairs may touch `.github/workflows`.
+   - Events: Pull request, Pull request review, Pull request review comment, Pull request review
+     thread, Issue comment, Check run, Check suite, Status and Push.
+   - Generate a private key and install the App on the repositories to watch.
+2. `cp .env.example .env` and fill in the required values.
+3. Start it and log Codex in once. The login lands in the `/data` volume.
+
+   ```sh
+   docker compose up -d --build
+   docker compose exec babysitter codex login --device-auth
+   # or: printenv OPENAI_API_KEY | docker compose exec -T babysitter codex login --with-api-key
+   curl -fsS localhost:3000/api/health
+   ```
+
+The Console at `/_vitehub` and the health routes have no authentication. Expose only
+`/api/webhooks/github` to the internet, through a reverse proxy or tunnel, and keep the rest private.
+
+`docker compose stop` gives webhook deliveries `VITEHUB_SHUTDOWN_DRAIN_MS` (2 minutes) to finish.
+A repair pass still running is interrupted, and the next start picks the PR up again. To let
+running passes finish first, drain before you restart:
+
+```sh
+docker compose kill -s SIGUSR2 babysitter
+until curl -s localhost:3000/api/drain | grep -q drained; do sleep 10; done
+docker compose up -d --build --force-recreate
+```
+
+## Run on a host
 
 Install Node.js 24.15 or newer, Git, GitHub CLI and an authenticated Codex CLI.
 Configure a GitHub App installed on each watched repository, with Contents, Issues

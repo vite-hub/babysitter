@@ -1,0 +1,22 @@
+services:
+  babysitter:
+    build:
+      context: .
+      args:
+        # Set to the commit you build, e.g. BABYSITTER_RELEASE=$(git rev-parse HEAD) docker compose build.
+        BABYSITTER_RELEASE: ${BABYSITTER_RELEASE:-docker}
+        BABYSITTER_PUBLIC_URL: ${BABYSITTER_PUBLIC_URL:-}
+    env_file: .env
+    environment:
+      # On docker stop, running passes get this long to finish before the next start resumes them.
+      VITEHUB_SHUTDOWN_DRAIN_MS: 120000
+    # Drain budget + 25 s (ViteHub's restart notices and close hooks) + margin. Keep it in step.
+    stop_grace_period: 150s
+    ports:
+      - ${BABYSITTER_PORT:-3000}:3000
+    volumes:
+      - babysitter-data:/data
+    restart: unless-stopped
+
+volumes:
+  babysitter-data:
