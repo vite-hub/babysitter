@@ -3,6 +3,8 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
+const dataDir = process.env.BABYSITTER_DATA_DIR ?? '.'
+
 export default defineConfig({
   env: {
     public: { releaseRevision: env({ mode: 'build', source: env.gitSha() }) },
@@ -21,10 +23,9 @@ export default defineConfig({
       console: {
         auth: false,
         authorize: './server/console-authorize.ts',
-        // Keep the Console journal beside the worker's durable agent data. This
-        // is part of the project configuration so production does not depend on
-        // a systemd environment override for the active invocation database.
-        databaseUrl: 'file:/home/workspace/babysitter-data/.vitehub/agents/babysitter/invocations.sqlite',
+        // Keep the Console journal beside the worker's durable agent data. The path is
+        // baked in at build time, so set BABYSITTER_DATA_DIR when you build for a host.
+        databaseUrl: `file:${dataDir}/.vitehub/agents/babysitter/invocations.sqlite`,
       },
       database: false,
       kv: { driver: 'fs-lite' },
