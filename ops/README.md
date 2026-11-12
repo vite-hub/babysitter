@@ -40,7 +40,7 @@ To also post them to Discord, put a webhook URL in
 
 ## Babysitter admission limits
 
-The installed worker uses GPT-6.1 Sol at `xhigh` through
+The installed worker uses GPT-6.1 Sol at `medium` through
 `model/model.conf`, installed at
 `/etc/systemd/system/babysitter-vitehub.service.d/model.conf`.
 After changing this override, reload systemd, drain the worker, and restart it.

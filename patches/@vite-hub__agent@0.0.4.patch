@@ -1,5 +1,5 @@
 diff --git a/dist/babysitter-ZENI2mzg.js b/dist/babysitter-ZENI2mzg.js
-index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845d34e5440 100644
+index 1c139c9d5e55953ad12c260e6623758314af6c22..2a9c467085eff163743f4bec42b5fecfd85e69ad 100644
 --- a/dist/babysitter-ZENI2mzg.js
 +++ b/dist/babysitter-ZENI2mzg.js
 @@ -76,6 +76,14 @@ function createBabysitterPassResultSchema(report) {
@@ -32,16 +32,27 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  
  ## Wait and finish
  
-@@ -144,6 +152,8 @@ function botAuthor(value) {
+@@ -134,6 +142,10 @@ const pending = /* @__PURE__ */ new Set([
+ function feedbackAuthor(value) {
+ 	return String(value.user?.login ?? value.author?.login ?? "").toLowerCase();
+ }
++/** Bot feedback that names a P0 or P1 finding. With `mergeOnGreen`, only this bot feedback needs a pass. */
++function blockingBotFinding(value) {
++	return /\bP[01]\b/.test(String(value.body ?? ""));
++}
+ function botAuthor(value) {
+ 	const user = value.user ?? value.author;
+ 	return String(user?.type ?? user?.__typename ?? "").toLowerCase() === "bot" || feedbackAuthor(value).endsWith("[bot]");
+@@ -144,6 +156,8 @@ function botAuthor(value) {
  */
  function ignoredFeedback(value, policy) {
  	if (value.deleted) return true;
 +	// After the review push budget is spent, bot feedback needs no assessment, even a request for changes.
-+	if (policy.automatedReviewSettled && botAuthor(value)) return true;
++	if (policy.automatedReviewSettled && botAuthor(value) && !(policy.mergeOnGreen && blockingBotFinding(value))) return true;
  	if (String(value.state).toUpperCase() === "CHANGES_REQUESTED") return false;
  	const author = feedbackAuthor(value);
  	if (policy.workerAuthors?.has(author) || policy.ignoreFeedbackAuthors?.has(author)) return true;
-@@ -162,16 +172,37 @@ function feedback(values, policy, botBodies = true) {
+@@ -162,16 +176,37 @@ function feedback(values, policy, botBodies = true) {
  		line: value.line
  	}));
  }
@@ -85,7 +96,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  	const head = snapshot.pr?.head?.sha;
  	const failures = [...Object.values(snapshot.checks), ...Object.values(snapshot.statuses)].filter((value) => !value.deleted && (value.head_sha ?? value.sha) === head && failing.has(String(value.conclusion ?? value.state).toLowerCase())).map((value) => ({
  		id: value.id ?? value.context,
-@@ -184,8 +215,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+@@ -184,8 +219,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
  	const threads = snapshot.threads.map((thread) => ({
  		id: thread.node_id ?? thread.id,
  		path: thread.path,
@@ -96,7 +107,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  			id: comment.node_id ?? comment.id,
  			body: comment.body,
  			user: comment.user ?? comment.author,
-@@ -198,8 +229,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+@@ -198,8 +233,8 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
  		headRepository: snapshot.pr?.head?.repo?.full_name,
  		draft: snapshot.pr?.draft,
  		title: snapshot.pr?.title,
@@ -107,7 +118,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  		comments: feedback(snapshot.comments, policy, false),
  		reviews: feedback(snapshot.reviews, policy),
  		reviewComments: feedback(snapshot.reviewComments, policy),
-@@ -207,18 +238,22 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
+@@ -207,18 +242,22 @@ function mergeReviewEvidenceKey(snapshot, policy = {}) {
  		failures
  	})).digest("hex");
  }
@@ -134,7 +145,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  	return kinds.flatMap(([kind, values]) => values.map((value) => createHash("sha256").update(JSON.stringify([
  		target,
  		kind,
-@@ -240,13 +275,13 @@ function resolveBabysitterMerge(merge, autoMerge) {
+@@ -240,13 +279,13 @@ function resolveBabysitterMerge(merge, autoMerge) {
  		if (method !== "squash" && method !== "merge" && method !== "rebase") throw new TypeError("[vitehub] Babysitter merge.method must be \"squash\", \"merge\", or \"rebase\".");
  		if (merge.ready !== void 0 && !hasRuntimeType(merge.ready, "function")) throw new TypeError("[vitehub] Babysitter merge.ready must be a function.");
  		const ready = merge.ready;
@@ -153,7 +164,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  		};
  	}
  	throw new TypeError("[vitehub] Babysitter merge must be false, \"auto\", \"direct\", or { strategy: \"direct\" }.");
-@@ -266,10 +301,13 @@ function snapshotCheckEvidence(snapshot) {
+@@ -266,10 +305,13 @@ function snapshotCheckEvidence(snapshot) {
  		}];
  	});
  	const newest = /* @__PURE__ */ new Map();
@@ -168,7 +179,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  	}
  	const statuses = Object.values(snapshot.statuses).flatMap((status, index) => {
  		if (status.deleted || status.sha !== head || !hasRuntimeType(status.context, "string")) return [];
-@@ -299,14 +337,33 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
+@@ -299,14 +341,33 @@ function directMergeReadiness(snapshot, requiredChecks, assessment = {}) {
  	if (pr.draft) return no("draft");
  	if (requiredChecks !== "passed") return no(`required checks ${requiredChecks}`);
  	const evidence = snapshotCheckEvidence(snapshot);
@@ -180,7 +191,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
 +	if (assessment.automatedReviewSettled !== true && (evidence.checkRuns.some((check) => reviewChecks.has(check.name.toLowerCase()) && pending.has(check.status.toLowerCase())) || evidence.statuses.some((status) => reviewChecks.has(status.context.toLowerCase()) && pending.has(status.state.toLowerCase())))) return no("a current-head review is still running");
 +	// After the review push budget is spent, failed review checks no longer need an assessment.
 +	const settled = assessment.automatedReviewSettled === true;
-+	const failedChecks = evidence.checkRuns.some((check) => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase()))) || evidence.statuses.some((status) => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
++	const failedChecks = assessment.mergeOnGreen !== true && evidence.checkRuns.some((check) => failing.has(String(check.conclusion).toLowerCase()) && !(settled && reviewChecks.has(check.name.toLowerCase()))) || evidence.statuses.some((status) => failing.has(status.state.toLowerCase()) && !(settled && reviewChecks.has(status.context.toLowerCase())));
  	const assessed = assessment.assessedFeedback ?? /* @__PURE__ */ new Set();
 -	const unassessed = feedbackFingerprints(snapshot, assessment).filter((id) => !assessed.has(id)).length;
 -	if ((failedChecks || unassessed) && assessment.reviewedEvidenceKey !== mergeReviewEvidenceKey(snapshot, assessment)) return no(failedChecks ? "current-head failures need assessment" : `${unassessed} new feedback item${unassessed === 1 ? " needs" : "s need"} assessment`);
@@ -207,7 +218,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  	return {
  		ready: true,
  		head
-@@ -419,7 +476,15 @@ async function readInvocationInputTokens(invocations, since) {
+@@ -419,7 +480,15 @@ async function readInvocationInputTokens(invocations, since) {
  	do {
  		const page = await invocations.list({
  			cursor,
@@ -224,11 +235,12 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  		});
  		if (page.cursor && seenCursors.has(page.cursor)) throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.");
  		if (page.cursor) seenCursors.add(page.cursor);
-@@ -613,21 +678,29 @@ const babysitter = defineAgent({
+@@ -613,21 +682,31 @@ const babysitter = defineAgent({
  		noFindingsReviews: [],
  		ignoreFeedbackAuthors: [],
  		noProgressBudget: 3,
 +		reviewPushBudget: 3,
++		mergeOnGreen: false,
 +		dailyPassBudget: 16,
 +		priorityLabels: ["babysitter:priority"],
  		deferWhilePending: true,
@@ -241,7 +253,7 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
  		autoMerge: false
  	},
 -	configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, deferWhilePending, install, autoMerge, concurrency, admission }) => {
-+	configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, priorityLabels, deferWhilePending, install, autoMerge, concurrency, admission, ciRecovery }) => {
++	configure: ({ filter, lifecycle, driver, merge, reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, mergeOnGreen, dailyPassBudget, priorityLabels, deferWhilePending, install, autoMerge, concurrency, admission, ciRecovery }) => {
  		if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("[vitehub] Babysitter concurrency must be a positive integer.");
  		if (driver !== "codex" && driver !== "claude-code") throw new TypeError("[vitehub] Babysitter driver must be \"codex\" or \"claude-code\".");
  		if (noFindingsReviews.some((prefix) => prefix.length === 0)) throw new TypeError("[vitehub] Babysitter noFindingsReviews cannot contain an empty prefix.");
@@ -250,16 +262,18 @@ index 1c139c9d5e55953ad12c260e6623758314af6c22..6568b314d92c899968bb29d31764b845
 +		if (reviewPushBudget !== false && (!Number.isSafeInteger(reviewPushBudget) || reviewPushBudget < 1)) throw new TypeError("[vitehub] Babysitter reviewPushBudget must be a positive integer or false.");
 +		if (dailyPassBudget !== false && (!Number.isSafeInteger(dailyPassBudget) || dailyPassBudget < 1)) throw new TypeError("[vitehub] Babysitter dailyPassBudget must be a positive integer or false.");
 +		if (!Array.isArray(priorityLabels) || priorityLabels.some((label) => !hasRuntimeType(label, "string") || !label.trim())) throw new TypeError("[vitehub] Babysitter priorityLabels must list GitHub label names.");
++		if (!hasRuntimeType(mergeOnGreen, "boolean")) throw new TypeError("[vitehub] Babysitter mergeOnGreen must be a boolean.");
  		if (!hasRuntimeType(deferWhilePending, "boolean")) throw new TypeError("[vitehub] Babysitter deferWhilePending must be a boolean.");
 +		if (!hasRuntimeType(ciRecovery, "boolean")) throw new TypeError("[vitehub] Babysitter ciRecovery must be a boolean.");
  		if (!validInstall(install)) throw new TypeError("[vitehub] Babysitter install must be a boolean or { command, args, cache }.");
  		if (!validBabysitterAdmission(admission)) throw new TypeError("[vitehub] Babysitter admission must be { inputTokens: { hourly, daily }, minFreeTmpMb, paused, check } with non-negative integer token limits.");
  		resolveBabysitterLifecycleFilter(filter, lifecycle);
-@@ -648,11 +721,15 @@ const babysitter = defineAgent({
+@@ -648,11 +727,16 @@ const babysitter = defineAgent({
  			mentionAllowlist,
  			ignoreFeedbackAuthors,
  			noProgressBudget,
 +			reviewPushBudget,
++			mergeOnGreen,
 +			dailyPassBudget,
 +			priorityLabels,
  			deferWhilePending,
@@ -2766,7 +2780,7 @@ index 0000000000000000000000000000000000000000..c21d89b07e5da94cca677890dbddc75c
 +//#endregion
 +export { createPullRequestWorkspaces, diskUsage, entryName, providerSessionDecision, pullRequestWorkspaceLimits, workspaceDecision };
 diff --git a/dist/presets/babysitter.d.ts b/dist/presets/babysitter.d.ts
-index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..f6ec9744ab8bbabc915996762abf6a98fdd22a84 100644
+index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..20fedefd13692d63aadaf21f674ceaee90226444 100644
 --- a/dist/presets/babysitter.d.ts
 +++ b/dist/presets/babysitter.d.ts
 @@ -49,6 +49,12 @@ type BabysitterMerge = false | "auto" | "direct" | {
@@ -2791,7 +2805,7 @@ index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..f6ec9744ab8bbabc915996762abf6a98
    /** Process admission policy. Concurrency remains the preset hard maximum. */
    capacity?: Pick<ProcessAgentCapacityOptions, "memory" | "cpu" | "fallbackConcurrency">;
    /** Select PRs with the same rules as the GitHub Channel. */
-@@ -95,6 +103,27 @@ export interface BabysitterOptions {
+@@ -95,6 +103,35 @@ export interface BabysitterOptions {
     * head changes or a person comments. `false` disables the budget. Defaults to 3.
     */
    noProgressBudget: number | false;
@@ -2803,6 +2817,14 @@ index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..f6ec9744ab8bbabc915996762abf6a98
 +   * the reason. `false` disables the budget. Defaults to 3.
 +   */
 +  reviewPushBudget: number | false;
++  /**
++   * Merge on green. Automated review never holds a pass or the merge: review checks are not awaited,
++   * their failures and failing checks outside the required ones do not need an assessment, and bot
++   * feedback starts a pass only when it names a P0 or P1 finding. A PR whose required checks pass, or
++   * fail only the way its base fails them, merges with no model pass. A person's comment or review, a
++   * merge conflict and a required check that the PR breaks still start a pass. Defaults to `false`.
++   */
++  mergeOnGreen: boolean;
 +  /**
 +   * Model passes on one PR in a rolling 24 hours. After that many, the PR parks until the oldest pass
 +   * is 24 hours old; its result and the health route show that time. A person's comment or review, the
@@ -2819,11 +2841,12 @@ index 7ea5f46d32e5e65ecaa6512e23669bb6152f1f09..f6ec9744ab8bbabc915996762abf6a98
    /**
     * Wait for running required checks and review checks before a pass, unless a failure or conflict
     * already needs repair. One pass then handles CI and review results together. Defaults to `true`.
-@@ -172,6 +201,9 @@ type BabysitterDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentIn
+@@ -172,6 +209,10 @@ type BabysitterDefinition = AgentDefinition<AgentRuntimeConfig, unknown, AgentIn
    noFindingsReviews: string[];
    ignoreFeedbackAuthors: string[];
    noProgressBudget: number | false;
 +  reviewPushBudget: number | false;
++  mergeOnGreen: boolean;
 +  dailyPassBudget: number | false;
 +  priorityLabels: string[];
    deferWhilePending: boolean;
@@ -3064,7 +3087,7 @@ index 199c874997cc1db4942c1ef8dc92b9860f8cd31f..bf308446d7dfb809b6549adc61ad86d0
  			session,
  			spawn: spawn.bind(session),
 diff --git a/dist/server-DZOuXkga.js b/dist/server-DZOuXkga.js
-index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef4d7a98a2 100644
+index 3d014e275480bea4581de5d945ae89a8131f4ccc..ab9d078e09ecc21b0bb58b5a735d64a7183feb73 100644
 --- a/dist/server-DZOuXkga.js
 +++ b/dist/server-DZOuXkga.js
 @@ -4,9 +4,9 @@ import { l as defineCapability, m as resolveAgentCapabilityDefinitions } from ".
@@ -3307,12 +3330,14 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					return { resolved: true };
  				}
  			},
-@@ -883,10 +890,29 @@ function withoutFindings(review, policy) {
+@@ -883,10 +890,32 @@ function withoutFindings(review, policy) {
  	const body = hasRuntimeType(review.body, "string") ? review.body.trimStart() : "";
  	return !body || policy.noFindingsReviews.some((prefix) => body.startsWith(prefix));
  }
 +/** The PR made `reviewPushBudget` review-driven pushes, or two assessed rounds of automated review found nothing above P2. Automated review then no longer needs a pass. */
 +function reviewPushBudgetSpent(s, policy) {
++	// Merge on green settles automated review from the first head.
++	if (policy.mergeOnGreen === true) return true;
 +	return policy.reviewPushBudget !== void 0 && (s.reviewPushBudget?.count ?? 0) >= policy.reviewPushBudget;
 +}
 +/**
@@ -3334,11 +3359,12 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
 -	const fromWorker = (value) => String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
 +	// After the review push budget is spent, bot feedback is not repair work, even a request for changes.
 +	const settled = reviewPushBudgetSpent(s, policy);
-+	const fromWorker = (value) => settled && isAutomatedFeedback(value) || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
++	// Under mergeOnGreen, bot feedback that names a P0 or P1 finding stays repair work.
++	const fromWorker = (value) => settled && isAutomatedFeedback(value) && !(policy.mergeOnGreen === true && /\bP[01]\b/.test(String(value.body ?? ""))) || String(value.state).toUpperCase() !== "CHANGES_REQUESTED" && (policy.workerAuthors.has(login(value)) || policy.ignoreFeedbackAuthors?.has(login(value)) === true);
  	const external = (values) => Object.fromEntries(Object.entries(values).filter(([, value]) => !fromWorker(value)));
  	const reviews = Object.fromEntries(Object.entries(external(s.reviews)).filter(([, value]) => !withoutFindings(value, policy)));
  	const ownCommentIds = new Set(Object.values(s.reviewComments).filter(fromWorker).flatMap(commentIds));
-@@ -898,7 +924,7 @@ function repairContextKey(s, policy) {
+@@ -898,7 +927,7 @@ function repairContextKey(s, policy) {
  			id: node_id ?? thread.id,
  			comments: identities
  		};
@@ -3347,7 +3373,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	return hash({
  		title: pr?.title,
  		body: pr?.body,
-@@ -931,6 +957,17 @@ function currentCheckSignals(s) {
+@@ -931,6 +960,17 @@ function currentCheckSignals(s) {
  	return [...signals.values()];
  }
  /**
@@ -3365,7 +3391,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  * The newest run of each current-head check, by name and app. Some integrations leave an earlier
  * run in progress forever and report the result in a later run; the earlier run is not a gate.
  */
-@@ -938,18 +975,85 @@ function latestCheckSignals(s) {
+@@ -938,18 +978,86 @@ function latestCheckSignals(s) {
  	const latest = /* @__PURE__ */ new Map();
  	for (const signal of currentCheckSignals(s)) {
  		const key = `${String(signal.name)}\0${String(signal.app?.id ?? "")}`;
@@ -3416,7 +3442,8 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
 +	}).some((id) => !assessedFeedback.has(id))) work.push("feedback");
 +	if (s.threads.some((thread) => thread.isResolved !== true && hasHumanComment(thread, policy.workerAuthors, s))) work.push("unresolved-thread");
 +	const head = s.pr?.head?.sha;
-+	if (head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
++	// Merge on green merges a new green head without assessing it.
++	if (policy.mergeOnGreen !== true && head && !s.reviewPushBudget?.heads.includes(head)) work.push("new-head");
 +	return work;
 +}
 +/** The daily pass exemption for a person's feedback. The record's `human` generation tracks it, not `exemptions`. */
@@ -3453,7 +3480,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  /** The wait that a pass parks on: feedback the model saw and failures it already knew. */
  function createCheckWait(observed, policy) {
  	return {
-@@ -958,6 +1062,39 @@ function createCheckWait(observed, policy) {
+@@ -958,6 +1066,39 @@ function createCheckWait(observed, policy) {
  		knownFailures: failureKeys(observed)
  	};
  }
@@ -3493,7 +3520,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  /** Why a parked PR needs a model pass or a direct merge. Empty means it keeps waiting. */
  function wakeReasons(s, requiredChecks, policy) {
  	const wait = s.wait;
-@@ -967,8 +1104,8 @@ function wakeReasons(s, requiredChecks, policy) {
+@@ -967,8 +1108,8 @@ function wakeReasons(s, requiredChecks, policy) {
  	const known = new Set(wait.knownFailures ?? []);
  	if (wait.defer === "checks") {
  		const conflict = s.pr.mergeable === false || s.pr.mergeable_state === "dirty";
@@ -3504,7 +3531,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		return [
  			...conflict ? ["merge-conflict"] : [],
  			...failure ? ["new-failure"] : [],
-@@ -979,8 +1116,15 @@ function wakeReasons(s, requiredChecks, policy) {
+@@ -979,8 +1120,15 @@ function wakeReasons(s, requiredChecks, policy) {
  	if (wait.evidenceKey !== repairContextKey(s, policy)) reasons.push("feedback-changed");
  	if (wait.kind === "external" || wait.wake) return reasons;
  	if (s.pr.mergeable === false || s.pr.mergeable_state === "dirty") reasons.push("merge-conflict");
@@ -3522,7 +3549,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	if (reasons.length) return reasons;
  	if (requiredChecks === "failed") return [];
  	if (reviewCheckRunning(s, policy) || requiredChecks === "pending") return [];
-@@ -1367,6 +1511,178 @@ function createBabysitterInstaller(install, env = process.env, repository) {
+@@ -1367,6 +1515,178 @@ function createBabysitterInstaller(install, env = process.env, repository) {
  }
  //#endregion
  //#region src/presets/babysitter/ci-recovery.ts
@@ -3701,7 +3728,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  function hasFailedActions(snapshot) {
  	const head = snapshot.pr?.head?.sha;
  	return Boolean(head && Object.values(snapshot.checks).some((check) => failed$1(check) && check.head_sha === head && actionLocation(snapshot.repository, check)?.runId));
-@@ -1624,10 +1940,51 @@ function createBabysitterStatusRecovery(options) {
+@@ -1624,10 +1944,51 @@ function createBabysitterStatusRecovery(options) {
  //#endregion
  //#region src/presets/babysitter/server.ts
  /** Provider quota and rate-limit failures. Cancellation is never a rate limit. */
@@ -3754,7 +3781,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  }
  function createBabysitterRuntime(options) {
  	if (!Number.isInteger(options.concurrency) || options.concurrency < 1) throw new Error("Babysitter concurrency must be a positive integer.");
-@@ -1642,6 +1999,9 @@ function createBabysitterRuntime(options) {
+@@ -1642,6 +2003,9 @@ function createBabysitterRuntime(options) {
  	const verifiedHostIdentity = hostIdentity && normalizedActivityAuthors.includes(hostIdentity.toLowerCase()) ? hostIdentity : void 0;
  	const activityAuthors = verifiedHostIdentity ? [verifiedHostIdentity] : [];
  	const noProgressBudget = baseAgent.noProgressBudget ?? presetOptions.noProgressBudget ?? 3;
@@ -3764,7 +3791,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	const pullRequestInbox = new PullRequestInbox({
  		...options.inboxStorage ? {
  			storage: options.inboxStorage,
-@@ -1650,18 +2010,40 @@ function createBabysitterRuntime(options) {
+@@ -1650,18 +2014,41 @@ function createBabysitterRuntime(options) {
  		repositories: options.repositories,
  		filter,
  		activityAuthors,
@@ -3785,6 +3812,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		pendingReviewChecks: new Set((presetOptions.reviewChecks ?? []).map((name) => name.toLowerCase())),
  		wakeWhenReady: merge.mode === "direct",
 -		noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? []
++		mergeOnGreen: (baseAgent.mergeOnGreen ?? presetOptions.mergeOnGreen ?? false) === true,
 +		noFindingsReviews: baseAgent.noFindingsReviews ?? presetOptions.noFindingsReviews ?? [],
 +		...reviewPushBudget === false ? {} : { reviewPushBudget }
  	};
@@ -3807,7 +3835,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	const statusChannel = verifiedHostIdentity ? github.channel({
  		activity: true,
  		pullRequest: { workspace: false }
-@@ -1793,18 +2175,19 @@ function createBabysitterRuntime(options) {
+@@ -1793,18 +2180,19 @@ function createBabysitterRuntime(options) {
  		const base = snapshot.pr?.base?.ref;
  		if (!base) return "not-ready";
  		const pending = await pullRequestInbox.directMergeAttempt(repository, number);
@@ -3829,7 +3857,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		if (pending) try {
  			const [live] = await readRest(`repos/${repository}/pulls/${number}`, ".", signal);
  			const state = isRuntimeRecord(live) && hasRuntimeType(live.state, "string") ? live.state : void 0;
-@@ -1865,7 +2248,25 @@ function createBabysitterRuntime(options) {
+@@ -1865,7 +2253,25 @@ function createBabysitterRuntime(options) {
  					});
  				});
  				if (!result) return "blocked";
@@ -3856,7 +3884,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				if (result.status === "enqueued") {
  					if (!await pullRequestInbox.recordDirectMergeEnqueued(repository, number, pending.token)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
  					return await reconcileEnqueued();
-@@ -1911,7 +2312,7 @@ function createBabysitterRuntime(options) {
+@@ -1911,7 +2317,7 @@ function createBabysitterRuntime(options) {
  		}
  		if (signal.aborted) return "blocked";
  		const policy = await requiredChecks.read(repository, base);
@@ -3865,7 +3893,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
  		const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : void 0;
  		const reviewedEvidenceKey = isRuntimeRecord(assessment) && assessment.head === snapshot.pr?.head?.sha && hasRuntimeType(assessment.evidenceKey, "string") ? assessment.evidenceKey : void 0;
-@@ -1919,7 +2320,9 @@ function createBabysitterRuntime(options) {
+@@ -1919,7 +2325,9 @@ function createBabysitterRuntime(options) {
  		let decision = directMergeReadiness(snapshot, evaluation.state, {
  			...waitPolicy,
  			assessedFeedback,
@@ -3876,7 +3904,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		});
  		if (decision.ready && merge.ready) {
  			const callback = merge.ready;
-@@ -1944,11 +2347,37 @@ function createBabysitterRuntime(options) {
+@@ -1944,11 +2352,37 @@ function createBabysitterRuntime(options) {
  			});
  			return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
  		}
@@ -3916,7 +3944,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			if (!current.ready) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
  					...owner,
-@@ -1956,6 +2385,22 @@ function createBabysitterRuntime(options) {
+@@ -1956,6 +2390,22 @@ function createBabysitterRuntime(options) {
  				});
  				return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
  			}
@@ -3939,7 +3967,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			const [repositorySettings] = await readRest(`repos/${repository}`, ".", signal);
  			const branchSafety = directMergeBranchSafety(repositorySettings, live, await readRest(`repos/${repository}/pulls?state=open&base=${encodeURIComponent(snapshot.pr?.head?.ref ?? "")}&per_page=100`, ".[]", signal));
  			if (branchSafety !== true) {
-@@ -1972,6 +2417,19 @@ function createBabysitterRuntime(options) {
+@@ -1972,6 +2422,19 @@ function createBabysitterRuntime(options) {
  				});
  				return "not-ready";
  			}
@@ -3959,7 +3987,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			signal.throwIfAborted();
  			if (!pending && !await pullRequestInbox.beginDirectMerge(claim, decision.head, true)) {
  				schedulerEvent("babysitter.direct_merge.skipped", {
-@@ -1980,11 +2438,21 @@ function createBabysitterRuntime(options) {
+@@ -1980,11 +2443,21 @@ function createBabysitterRuntime(options) {
  				});
  				return "blocked";
  			}
@@ -3983,7 +4011,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			}
  			if (response.status !== "merged") {
  				if (response.status === "enqueued" && !await pullRequestInbox.recordDirectMergeEnqueued(repository, number, mergeToken)) throw new Error("Merge attempt changed before its enqueued result could be recorded.");
-@@ -2002,7 +2470,7 @@ function createBabysitterRuntime(options) {
+@@ -2002,7 +2475,7 @@ function createBabysitterRuntime(options) {
  		}
  		await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
  		await pullRequestInbox.finish(claim, {
@@ -3992,7 +4020,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			terminal: true
  		});
  		schedulerEvent("babysitter.owner.merged", {
-@@ -2013,10 +2481,22 @@ function createBabysitterRuntime(options) {
+@@ -2013,10 +2486,22 @@ function createBabysitterRuntime(options) {
  		return "merged";
  	}
  	const postPushGraceMs = options.postPushGraceMs ?? 18e4;
@@ -4016,7 +4044,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			threads: claim.snapshot.threads.map((thread) => {
  				const latest = current?.threads.find((value) => String(value.node_id ?? value.id) === String(thread.node_id ?? thread.id));
  				return latest?.resolutionSource === "worker" && latest.isResolved === true ? {
-@@ -2049,10 +2529,7 @@ function createBabysitterRuntime(options) {
+@@ -2049,10 +2534,7 @@ function createBabysitterRuntime(options) {
  		}
  		return await pullRequestInbox.finish(claim, {
  			text,
@@ -4028,7 +4056,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			verifiedPushHeads,
  			wait: {
  				...waiting,
-@@ -2060,25 +2537,492 @@ function createBabysitterRuntime(options) {
+@@ -2060,25 +2542,492 @@ function createBabysitterRuntime(options) {
  			}
  		});
  	}
@@ -4533,7 +4561,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	}
  	async function requiredCheckState(snapshot) {
  		return (await requiredCheckEvaluation(snapshot))?.state ?? "unknown";
-@@ -2087,6 +3031,29 @@ function createBabysitterRuntime(options) {
+@@ -2087,6 +3036,29 @@ function createBabysitterRuntime(options) {
  	* Remembers feedback only after an explicit assessment of the unchanged head.
  	* A repair push alone cannot prove that maintainer prerequisites are fulfilled.
  	*/
@@ -4563,7 +4591,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	async function recordAssessment(snapshot, current = {}) {
  		const key = `review-assessment:${snapshot.repository}#${snapshot.number}`;
  		const previous = await pullRequestInbox.meta(key);
-@@ -2099,11 +3066,18 @@ function createBabysitterRuntime(options) {
+@@ -2099,11 +3071,18 @@ function createBabysitterRuntime(options) {
  			feedback: [.../* @__PURE__ */ new Set([...known, ...feedbackFingerprints(snapshot, waitPolicy)])].slice(-2e3)
  		});
  	}
@@ -4584,7 +4612,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		if (reviewCheckRunning(snapshot, waitPolicy)) return "review checks";
  		const evaluation = await requiredCheckEvaluation(snapshot);
  		return evaluation?.state === "pending" && !evaluation.missing.length ? "required checks" : void 0;
-@@ -2149,6 +3123,15 @@ function createBabysitterRuntime(options) {
+@@ -2149,6 +3128,15 @@ function createBabysitterRuntime(options) {
  			};
  		});
  	}
@@ -4600,7 +4628,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  	/** A ready event may wake a direct merge, but must not start a model pass when
  	* the user supplied merge predicate still blocks that merge. */
  	async function directMergeWakeAllowed(snapshot, requiredChecks) {
-@@ -2188,19 +3171,27 @@ function createBabysitterRuntime(options) {
+@@ -2188,19 +3176,27 @@ function createBabysitterRuntime(options) {
  	}
  	async function externalWait(observed, wake, reason) {
  		if (!wake) await statusRecovery.recordWorkerBlocker(observed, reason);
@@ -4630,7 +4658,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		};
  	}
  	async function recoverFailedCiWaits() {
-@@ -2208,6 +3199,9 @@ function createBabysitterRuntime(options) {
+@@ -2208,6 +3204,9 @@ function createBabysitterRuntime(options) {
  			if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
  			const head = snapshot.pr?.head?.sha;
  			if (!head) continue;
@@ -4640,7 +4668,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
  			if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
  			await pullRequestInbox.setMeta(recoveryKey, Date.now() + 6e5);
-@@ -2218,12 +3212,33 @@ function createBabysitterRuntime(options) {
+@@ -2218,12 +3217,33 @@ function createBabysitterRuntime(options) {
  			});
  		}
  	}
@@ -4676,7 +4704,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			if (reasons.includes("ready-to-merge") && !await directMergeWakeAllowed(snapshot, checks)) reasons = reasons.filter((reason) => reason !== "ready-to-merge");
  			if (snapshot.wait?.retryAt !== void 0 && snapshot.wait.retryAt <= Date.now()) reasons.push("merge-retry");
  			if (snapshot.wait?.wake) {
-@@ -2307,6 +3322,14 @@ function createBabysitterRuntime(options) {
+@@ -2307,6 +3327,14 @@ function createBabysitterRuntime(options) {
  		};
  		const { publicUrl, repositories } = options;
  		if (!isAccepting()) return;
@@ -4691,7 +4719,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		await statusRecovery.recover();
  		track(statusRecovery.flush().catch((failure) => schedulerError("babysitter.status.flush.failed", failure)));
  		let modelAdmission = true;
-@@ -2358,18 +3381,21 @@ function createBabysitterRuntime(options) {
+@@ -2358,18 +3386,21 @@ function createBabysitterRuntime(options) {
  				for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
  				await pullRequestInbox.setMeta(key, { at: (/* @__PURE__ */ new Date()).toISOString() });
  			} catch (error) {
@@ -4713,7 +4741,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			schedulerError("babysitter.snapshot.reconcile.failed", error);
  		}
  		await pullRequestInbox.recoverLeases();
-@@ -2380,6 +3406,7 @@ function createBabysitterRuntime(options) {
+@@ -2380,6 +3411,7 @@ function createBabysitterRuntime(options) {
  			}
  			await evaluateWaits();
  		} catch (error) {
@@ -4721,7 +4749,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			schedulerError("babysitter.wait.evaluate.failed", error);
  		}
  		if ((await pullRequestInbox.metaNumber("deliveries-prune-next") ?? 0) <= Date.now()) {
-@@ -2387,13 +3414,34 @@ function createBabysitterRuntime(options) {
+@@ -2387,13 +3419,34 @@ function createBabysitterRuntime(options) {
  			await pullRequestInbox.pruneDeliveries();
  		}
  		if (!isAccepting()) return;
@@ -4758,7 +4786,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  		const jobs = [...lane, ...regular];
  		if (!jobs.length) return;
  		for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
-@@ -2444,23 +3492,34 @@ function createBabysitterRuntime(options) {
+@@ -2444,23 +3497,34 @@ function createBabysitterRuntime(options) {
  			const passController = new AbortController();
  			const passSignal = AbortSignal.any([AbortSignal.timeout(36e5), passController.signal]);
  			let providerDirectory;
@@ -4798,7 +4826,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						verifiedPushHeads: [...verifiedPushHeads]
  					} : {},
  					wait: {
-@@ -2471,7 +3530,214 @@ function createBabysitterRuntime(options) {
+@@ -2471,7 +3535,215 @@ function createBabysitterRuntime(options) {
  				});
  				return true;
  			};
@@ -4813,7 +4841,8 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
 +				if (conflictedSnapshot(snapshot) || (snapshot.humanFeedbackGeneration ?? 0) > (snapshot.handled ?? 0)) return false;
 +				if (String(snapshot.pr?.head?.ref ?? "").startsWith("babysitter/repair-main-")) return false;
 +				if (snapshot.threads.some((thread) => thread.isResolved !== true && hasHumanComment(thread, waitPolicy.workerAuthors, snapshot))) return false;
-+				// Passing gates after an inherited-check bypass still need the assessment pass that merges the PR.
++				// Passing gates after an inherited-check bypass merge directly under mergeOnGreen; without it they
++				// still need the assessment pass that merges the PR.
 +				if (await requiredCheckState(snapshot) !== "failed") return false;
 +				const unrelated = unrelatedFailureWait(await failureCauses(snapshot, passSignal), snapshot.pr?.base?.ref ?? "the base");
 +				if (!unrelated) return false;
@@ -4874,7 +4903,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
 +				const pushes = inboxClaim.snapshot.reviewPushBudget?.count ?? 0;
 +				const checks = waitPolicy.pendingReviewChecks.size ? `failed ${[...waitPolicy.pendingReviewChecks].join(", ")} checks` : "failed review checks";
 +				await pullRequestInbox.finish(inboxClaim, {
-+					text: `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
++					text: waitPolicy.mergeOnGreen ? `Merge on green: bot feedback below P1 and ${checks} do not start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, a failing required check, a merge conflict or a head pushed by someone else resumes it.` : `Review push budget spent: ${pushes} review-driven push${pushes === 1 ? "" : "es"} (reviewPushBudget ${reviewPushBudget}). Bot feedback and ${checks} no longer start a pass${merge.mode === "direct" ? "; the PR merges when its required checks pass" : ""}. A person's comment or review, another failing check, a merge conflict or a head pushed by someone else resumes it.`,
 +					wait: {
 +						...createCheckWait(inboxClaim.snapshot, waitPolicy),
 +						reason: "review-push-budget"
@@ -5013,7 +5042,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  			const stopPullRequestWatch = cancelWhenPullRequestStops(inboxClaim, passController, () => providerDirectory, () => pushedHead);
  			try {
  				if (!await hydrateSnapshot(pullRequestInbox, inboxClaim, (path, projection) => readRest(path, projection, passSignal), (repository, number) => readThreads(repository, number, passSignal), activityAuthors)) {
-@@ -2486,22 +3752,30 @@ function createBabysitterRuntime(options) {
+@@ -2486,22 +3758,30 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				const retargeted = await retargetMergedStackBase(inboxClaim, passSignal);
@@ -5049,7 +5078,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					await pullRequestInbox.finish(inboxClaim, { text: `Retargeted from ${retargeted.from} to ${retargeted.to} after the parent pull request merged.` });
  					schedulerEvent("babysitter.stack.retargeted", {
  						...owner,
-@@ -2510,25 +3784,105 @@ function createBabysitterRuntime(options) {
+@@ -2510,25 +3790,105 @@ function createBabysitterRuntime(options) {
  					return;
  				}
  				if (merge.mode === "direct") {
@@ -5160,7 +5189,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				const deferral = await pendingGateDeferral(inboxClaim.snapshot);
  				if (deferral) {
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -2556,19 +3910,24 @@ function createBabysitterRuntime(options) {
+@@ -2556,19 +3916,24 @@ function createBabysitterRuntime(options) {
  				}
  				if (!await hydrateFailedCiEvidence(pullRequestInbox, inboxClaim, {
  					readJson: (path, projection) => readRest(path, projection, passSignal),
@@ -5189,7 +5218,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				if (inboxClaim.snapshot.recoveryHead && inboxClaim.snapshot.recoveryHead === inboxClaim.snapshot.pr?.head?.sha && !hasFailedActions(inboxClaim.snapshot)) {
  					outcome = "waiting";
  					const wait = createCheckWait(inboxClaim.snapshot, waitPolicy);
-@@ -2624,15 +3983,35 @@ function createBabysitterRuntime(options) {
+@@ -2624,15 +3989,35 @@ function createBabysitterRuntime(options) {
  					});
  					return;
  				}
@@ -5227,7 +5256,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						}
  					});
  					schedulerEvent("babysitter.mergeability.waiting", {
-@@ -2645,6 +4024,10 @@ function createBabysitterRuntime(options) {
+@@ -2645,6 +4030,10 @@ function createBabysitterRuntime(options) {
  				if (ciRecovery?.state === "blocked" && ciRecovery.permission) await pullRequestInbox.setMeta(`ci-permission-fallback:v1:${inboxClaim.snapshot.repository}:${inboxClaim.snapshot.pr?.head?.sha ?? ""}`, { pendingAt: Date.now() });
  				const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
  				const webhookSnapshot = inboxClaim.snapshot;
@@ -5238,7 +5267,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				await github.withPullRequestCheckout({
  					headRef: pullRequest.headRefName,
  					headRepository: pullRequest.headRepository?.nameWithOwner,
-@@ -2671,52 +4054,35 @@ function createBabysitterRuntime(options) {
+@@ -2671,52 +4060,35 @@ function createBabysitterRuntime(options) {
  					const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
  					const repairOperation = new AsyncLocalStorage();
  					const ownedResolutions = /* @__PURE__ */ new Map();
@@ -5314,7 +5343,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						observePendingPush?.(current);
  						for (const [id, reopens] of ownedResolutions) if ((current.threadReopens?.[id] ?? 0) !== reopens) throw new DOMException("An addressed review thread was reopened.", "AbortError");
  						const observedHead = current.pr?.head?.sha;
-@@ -2727,29 +4093,65 @@ function createBabysitterRuntime(options) {
+@@ -2727,29 +4099,65 @@ function createBabysitterRuntime(options) {
  							pendingInboxHeads.clear();
  							pendingInboxHeads.add(pushedHead);
  						}
@@ -5384,7 +5413,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							if (webhookSnapshot.pr?.mergeable === false || webhookSnapshot.pr?.mergeable_state === "dirty") {
  								const base = await readRepairBase();
  								await prepareGitHubRepairBase(directory, {
-@@ -2763,21 +4165,37 @@ function createBabysitterRuntime(options) {
+@@ -2763,21 +4171,37 @@ function createBabysitterRuntime(options) {
  								});
  								preparedMergeBase = base;
  							}
@@ -5426,7 +5455,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							return await github.ensureGraphQLBudget(...args);
  						}
  					}, {
-@@ -2793,20 +4211,31 @@ function createBabysitterRuntime(options) {
+@@ -2793,20 +4217,31 @@ function createBabysitterRuntime(options) {
  						signal: abortSignal,
  						autoMerge: merge.mode === "auto",
  						eligible: (current) => pullRequestInbox.eligible(repository, normalizePullRequest(current)),
@@ -5461,7 +5490,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							await assertLease();
  							return head;
  						},
-@@ -2852,6 +4281,10 @@ function createBabysitterRuntime(options) {
+@@ -2852,6 +4287,10 @@ function createBabysitterRuntime(options) {
  									beforePush: async (head) => {
  										const current = await assertLease();
  										await assertRepairBase();
@@ -5472,7 +5501,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  										if (head && !await pullRequestInbox.registerProspectivePush({
  											...inboxClaim,
  											generation: current.generation,
-@@ -2862,6 +4295,8 @@ function createBabysitterRuntime(options) {
+@@ -2862,6 +4301,8 @@ function createBabysitterRuntime(options) {
  										} : void 0;
  									},
  									afterPush: async (head) => {
@@ -5481,7 +5510,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  										recordPush(head);
  										await assertLease();
  									}
-@@ -2874,11 +4309,19 @@ function createBabysitterRuntime(options) {
+@@ -2874,11 +4315,19 @@ function createBabysitterRuntime(options) {
  							}
  						}
  					});
@@ -5503,7 +5532,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
  						ownedResolutions.set(id, reopens);
  					});
-@@ -2890,7 +4333,15 @@ function createBabysitterRuntime(options) {
+@@ -2890,7 +4339,15 @@ function createBabysitterRuntime(options) {
  					const baseSettings = getAgentLayerOptions(baseAgent);
  					if (!baseSettings) throw new Error("Babysitter base Agent settings are unavailable.");
  					const { channels: _baseChannels, github: _baseGitHub, workspace: configuredWorkspace, ...workerSettings } = baseSettings;
@@ -5519,7 +5548,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					const baseChannels = isRuntimeRecord(_baseChannels) ? _baseChannels : {};
  					const workerBaseChannels = Object.fromEntries(Object.entries(baseChannels).map(([name, channel]) => {
  						if (!isRuntimeRecord(channel) || channel.kind !== "github") return [name, channel];
-@@ -2907,6 +4358,11 @@ function createBabysitterRuntime(options) {
+@@ -2907,6 +4364,11 @@ function createBabysitterRuntime(options) {
  						if (!session.localWorkspace) await importBoxCommit(session.session, checkout, pullRequest.headRefOid, abortSignal);
  					}, {
  						runRepair: (execute) => repairOperation.run(true, execute),
@@ -5531,7 +5560,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						beforeRepair: async (context, paths) => {
  							if (!workerSettings.box) return;
  							await assertLease();
-@@ -2916,8 +4372,13 @@ function createBabysitterRuntime(options) {
+@@ -2916,8 +4378,13 @@ function createBabysitterRuntime(options) {
  							if (!box.localWorkspace) {
  								await importBoxCommit(box.session, checkout, pullRequest.headRefOid, abortSignal);
  								if (paths) await importBoxRepairFiles(box.session, checkout, paths, abortSignal);
@@ -5545,7 +5574,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							await assertLease();
  						},
  						afterRefresh: async (context) => {
-@@ -2925,7 +4386,8 @@ function createBabysitterRuntime(options) {
+@@ -2925,7 +4392,8 @@ function createBabysitterRuntime(options) {
  							await assertLease();
  							const box = activeProviderBox(context);
  							if (!box) throw new Error("The repair Box is not prepared.");
@@ -5555,7 +5584,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							await assertLease();
  						}
  					});
-@@ -2964,6 +4426,8 @@ function createBabysitterRuntime(options) {
+@@ -2964,6 +4432,8 @@ function createBabysitterRuntime(options) {
  								schema: passResultSchema
  							},
  							permissions: "allow-edits-unattended",
@@ -5564,7 +5593,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  							env: async (context) => {
  								return repairEnvironment(workerDriver.env === void 0 ? void 0 : await resolveRuntimeValue(workerDriver.env, context), join(checkout, ".vitehub-github-auth"), prepared.env);
  							},
-@@ -2998,14 +4462,32 @@ function createBabysitterRuntime(options) {
+@@ -2998,14 +4468,32 @@ function createBabysitterRuntime(options) {
  							mode: "write",
  							store: {
  								provider: "local",
@@ -5578,7 +5607,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					const snapshotContext = snapshotPrompt(webhookSnapshot);
 -					const userMessage = `${prompt}\n\n${snapshotContext}`;
 +					const installContext = installDefect ? `\n\n<dependency-install-failure>\nThe host's frozen dependency install rejected this head, so the checkout has no dependencies installed:\n${installDefect}\nRepair the lockfile or the manifest the error names until \`pnpm install --frozen-lockfile\` passes. Resolve with \`pnpm install --lockfile-only\` or \`pnpm install --lockfile-only --fix-lockfile\` if needed, but finish with a plain \`pnpm install --ignore-scripts\`: \`--lockfile-only\` does not download URL tarballs, so a pkg.pr.new dependency keeps no integrity and the frozen install in CI fails with ERR_PNPM_MISSING_TARBALL_INTEGRITY. Then call refreshDependencies, validate, include pnpm-lock.yaml in commitRepair and call pushRepair.\n</dependency-install-failure>` : "";
-+					const reviewBudgetContext = reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy) ? `\n\n<review-push-budget>\nThis PR already has ${inboxClaim.snapshot.reviewPushBudget?.count ?? 0} review-driven repair pushes (reviewPushBudget ${reviewPushBudget}). Bot feedback and review checks no longer start passes, and the host merges the PR when its required checks pass. Push only for a P0 finding, a failing non-review check, a person's request or a merge conflict. Answer and resolve the other automated findings through resolveReviewThread with their outcome and reason, then set reviewedHead to the current HEAD.\n</review-push-budget>` : "";
++					const reviewBudgetContext = waitPolicy.mergeOnGreen ? `\n\n<merge-on-green>\nThe host merges this PR without a model pass once its required checks pass or fail only the way the base fails them. Automated review does not block the merge. Push only for a P0 or P1 finding, a required check this PR breaks, a person's request or a merge conflict. Answer and resolve the other automated findings through resolveReviewThread with their outcome and reason, then set reviewedHead to the current HEAD.\n</merge-on-green>` : reviewPushBudgetSpent(inboxClaim.snapshot, waitPolicy) ? `\n\n<review-push-budget>\nThis PR already has ${inboxClaim.snapshot.reviewPushBudget?.count ?? 0} review-driven repair pushes (reviewPushBudget ${reviewPushBudget}). Bot feedback and review checks no longer start passes, and the host merges the PR when its required checks pass. Push only for a P0 finding, a failing non-review check, a person's request or a merge conflict. Answer and resolve the other automated findings through resolveReviewThread with their outcome and reason, then set reviewedHead to the current HEAD.\n</review-push-budget>` : "";
 +					// From the third review round on, more findings are usually new cases of a class an earlier push
 +					// fixed. Anthropic's reviewer asks the author to step back after three rounds; patching each new
 +					// case one push at a time is how #3468 took 22 commits and 30 threads.
@@ -5599,7 +5628,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					assertPromptFits(userMessage);
  					schedulerEvent("babysitter.context.prepared", {
  						repository,
-@@ -3018,10 +4500,26 @@ function createBabysitterRuntime(options) {
+@@ -3018,10 +4506,26 @@ function createBabysitterRuntime(options) {
  						runId,
  						publicUrl: publicUrl ?? resolvePublicUrl({ agentName: options.agentName ?? baseAgent.name })
  					});
@@ -5628,7 +5657,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						return await runAgent(agent, {
  							runtime: "vite",
  							run: githubRun,
-@@ -3041,7 +4539,9 @@ function createBabysitterRuntime(options) {
+@@ -3041,7 +4545,9 @@ function createBabysitterRuntime(options) {
  							},
  							output: "drained"
  						});
@@ -5639,7 +5668,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					if (passResult?.reviewedHead && passResult.reviewedHead !== pullRequest.headRefOid) schedulerEvent("babysitter.result.stale_assessment", {
  						...owner,
  						reviewed_head: passResult.reviewedHead,
-@@ -3051,15 +4551,33 @@ function createBabysitterRuntime(options) {
+@@ -3051,15 +4557,33 @@ function createBabysitterRuntime(options) {
  					resultText = passResult.text;
  				}, {
  					signal: passSignal,
@@ -5675,7 +5704,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				let recorded = false;
  				if (current?.status === "terminal") recorded = await pullRequestInbox.finish(inboxClaim, {
  					text: resultText,
-@@ -3067,12 +4585,13 @@ function createBabysitterRuntime(options) {
+@@ -3067,12 +4591,13 @@ function createBabysitterRuntime(options) {
  				});
  				else if (pushedHead) {
  					outcome = "waiting";
@@ -5691,7 +5720,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						wait: await externalWait(inboxClaim.snapshot, passResult.wait.wake, passResult.wait.reason)
  					});
  				} else if (disposition === "park" && current?.pr?.head?.sha === pullRequest.headRefOid && (passResult?.wait?.kind === "checks" && passResult.wait.headSha === pullRequest.headRefOid || passResult?.waitForChecksHead === pullRequest.headRefOid || hasPendingChecks(inboxClaim.snapshot, waitPolicy))) {
-@@ -3090,6 +4609,7 @@ function createBabysitterRuntime(options) {
+@@ -3090,6 +4615,7 @@ function createBabysitterRuntime(options) {
  					outcome = "waiting";
  					recorded = await pullRequestInbox.finish(inboxClaim, {
  						text: resultText,
@@ -5699,7 +5728,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						wait: {
  							...createCheckWait(inboxClaim.snapshot, waitPolicy),
  							headSha: pullRequest.headRefOid,
-@@ -3113,6 +4633,8 @@ function createBabysitterRuntime(options) {
+@@ -3113,6 +4639,8 @@ function createBabysitterRuntime(options) {
  					evidenceKey: fallbackEvidenceKey
  				});
  			} catch (error) {
@@ -5708,7 +5737,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				if (modelWorkParked) return;
  				if (error instanceof GitHubWorkspaceInstallError) {
  					outcome = "waiting";
-@@ -3120,6 +4642,7 @@ function createBabysitterRuntime(options) {
+@@ -3120,6 +4648,7 @@ function createBabysitterRuntime(options) {
  					wait.kind = "external";
  					wait.reason = error.message;
  					if (error.retryable) wait.retryAt = Date.now() + 3e5;
@@ -5716,7 +5745,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  					await pullRequestInbox.finish(inboxClaim, {
  						text: error.message,
  						wait
-@@ -3129,19 +4652,42 @@ function createBabysitterRuntime(options) {
+@@ -3129,19 +4658,42 @@ function createBabysitterRuntime(options) {
  				}
  				if (pushedHead && (await pullRequestInbox.get(repository, number))?.status !== "terminal") {
  					outcome = "waiting";
@@ -5761,7 +5790,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				} else if (github.isRateLimitError(error)) {
  					outcome = "deferred";
  					await pullRequestInbox.finish(inboxClaim, {
-@@ -3152,18 +4698,57 @@ function createBabysitterRuntime(options) {
+@@ -3152,18 +4704,57 @@ function createBabysitterRuntime(options) {
  						reason: "github-rate-limit",
  						...owner
  					});
@@ -5820,7 +5849,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  				try {
  					await pullRequestInbox.release(inboxClaim);
  				} finally {
-@@ -3171,6 +4756,13 @@ function createBabysitterRuntime(options) {
+@@ -3171,6 +4762,13 @@ function createBabysitterRuntime(options) {
  					schedulerEvent("babysitter.owner.finished", {
  						durationMs: Date.now() - startedAt,
  						outcome,
@@ -5834,7 +5863,7 @@ index 3d014e275480bea4581de5d945ae89a8131f4ccc..9e550f7092cb7e9f03b9b8dffef798ef
  						...owner
  					});
  					options.wake?.();
-@@ -3196,4 +4788,4 @@ function assertBabysitterAgent(agent) {
+@@ -3196,4 +4794,4 @@ function assertBabysitterAgent(agent) {
  	if (!getAgentLayerOptions(agent) || !("options" in agent) || !agent.options || !hasRuntimeType(agent.options, "object") || !("autoMerge" in agent.options) || !hasRuntimeType(agent.options.autoMerge, "boolean") || !("filter" in agent.options) || !agent.options.filter || !hasRuntimeType(agent.options.filter, "object") || Array.isArray(agent.options.filter)) throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
  }
  //#endregion
