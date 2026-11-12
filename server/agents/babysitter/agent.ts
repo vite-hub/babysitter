@@ -6,7 +6,8 @@ import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
 import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
-import { loginList, maintainerApprovalForContributors, ownDraftsReady } from './contributors.ts'
+import { babysitterConfig } from './config.ts'
+import { maintainerApprovalForContributors, ownDraftsReady } from './contributors.ts'
 
 const telemetry = createAgentEvlog({
   service: 'babysitter',
@@ -31,27 +32,7 @@ if (workerBin && !process.env.PATH?.split(':').includes(workerBin)) process.env.
 // Passes beyond BABYSITTER_FLEET_LOCAL_SLOTS run in remote Boxes on BABYSITTER_FLEET_HOSTS.
 registerFleetFromEnvironment()
 
-function inputTokenLimit(name: string) {
-  const raw = process.env[name]
-  if (raw === undefined || raw.trim() === '') return undefined
-  const value = Number(raw)
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`)
-  return value
-}
-
-const maintainers = loginList(process.env.BABYSITTER_MAINTAINERS, ['onmax'])
-const contributors = loginList(process.env.BABYSITTER_CONTRIBUTORS, ['OrlS15'])
-const contributorMergeGate = maintainerApprovalForContributors(contributors, maintainers)
-// Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
-// commit step re-checks through GraphQL, so list both. The GitHub App opens the main-guardian
-// repair PRs (scripts/main-guardian.mjs); it was renamed from vitehub-bot to vite-hub, so list
-// both names. Dependabot opens the GitHub Actions bumps.
-const authors: readonly string[] = [...maintainers, ...contributors, 'renovate[bot]', 'renovate', 'dependabot[bot]', 'dependabot', 'vite-hub[bot]', 'vite-hub', 'vitehub-bot[bot]', 'vitehub-bot']
-
-const admissionInputTokens = {
-  hourly: inputTokenLimit('BABYSITTER_HOURLY_INPUT_TOKENS'),
-  daily: inputTokenLimit('BABYSITTER_DAILY_INPUT_TOKENS'),
-}
+const config = babysitterConfig()
 
 export default defineAgent({
   preset: 'babysitter',
@@ -60,23 +41,20 @@ export default defineAgent({
   version: usePublicEnv().releaseRevision,
   options: {
     filter: {
-      repository: {
-        allow: (process.env.BABYSITTER_REPOS || process.env.BABYSITTER_REPO || 'vite-hub/vitehub')
-          .split(/[,\s]+/).filter(Boolean),
-      },
+      repository: { allow: config.repositories },
       // Contributors' PRs get the same repairs; merge.ready below holds their merge for a maintainer.
-      author: { allow: authors },
+      ...config.authorFilter,
       // A person working a PR by hand labels it so no pass pushes over their work.
       labels: { deny: ['babysitter:skip'] },
     },
     // Keep the scheduler ceiling high enough to use the available PR lanes. The
     // host's admission guard and worker gate still pause work when resources are tight.
-    concurrency: Number(process.env.BABYSITTER_MAX_OWNERS || 16),
+    concurrency: config.concurrency,
     // A worker's Codex tree peaks around 250-520 MB; reserving the 1 GiB default per worker
     // capped the host at a handful of workers. Host installs and the two heavy
     // typecheck/test slots share the larger service reserve instead.
     capacity: { memory: { perInvocationBytes: 512 * 1024 ** 2, serviceReserveBytes: 2 * 1024 ** 3 } },
-    admission: { inputTokens: admissionInputTokens },
+    admission: { inputTokens: config.inputTokens },
     // The install cache copies whole node_modules trees, and ext4 has no reflinks. Since the
     // 2026-10-17 reboot, a plain install with pnpm's warm store took 16 s, but a cached pass took
     // 81-125 s, and 28 of 50 restored trees failed verification. The copies also stalled the server.
@@ -87,9 +65,8 @@ export default defineAgent({
     deferWhilePending: true,
     // Overnight mode reads CI evidence but never asks GitHub Actions to rerun a failed run.
     ciRecovery: false,
-    // pullfrog-approval is Pullfrog's verdict check. Listing it lets the review push budget stop its
-    // failures from waking passes; the host merges a reviewed head on the required checks.
-    reviewChecks: ['pullfrog', 'pullfrog-approval'],
+    // Automated reviewers' checks. Their failures don't wake passes once the review push budget is spent.
+    reviewChecks: config.reviewChecks,
     // Defaults, written out because they gate most model passes (2026-10-19 pass-volume review).
     reviewPushBudget: 3,
     // Merge on green (2026-11-12): a PR whose required checks pass, or fail only the way main fails
@@ -104,14 +81,18 @@ export default defineAgent({
     // Pullfrog is the one automated reviewer; the Codex connector's reviews (mostly P2) are ignored.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]', 'chatgpt-codex-connector[bot]', 'chatgpt-codex-connector'],
     // Maintainers' agents open PRs as drafts; the merge gate marks those ready instead of waiting forever.
-    merge: { strategy: 'direct', method: 'squash', ready: contributorMergeGate, markDraftsReady: ownDraftsReady(authors.filter(name => !contributors.includes(name))) },
+    merge: {
+      strategy: 'direct',
+      method: 'squash',
+      ready: maintainerApprovalForContributors(config.contributors, config.maintainers),
+      markDraftsReady: ownDraftsReady(config.trustedAuthors),
+    },
   },
   workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
-    // Medium since 2026-11-12: xhigh spent the shared Codex quota in a day. CI verifies the repairs.
-    model: process.env.BABYSITTER_MODEL || 'gpt-6.1-sol',
-    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'medium',
+    model: config.model,
+    reasoningEffort: config.reasoningEffort,
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,
