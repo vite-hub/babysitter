@@ -31,6 +31,8 @@ export default defineConfig({
         },
       },
       blob: false,
+      // The ViteHub Console signs its calls; each linked caller's public key is a VITEHUB_CONSOLE_KEY_<NAME> variable.
+      console: true,
       database: false,
       kv: { driver: 'fs-lite' },
       schedule: false,
