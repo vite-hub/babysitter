@@ -164,11 +164,12 @@ threads (84% P2), 210 of them on a head that only merged main. Add `--json` for 
 
 ## Releases
 
-`pnpm release <sha>` builds, tests, stages, smoke-boots, switches `release.conf`, drains,
-restarts, and watches for 15 minutes before it finishes. `--smoke-only` stops before it
-touches the live service.
+Run `scripts/deploy.sh` from a clean `origin/main` worktree. It builds the commit, stages it as a
+release directory, switches `release.conf`, drains the service and restarts onto it. Add
+`--compact` to stop after the drain and compact the state DB before the new release starts.
+There is no smoke boot: host-only admission would merge real PRs.
 
-The release also runs `scripts/install-host-files.sh` (`deploy.sh` and `deploy-compact.sh` do too).
+The deploy also runs `scripts/install-host-files.sh`.
 It installs the files the service uses from outside its release directory, from the released commit:
 
 | File | Installed at |

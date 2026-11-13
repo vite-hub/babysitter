@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs the host copies that live outside a release directory, from this checkout: the worker
 # heavy-command gate and its wrappers, one lock file per heavy slot, the main guardian and the tmp
-# retention script. release.mjs, deploy.sh and deploy-compact.sh call it; it needs sudo.
+# retention script. deploy.sh calls it; it needs sudo.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 unit=babysitter-vitehub.service

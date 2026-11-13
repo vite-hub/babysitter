@@ -71,9 +71,12 @@ can be scoped to `GITHUB_APP_OWNER`.
 
 ```sh
 corepack pnpm install --frozen-lockfile
-BABYSITTER_PUBLIC_URL=https://your-host.example corepack pnpm build
-NODE_ENV=production corepack pnpm start
+BABYSITTER_PUBLIC_URL=https://your-host.example BABYSITTER_DATA_DIR=/srv/babysitter corepack pnpm build
+cd /srv/babysitter && NODE_ENV=production node /path/to/checkout/.output/server/index.mjs
 ```
+
+`BABYSITTER_DATA_DIR` is read at build time and sets where the Console journal lives. The agent
+state goes to `.vitehub/` under the working directory, so start the server from that same directory.
 
 The development server keeps process hosts disabled. Set `VITEHUB_AGENT_PROCESS_HOSTS=1`
 only when you intend to run the worker there.
