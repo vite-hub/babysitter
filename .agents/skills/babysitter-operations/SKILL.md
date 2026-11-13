@@ -9,7 +9,7 @@ Measure pull-request progress, not process activity.
 
 ## Baseline
 
-Read the repository instructions and operational README section. Capture the service PID and restart count, `/api/health`, current invocations, recent terminal events, open pull-request gate states, GitHub budget, and host prerequisites once.
+Read the repository instructions and operational README section. Capture the service PID and restart count, `/api/_vitehub/host/health`, current invocations, recent terminal events, open pull-request gate states, GitHub budget, and host prerequisites once.
 
 Classify the stall before changing capacity:
 

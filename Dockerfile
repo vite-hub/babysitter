@@ -4,13 +4,12 @@ WORKDIR /app
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=1
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 COPY . .
-# The build bakes in the release revision, the public URL and the Console journal path.
+# The build bakes in the release revision and the public URL.
 ARG BABYSITTER_RELEASE=docker
 ARG BABYSITTER_PUBLIC_URL
-RUN BABYSITTER_RELEASE=$BABYSITTER_RELEASE BABYSITTER_PUBLIC_URL=$BABYSITTER_PUBLIC_URL BABYSITTER_DATA_DIR=/data pnpm build
+RUN BABYSITTER_RELEASE=$BABYSITTER_RELEASE BABYSITTER_PUBLIC_URL=$BABYSITTER_PUBLIC_URL pnpm build
 
 FROM node:24-bookworm-slim
 ARG CODEX_VERSION=0.167.0
@@ -37,11 +36,12 @@ ENV NODE_ENV=production \
   HOME=/data/home \
   CODEX_HOME=/data/codex \
   TMPDIR=/data/tmp \
+  VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/data/.vitehub/agents/babysitter/invocations.sqlite \
   COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 VOLUME /data
 EXPOSE 3000
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null || exit 1
+  CMD curl -fsS "http://127.0.0.1:$PORT/api/_vitehub/host/health" >/dev/null || exit 1
 ENTRYPOINT ["tini", "--"]
 CMD ["sh", "-c", "mkdir -p \"$HOME\" \"$CODEX_HOME\" \"$TMPDIR\" && exec node /app/.output/server/index.mjs"]

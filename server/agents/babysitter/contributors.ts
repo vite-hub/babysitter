@@ -41,20 +41,3 @@ export function maintainerApprovalForContributors(contributors: readonly string[
     return `a maintainer approval: outside contributor PRs merge only after ${who} approves head ${head.slice(0, 7)}`
   }
 }
-
-interface DraftInput {
-  repository: string
-  snapshot: unknown
-}
-
-/**
- * Returns a `merge.markDraftsReady` predicate. A draft that a listed author opened from a branch
- * in the repository itself is work they want merged; an outside contributor's draft stays a draft.
- */
-export function ownDraftsReady(authors: readonly string[]) {
-  const allowed = new Set(authors.map(name => name.toLowerCase()))
-  return ({ repository, snapshot }: DraftInput): boolean => {
-    const pr = (snapshot as { pr?: { user?: Actor | null, head?: { repo?: { full_name?: string | null } | null } | null } } | null)?.pr
-    return allowed.has(login(pr?.user)) && String(pr?.head?.repo?.full_name ?? '').toLowerCase() === repository.toLowerCase()
-  }
-}
