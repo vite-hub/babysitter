@@ -4,3 +4,5 @@
 .vitehub/
 node_modules/
 .env
+.audit/
+ops/review-audit/skill/
