@@ -38,6 +38,14 @@ To also post them to Discord, put a webhook URL in
 | `resource_alerts.py` | `/srv/cliproxy/.local/share/resource-alerts/resource_alerts.py` |
 | `resource-alerts.service`, `.timer` | `/srv/cliproxy/.config/systemd/user/` |
 
+## Authors and review checks
+
+`org/org.conf` holds vite-hub's maintainers, contributors, bots and Pullfrog checks, which
+`server/agents/babysitter/config.ts` reads. Install it at
+`/etc/systemd/system/babysitter-vitehub.service.d/org.conf`, then reload, drain and restart as
+below. Without it the worker falls back to the repositories' owners, members and collaborators,
+skips bot and contributor PRs, and has no review checks.
+
 ## Babysitter admission limits
 
 The installed worker uses GPT-6.1 Sol at `medium` through

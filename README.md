@@ -38,10 +38,20 @@ The preset keeps model passes for real repair work:
 - `ciRecovery` (default `true`) retries failed GitHub Actions runs once per head. Set it to
   `false` to read CI evidence and keep normal merge gates without requesting reruns.
 
-The included configuration enables direct squash merges for PRs authored by `onmax`.
-It also repairs PRs from outside contributors (`BABYSITTER_CONTRIBUTORS`, default `OrlS15`),
-but merges one only after a maintainer (`BABYSITTER_MAINTAINERS`, default `onmax`) approves
-its current head. A push after the approval needs a new approval. Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
+The included configuration reads who and what to trust from the environment, through
+[`config.ts`](server/agents/babysitter/config.ts):
+
+- `BABYSITTER_MAINTAINERS`: logins whose PRs get repaired and squash-merged, and who approve
+  contributors' PRs. Without it, the worker takes PRs from the repository's owners, members and
+  collaborators, and ignores the two lists below.
+- `BABYSITTER_CONTRIBUTORS`: outside contributors. Their PRs get the same repairs, but merge only
+  after a maintainer approves the current head. A push after the approval needs a new approval.
+- `BABYSITTER_BOT_AUTHORS` (default `renovate,dependabot`): bots whose PRs get worked. Each name
+  matches both `name` and `name[bot]`. Add your GitHub App's name if it opens PRs to repair main.
+- `BABYSITTER_REVIEW_CHECKS` (default none): the check names an automated reviewer posts, such
+  as `pullfrog,pullfrog-approval`.
+
+Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
 head, required checks, reviews, feedback and default branch. Open stack children wait
 for their parent. Source branches remain intact.
 
@@ -61,8 +71,8 @@ External presets use an explicit package import.
 
 ## Run your own
 
-Fork this repository and review `server/agents/babysitter/agent.ts`: its author list, review
-checks and model instructions are ours. Then:
+Fork this repository. People, bots and review checks come from `.env`; the model instructions in
+`server/agents/babysitter/agent.ts` mention Pullfrog, our reviewer, so edit them for yours. Then:
 
 1. Create a GitHub App under Settings → Developer settings → GitHub Apps.
    - Webhook URL: `https://<your-host>/api/webhooks/github`, with a random webhook secret.
@@ -116,8 +126,8 @@ state goes to `.vitehub/` under the working directory, so start the server from 
 The development server keeps process hosts disabled. Set `VITEHUB_AGENT_PROCESS_HOSTS=1`
 only when you intend to run the worker there.
 
-The configuration accepts `BABYSITTER_REPOS`, `BABYSITTER_MAX_OWNERS`,
-`BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT` overrides. Authentication stays
+The configuration reads `BABYSITTER_REPOS`, the author and review-check variables above,
+`BABYSITTER_MAX_OWNERS`, `BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT`. Authentication stays
 in the service environment. `OPENAI_BASE_URL` and `CLIPROXY_API_KEY` configure the
 existing provider proxy. PostHog export is optional through `POSTHOG_API_KEY`.
 

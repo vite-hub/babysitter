@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loginList, maintainerApprovalForContributors, ownDraftsReady } from '../server/agents/babysitter/contributors.ts'
+import { maintainerApprovalForContributors, ownDraftsReady } from '../server/agents/babysitter/contributors.ts'
 
 const ready = maintainerApprovalForContributors(['OrlS15'], ['onmax'])
 const head = 'a'.repeat(40)
@@ -35,11 +35,6 @@ test('only maintainers approve, and their latest decisive review wins', () => {
     review('onmax', 'APPROVED', head, '2026-11-11T08:00:00Z'),
     review('onmax', 'COMMENTED', head, '2026-11-11T09:00:00Z'),
   ])), true)
-})
-
-test('login lists fall back when the variable is empty', () => {
-  assert.deepEqual(loginList(undefined, ['onmax']), ['onmax'])
-  assert.deepEqual(loginList(' a, b ', ['onmax']), ['a', 'b'])
 })
 
 test('maintainer and bot drafts on a repository branch are marked ready, outside drafts are not', () => {
