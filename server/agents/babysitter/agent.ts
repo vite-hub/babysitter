@@ -6,7 +6,8 @@ import { posthogAgentExporter } from 'vite-hub/agent/evlog/posthog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'
 import { usePublicEnv } from '#vitehub/env/public'
 import { registerFleetFromEnvironment } from '../../fleet/fleet.ts'
-import instructions from './instructions.md?raw'
+// Not instructions.md: ViteHub copies a colocated instructions.md into every PR checkout as AGENTS.md.
+import instructions from './repair-instructions.md?raw'
 import { loginList, maintainerApprovalForContributors, ownDraftsReady } from './contributors.ts'
 
 const telemetry = createAgentEvlog({
