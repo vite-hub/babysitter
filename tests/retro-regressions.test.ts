@@ -3,7 +3,7 @@
 // exposes the operational contracts this service relies on.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { babysitterConfig } from '../server/agents/babysitter/config.ts'
@@ -55,7 +55,7 @@ test('Babysitter can leave Actions untouched while keeping check evidence and me
 })
 
 test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
-  const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
+  const appSource = readFileSync(new URL('../server/agents/babysitter/repair-instructions.md', import.meta.url), 'utf8')
   assert.match(appSource, /Automated review findings \(pullfrog\[bot\]\)/)
   assert.match(appSource, /Ignore chatgpt-codex-connector\[bot\] reviews/)
   assert.match(appSource, /When no valid P0 or P1 finding remains, a failing pullfrog-approval\s+check does not block the merge/)
@@ -75,4 +75,11 @@ test('the main guardian opens repair PRs the Babysitter accepts', () => {
   const guardian = readFileSync(new URL('../scripts/main-guardian.mjs', import.meta.url), 'utf8')
   assert.match(guardian, /const branchPrefix = 'babysitter\/repair-main-'/)
   assert.match(guardian, /pull\.head\.ref\.startsWith\(branchPrefix\)/)
+})
+
+test('no instructions.md sits beside the agent, so ViteHub never copies it into PR checkouts as AGENTS.md', () => {
+  // 2026-11-13: #73 added server/agents/babysitter/instructions.md. ViteHub materialized it as AGENTS.md in every
+  // PR checkout, which hid the repository's own AGENTS.md and left the tree dirty, so every conflict repair failed
+  // with "Base merge requires the clean assigned PR head."
+  assert.equal(existsSync(new URL('../server/agents/babysitter/instructions.md', import.meta.url)), false)
 })
