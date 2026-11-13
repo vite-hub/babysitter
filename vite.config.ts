@@ -4,15 +4,18 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 const dataDir = process.env.BABYSITTER_DATA_DIR ?? '.'
+// A Docker build has no .git, so the image passes the revision in BABYSITTER_RELEASE.
+const release = process.env.BABYSITTER_RELEASE ? env.source('BABYSITTER_RELEASE') : env.gitSha()
 
 export default defineConfig({
   env: {
-    public: { releaseRevision: env({ mode: 'build', source: env.gitSha() }) },
+    public: { releaseRevision: env({ mode: 'build', source: release }) },
   },
   plugins: [
     vitehub({
       preset: 'node',
-      publicUrl: process.env.BABYSITTER_PUBLIC_URL,
+      // An empty value (compose passes one when .env leaves it unset) means no public URL.
+      publicUrl: process.env.BABYSITTER_PUBLIC_URL || undefined,
       agent: {
         providers: { state: { provider: 'sqlite', url: 'file:.vitehub/agent-state.db' } },
         routes: {

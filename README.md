@@ -38,10 +38,20 @@ The preset keeps model passes for real repair work:
 - `ciRecovery` (default `true`) retries failed GitHub Actions runs once per head. Set it to
   `false` to read CI evidence and keep normal merge gates without requesting reruns.
 
-The included configuration enables direct squash merges for PRs authored by `onmax`.
-It also repairs PRs from outside contributors (`BABYSITTER_CONTRIBUTORS`, default `OrlS15`),
-but merges one only after a maintainer (`BABYSITTER_MAINTAINERS`, default `onmax`) approves
-its current head. A push after the approval needs a new approval. Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
+The included configuration reads who and what to trust from the environment, through
+[`config.ts`](server/agents/babysitter/config.ts):
+
+- `BABYSITTER_MAINTAINERS`: logins whose PRs get repaired and squash-merged, and who approve
+  contributors' PRs. Without it, the worker takes PRs from the repository's owners, members and
+  collaborators, and ignores the two lists below.
+- `BABYSITTER_CONTRIBUTORS`: outside contributors. Their PRs get the same repairs, but merge only
+  after a maintainer approves the current head. A push after the approval needs a new approval.
+- `BABYSITTER_BOT_AUTHORS` (default `renovate,dependabot`): bots whose PRs get worked. Each name
+  matches both `name` and `name[bot]`. Add your GitHub App's name if it opens PRs to repair main.
+- `BABYSITTER_REVIEW_CHECKS` (default none): the check names an automated reviewer posts, such
+  as `pullfrog,pullfrog-approval`.
+
+Set `merge: false` to keep repairs and disable merging. Merge checks verify the live
 head, required checks, reviews, feedback and default branch. Open stack children wait
 for their parent. Source branches remain intact.
 
@@ -59,7 +69,42 @@ Tuples are supported too: `extends: ['babysitter', { concurrency: 2, merge: fals
 Preset defaults merge with the `babysitter` block, then tuple settings. Arrays replace.
 External presets use an explicit package import.
 
-## Run
+## Run your own
+
+Fork this repository. People, bots and review checks come from `.env`; the model instructions in
+`server/agents/babysitter/agent.ts` mention Pullfrog, our reviewer, so edit them for yours. Then:
+
+1. Create a GitHub App under Settings → Developer settings → GitHub Apps.
+   - Webhook URL: `https://<your-host>/api/webhooks/github`, with a random webhook secret.
+   - Repository permissions: Contents, Pull requests, Issues and Checks read and write; Actions,
+     Commit statuses and Metadata read. Add Workflows write if repairs may touch `.github/workflows`.
+   - Events: Pull request, Pull request review, Pull request review comment, Pull request review
+     thread, Issue comment, Check run, Check suite, Status and Push.
+   - Generate a private key and install the App on the repositories to watch.
+2. `cp .env.example .env` and fill in the required values.
+3. Start it and log Codex in once. The login lands in the `/data` volume.
+
+   ```sh
+   docker compose up -d --build
+   docker compose exec babysitter codex login --device-auth
+   # or: printenv OPENAI_API_KEY | docker compose exec -T babysitter codex login --with-api-key
+   curl -fsS localhost:3000/api/health
+   ```
+
+The Console at `/_vitehub` and the health routes have no authentication. Expose only
+`/api/webhooks/github` to the internet, through a reverse proxy or tunnel, and keep the rest private.
+
+`docker compose stop` gives webhook deliveries `VITEHUB_SHUTDOWN_DRAIN_MS` (2 minutes) to finish.
+A repair pass still running is interrupted, and the next start picks the PR up again. To let
+running passes finish first, drain before you restart:
+
+```sh
+docker compose kill -s SIGUSR2 babysitter
+until curl -s localhost:3000/api/drain | grep -q drained; do sleep 10; done
+docker compose up -d --build --force-recreate
+```
+
+## Run on a host
 
 Install Node.js 24.15 or newer, Git, GitHub CLI and an authenticated Codex CLI.
 Configure a GitHub App installed on each watched repository, with Contents, Issues
@@ -81,8 +126,8 @@ state goes to `.vitehub/` under the working directory, so start the server from 
 The development server keeps process hosts disabled. Set `VITEHUB_AGENT_PROCESS_HOSTS=1`
 only when you intend to run the worker there.
 
-The configuration accepts `BABYSITTER_REPOS`, `BABYSITTER_MAX_OWNERS`,
-`BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT` overrides. Authentication stays
+The configuration reads `BABYSITTER_REPOS`, the author and review-check variables above,
+`BABYSITTER_MAX_OWNERS`, `BABYSITTER_MODEL` and `BABYSITTER_REASONING_EFFORT`. Authentication stays
 in the service environment. `OPENAI_BASE_URL` and `CLIPROXY_API_KEY` configure the
 existing provider proxy. PostHog export is optional through `POSTHOG_API_KEY`.
 

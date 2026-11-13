@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+node_modules
+.output
+.nitro
+.vitehub
+.data
+.perf-validation
+tests
+ops
+Dockerfile
+compose.yaml

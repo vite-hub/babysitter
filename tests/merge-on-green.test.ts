@@ -67,5 +67,4 @@ test('the preset defaults mergeOnGreen off, validates it, and the Babysitter ena
   const config = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
   assert.match(config, /mergeOnGreen: true/)
   assert.match(config, /'chatgpt-codex-connector\[bot\]'/)
-  assert.match(config, /BABYSITTER_REASONING_EFFORT \|\| 'medium'/)
 })

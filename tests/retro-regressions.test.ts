@@ -6,6 +6,8 @@ import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { babysitterConfig } from '../server/agents/babysitter/config.ts'
+import { dropInEnv } from './org-env.ts'
 
 let modules = dirname(realpathSync(fileURLToPath(import.meta.resolve('vite-hub/agent'))))
 while (!modules.endsWith('/node_modules')) modules = dirname(modules)
@@ -48,8 +50,7 @@ test('Babysitter can leave Actions untouched while keeping check evidence and me
   assert.match(source, /const ciRecovery = actionsRecoveryEnabled \? await rerunFailedActions\(/)
   const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
   assert.match(appSource, /ciRecovery: false/)
-  assert.match(appSource, /BABYSITTER_HOURLY_INPUT_TOKENS/)
-  assert.match(appSource, /admission: \{ inputTokens: admissionInputTokens \}/)
+  assert.match(appSource, /admission: \{ inputTokens: config\.inputTokens \}/)
   assert.match(appSource, /deferWhilePending: true/)
 })
 
@@ -68,8 +69,9 @@ test('the main guardian opens repair PRs the Babysitter accepts', () => {
   const appSource = readFileSync(new URL('../server/agents/babysitter/agent.ts', import.meta.url), 'utf8')
   // 2026-11-11: after the App was renamed to vite-hub, its repair PR #3911 went terminal on the
   // author filter, the guardian kept waiting on it, and main stayed red for hours.
-  assert.match(appSource, /const authors: readonly string\[\] = \[.*'vite-hub\[bot\]', 'vite-hub',.*'vitehub-bot\[bot\]', 'vitehub-bot'\]/)
-  assert.match(appSource, /author: \{ allow: authors \}/)
+  const { author } = babysitterConfig(dropInEnv()).authorFilter as { author: { allow: string[] } }
+  for (const login of ['vite-hub[bot]', 'vite-hub', 'vitehub-bot[bot]', 'vitehub-bot']) assert.ok(author.allow.includes(login), login)
+  assert.match(appSource, /\.\.\.config\.authorFilter/)
   const guardian = readFileSync(new URL('../scripts/main-guardian.mjs', import.meta.url), 'utf8')
   assert.match(guardian, /const branchPrefix = 'babysitter\/repair-main-'/)
   assert.match(guardian, /pull\.head\.ref\.startsWith\(branchPrefix\)/)

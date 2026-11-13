@@ -1,4 +1,4 @@
-// Contributors are people outside the vite-hub org whose PRs the Babysitter repairs like a
+// Contributors are people outside the organization whose PRs the Babysitter repairs like a
 // maintainer's. It merges one only after a maintainer approves its current head, so a maintainer
 // reads every outside change before it lands. Pushes after that approval, including the
 // Babysitter's own repairs, need a new approval.
@@ -20,11 +20,6 @@ interface MergeInput {
 }
 
 const login = (actor: Actor | null | undefined) => String(actor?.login ?? '').trim().toLowerCase()
-
-export function loginList(raw: string | undefined, fallback: readonly string[]): string[] {
-  const logins = (raw ?? '').split(/[,\s]+/).filter(Boolean)
-  return logins.length ? logins : [...fallback]
-}
 
 /** Returns a `merge.ready` predicate: `true` merges, a string is the reason the PR waits. */
 export function maintainerApprovalForContributors(contributors: readonly string[], maintainers: readonly string[]) {
