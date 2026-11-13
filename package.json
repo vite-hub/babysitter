@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@43128a213eb62d0ad1eb22ae777a77956b07b8f6",
-    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@43128a213eb62d0ad1eb22ae777a77956b07b8f6",
-    "@vite-hub/presets": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/presets@43128a213eb62d0ad1eb22ae777a77956b07b8f6",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@996533be59c6854647663a6eeabf5b593471ffec",
+    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@996533be59c6854647663a6eeabf5b593471ffec",
+    "@vite-hub/presets": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/presets@996533be59c6854647663a6eeabf5b593471ffec",
     "crossws": "^0.4.17",
     "drizzle-orm": "1.0.0-rc.5",
     "evlog": "^2.29.0",
@@ -26,7 +26,7 @@
     "nitro": "3.0.261103-rc",
     "posthog-node": "^5.73.0",
     "vite": "^8.2.2",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@43128a213eb62d0ad1eb22ae777a77956b07b8f6"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@996533be59c6854647663a6eeabf5b593471ffec"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

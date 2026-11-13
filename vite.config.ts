@@ -4,7 +4,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 // A Docker build has no .git, so the image passes the revision in BABYSITTER_RELEASE.
-const release = process.env.BABYSITTER_RELEASE ? env.source('BABYSITTER_RELEASE') : env.gitSha()
+const release = process.env.BABYSITTER_RELEASE ? env.source('BABYSITTER_RELEASE') : env.gitCommit()
 
 export default defineConfig({
   plugins: [
