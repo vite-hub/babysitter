@@ -93,20 +93,26 @@ export default defineAgent({
     reviewChecks: ['pullfrog', 'pullfrog-approval'],
     // Defaults, written out because they gate most model passes (2026-10-19 pass-volume review).
     reviewPushBudget: 3,
+    // Merge on green (2026-11-12): a PR whose required checks pass, or fail only the way main fails
+    // them, merges with no model pass. Automated review never holds the merge; bot feedback starts a
+    // pass only when it names a P0 or P1 finding. A red main is fixed afterwards, never a blocker.
+    mergeOnGreen: true,
     dailyPassBudget: 16,
     // Add this label to a PR to have it claimed first (after main repairs) without the daily cap.
     priorityLabels: ['babysitter:priority'],
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Deployment preview bots post status panels, never review findings.
-    ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]'],
+    // Pullfrog is the one automated reviewer; the Codex connector's reviews (mostly P2) are ignored.
+    ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]', 'chatgpt-codex-connector[bot]', 'chatgpt-codex-connector'],
     // Maintainers' agents open PRs as drafts; the merge gate marks those ready instead of waiting forever.
     merge: { strategy: 'direct', method: 'squash', ready: contributorMergeGate, markDraftsReady: ownDraftsReady(authors.filter(name => !contributors.includes(name))) },
   },
   workspace: {},
   capabilities: [diagnostics({ resources: nodeRuntimeResources() }), telemetry.capability],
   driver: {
-    model: process.env.BABYSITTER_MODEL || 'gpt-6-astra',
-    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'xhigh',
+    // Medium since 2026-11-12: xhigh spent the shared Codex quota in a day. CI verifies the repairs.
+    model: process.env.BABYSITTER_MODEL || 'gpt-6.1-sol',
+    reasoningEffort: process.env.BABYSITTER_REASONING_EFFORT || 'medium',
     env: () => ({
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
       CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY,

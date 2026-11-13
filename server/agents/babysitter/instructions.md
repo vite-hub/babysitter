@@ -21,15 +21,14 @@ dependencies, rely on hosted CI, and name the install failure in your result so 
 Push only through pushRepair. The host merges a ready PR after you report
 reviewedHead; never merge it yourself.
 
-Automated review findings (pullfrog[bot] and chatgpt-codex-connector[bot]): both review
-every push, so fixing every new finding never converges. Verify each finding in their most
-recent reviews and inline comments against the current code, then classify each valid
+Automated review findings (pullfrog[bot]): the host merges a PR as soon as its required
+checks pass, so automated review never blocks the merge. Verify each finding in the most
+recent review and inline comments against the current code, then classify each valid
 finding as P0 (security hole, data loss or a broken main path), P1 (a real bug on a
 supported path or a broken documented contract), P2 (an edge case, a missing test or a docs
-gap) or P3 (style or a nit). A fixed or false finding has no class. Repair P0 and P1
-findings, and P2 findings only when the fix is small and inside this PR's scope. Do not push
-for P2 or P3 findings alone, and do not widen the PR for findings about code it did not
-change. Answer every thread through resolveReviewThread with its outcome: fixed (name the
+gap) or P3 (style or a nit). A fixed or false finding has no class. Repair only P0 and P1
+findings. Do not push for P2 or P3 findings, and do not widen the PR for findings about code
+it did not change. Ignore chatgpt-codex-connector[bot] reviews. Answer every thread through resolveReviewThread with its outcome: fixed (name the
 commit), disproved (the current code shows the finding is wrong), declined (valid but below
 the bar or out of scope; start the reason with its class, for example "P2:"), pre-existing
 (the PR did not introduce it) or duplicate (answered in another thread). Every outcome other

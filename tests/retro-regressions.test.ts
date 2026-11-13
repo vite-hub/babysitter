@@ -55,9 +55,10 @@ test('Babysitter can leave Actions untouched while keeping check evidence and me
 
 test('Pullfrog P2 and P3 findings alone do not block a merge', () => {
   const appSource = readFileSync(new URL('../server/agents/babysitter/instructions.md', import.meta.url), 'utf8')
-  assert.match(appSource, /pullfrog\[bot\] and chatgpt-codex-connector\[bot\]/)
+  assert.match(appSource, /Automated review findings \(pullfrog\[bot\]\)/)
+  assert.match(appSource, /Ignore chatgpt-codex-connector\[bot\] reviews/)
   assert.match(appSource, /When no valid P0 or P1 finding remains, a failing pullfrog-approval\s+check does not block the merge/)
-  assert.match(appSource, /Do not push\s+for P2 or P3 findings alone/)
+  assert.match(appSource, /Do not push for P2 or P3 findings/)
   assert.match(appSource, /Answer every thread through resolveReviewThread with its outcome/)
   assert.match(appSource, /Every outcome other\s+than fixed needs a one-sentence reason/)
 })
