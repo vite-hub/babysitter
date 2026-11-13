@@ -2,10 +2,7 @@
 .output/
 .data/
 .vitehub/
-.perf-validation/
 node_modules/
-auto-imports.d.ts
-components.d.ts
 .env
 .audit/
 ops/review-audit/skill/

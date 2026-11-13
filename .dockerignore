@@ -6,8 +6,7 @@ node_modules
 .nitro
 .vitehub
 .data
-.perf-validation
 tests
-ops
+scripts
 Dockerfile
 compose.yaml

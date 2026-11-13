@@ -1,5 +1,5 @@
-// Everything an operator sets per deployment. The defaults name no person, bot or check of
-// any one organization; vite-hub's own values live in its systemd drop-in (ops/org/org.conf).
+// Everything an operator sets per deployment. The defaults name no person, bot or check of any
+// one organization; vite-hub's own values live in its host environment.
 
 type Env = Record<string, string | undefined>
 
@@ -7,7 +7,7 @@ function list(raw: string | undefined): string[] {
   return (raw ?? '').split(/[,\s]+/).filter(Boolean)
 }
 
-function inputTokenLimit(env: Env, name: string) {
+function count(env: Env, name: string) {
   const raw = env[name]
   if (raw === undefined || raw.trim() === '') return undefined
   const value = Number(raw)
@@ -15,21 +15,13 @@ function inputTokenLimit(env: Env, name: string) {
   return value
 }
 
-// Logins match exactly. REST reports a bot as 'name[bot]' and GraphQL as 'name', and the
-// commit step re-checks through GraphQL, so each bot is listed under both spellings.
-export function botLogins(names: readonly string[]): string[] {
-  return names.flatMap((name) => {
-    const login = name.replace(/\[bot\]$/i, '')
-    return [`${login}[bot]`, login]
-  })
-}
-
 export function babysitterConfig(env: Env = process.env) {
   const maintainers = list(env.BABYSITTER_MAINTAINERS)
   const contributors = list(env.BABYSITTER_CONTRIBUTORS)
-  const bots = botLogins(list(env.BABYSITTER_BOT_AUTHORS).length ? list(env.BABYSITTER_BOT_AUTHORS) : ['renovate', 'dependabot'])
+  // The preset matches a bot in either spelling, `renovate` or `renovate[bot]`.
+  const bots = list(env.BABYSITTER_BOT_AUTHORS).length ? list(env.BABYSITTER_BOT_AUTHORS) : ['renovate', 'dependabot']
   return {
-    repositories: list(env.BABYSITTER_REPOS || env.BABYSITTER_REPO),
+    repositories: list(env.BABYSITTER_REPOS),
     maintainers,
     contributors,
     // Authors whose drafts the merge gate marks ready: everyone listed except outside contributors.
@@ -39,10 +31,14 @@ export function babysitterConfig(env: Env = process.env) {
       ? { author: { allow: [...maintainers, ...contributors, ...bots] } }
       : { authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] } },
     reviewChecks: list(env.BABYSITTER_REVIEW_CHECKS),
-    concurrency: Number(env.BABYSITTER_MAX_OWNERS || 16),
+    // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail the
+    // same way on the base branch.
+    bypassInheritedChecks: JSON.parse(env.BABYSITTER_BYPASS_INHERITED_CHECKS || '{}') as Record<string, string[]>,
+    concurrency: count(env, 'BABYSITTER_MAX_OWNERS') ?? 16,
+    modelConcurrency: count(env, 'BABYSITTER_MODEL_CONCURRENCY'),
     inputTokens: {
-      hourly: inputTokenLimit(env, 'BABYSITTER_HOURLY_INPUT_TOKENS'),
-      daily: inputTokenLimit(env, 'BABYSITTER_DAILY_INPUT_TOKENS'),
+      hourly: count(env, 'BABYSITTER_HOURLY_INPUT_TOKENS'),
+      daily: count(env, 'BABYSITTER_DAILY_INPUT_TOKENS'),
     },
     // Medium since 2026-11-12: xhigh spent the shared Codex quota in a day. CI verifies the repairs.
     model: env.BABYSITTER_MODEL || 'gpt-6.1-sol',
