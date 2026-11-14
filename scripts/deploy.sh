@@ -9,8 +9,8 @@ api=localhost:$port/api/_vitehub/host
 cd "$(dirname "$0")/.."
 [ -z "$(git status --porcelain -- pnpm-lock.yaml server package.json vite.config.ts)" ] || { echo "commit first: the build bakes in the git SHA" >&2; exit 1; }
 sha=$(git rev-parse HEAD)
-# HEAVY_REMOTE=0: an overflow host gets a mirror without .git, and the build reads the git SHA.
-CI=1 BABYSITTER_PUBLIC_URL=https://babysitter.vitehub.dev HEAVY_WAIT=0 HEAVY_REMOTE=0 heavy pnpm build >/tmp/babysitter-build.log 2>&1
+# GIT_SHA, because an overflow host builds from a mirror without .git.
+CI=1 GIT_SHA=$sha BABYSITTER_PUBLIC_URL=https://babysitter.vitehub.dev HEAVY_WAIT=0 heavy pnpm build >/tmp/babysitter-build.log 2>&1
 grep -rq "$sha" .output/server || { echo "build does not contain $sha" >&2; exit 1; }
 
 previous=$(grep -oE '/home/workspace/babysitter-release-[^/]+' "$dropin" | head -1)

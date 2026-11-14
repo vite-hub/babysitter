@@ -1,7 +1,7 @@
 import { defineAgent } from 'vite-hub/agent'
 import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
+import { usePublicEnv } from 'vite-hub/env'
 import { babysitter } from 'vite-hub/presets/babysitter'
-import { usePublicEnv } from '#vitehub/env/public'
 import { babysitterConfig } from './config.ts'
 import { maintainerApprovalForContributors } from './contributors.ts'
 
@@ -23,9 +23,6 @@ export default defineAgent({
     // A vite-hub pass with its install and focused tests peaks around 2.5 GB.
     capacity: { memory: { perInvocationBytes: 2.5 * 1024 ** 3, serviceReserveBytes: 2 * 1024 ** 3 } },
     admission: { inputTokens: config.inputTokens },
-    // The install cache copies whole node_modules trees, and ext4 has no reflinks: a cached pass
-    // took 81-125 s against 16 s for a plain install with pnpm's warm store (2026-10-17).
-    install: { cache: false },
     warmWorkspaces: { resumeThreads: true },
     // Read CI evidence, but never ask GitHub Actions to rerun a failed run.
     ciRecovery: false,

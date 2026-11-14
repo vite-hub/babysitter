@@ -3,15 +3,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
-// A Docker build has no .git, so the image passes the revision in BABYSITTER_RELEASE.
-const release = process.env.BABYSITTER_RELEASE ? env.source('BABYSITTER_RELEASE') : env.gitCommit()
-
 export default defineConfig({
   plugins: [
     vitehub({
       host: 'node',
       env: {
-        public: { releaseRevision: env({ mode: 'build', source: release }) },
+        // A Docker build has no .git, so the image passes the revision in GIT_SHA, which gitCommit() reads first.
+        public: { releaseRevision: env({ mode: 'build', source: env.gitCommit() }) },
       },
       // An empty value (compose passes one when .env leaves it unset) means no public URL.
       publicUrl: process.env.BABYSITTER_PUBLIC_URL || undefined,

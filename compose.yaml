@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        # Set to the commit you build, e.g. BABYSITTER_RELEASE=$(git rev-parse HEAD) docker compose build.
-        BABYSITTER_RELEASE: ${BABYSITTER_RELEASE:-docker}
+        # Set to the commit you build, e.g. GIT_SHA=$(git rev-parse HEAD) docker compose build.
+        GIT_SHA: ${GIT_SHA:-docker}
         BABYSITTER_PUBLIC_URL: ${BABYSITTER_PUBLIC_URL:-}
     env_file: .env
     environment:

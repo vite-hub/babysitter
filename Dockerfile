@@ -7,9 +7,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 # The build bakes in the release revision and the public URL.
-ARG BABYSITTER_RELEASE=docker
+ARG GIT_SHA=docker
 ARG BABYSITTER_PUBLIC_URL
-RUN BABYSITTER_RELEASE=$BABYSITTER_RELEASE BABYSITTER_PUBLIC_URL=$BABYSITTER_PUBLIC_URL pnpm build
+RUN GIT_SHA=$GIT_SHA BABYSITTER_PUBLIC_URL=$BABYSITTER_PUBLIC_URL pnpm build
 
 FROM node:24-bookworm-slim
 ARG CODEX_VERSION=0.167.0
