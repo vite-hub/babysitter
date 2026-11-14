@@ -3,7 +3,6 @@ import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 import { usePublicEnv } from 'vite-hub/env'
 import { babysitter } from 'vite-hub/presets/babysitter'
 import { babysitterConfig } from './config.ts'
-import { maintainerApprovalForContributors } from './contributors.ts'
 
 const config = babysitterConfig()
 
@@ -45,12 +44,13 @@ export default defineAgent({
     // PR checks run fast suites and main runs the full ones, so PRs that each pass can break main together.
     mainRepair: config.mainRepair,
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
-    // Preview bots post status panels, never findings. Pullfrog is the one automated reviewer.
-    ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]', 'chatgpt-codex-connector[bot]'],
+    // Pullfrog is the one automated reviewer. The preset already ignores the preview bots.
+    ignoreFeedbackAuthors: [...babysitter.options.ignoreFeedbackAuthors, 'chatgpt-codex-connector[bot]'],
     merge: {
       strategy: 'direct',
       method: 'squash',
-      ready: maintainerApprovalForContributors(config.contributors, config.maintainers),
+      // Other authors without write access, such as BABYSITTER_CONTRIBUTORS, wait for a write-access reviewer to approve their head.
+      trustedAuthors: config.botAuthors,
       markDraftsReady: config.trustedAuthors,
       bypassInheritedChecks: config.bypassInheritedChecks,
     },

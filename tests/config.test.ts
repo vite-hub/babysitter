@@ -30,6 +30,11 @@ test('bot authors replace the defaults', () => {
   assert.deepEqual(config.authorFilter, { author: { allow: ['alice', 'my-app'] } })
 })
 
+test('the merge gate trusts bots in their [bot] spelling', () => {
+  assert.deepEqual(babysitterConfig({}).botAuthors, ['renovate[bot]', 'dependabot[bot]'])
+  assert.deepEqual(babysitterConfig({ BABYSITTER_BOT_AUTHORS: 'my-app,other[bot]' }).botAuthors, ['my-app[bot]', 'other[bot]'])
+})
+
 test('lists accept commas and whitespace', () => {
   assert.deepEqual(babysitterConfig({ BABYSITTER_REPOS: 'a/b,c/d e/f' }).repositories, ['a/b', 'c/d', 'e/f'])
   assert.deepEqual(babysitterConfig({ BABYSITTER_REVIEW_CHECKS: 'pullfrog\npullfrog-approval' }).reviewChecks, ['pullfrog', 'pullfrog-approval'])

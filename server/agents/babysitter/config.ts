@@ -24,6 +24,8 @@ export function babysitterConfig(env: Env = process.env) {
     repositories: list(env.BABYSITTER_REPOS),
     maintainers,
     contributors,
+    // The merge gate trusts these bot accounts. It matches a bot only in its `[bot]` spelling.
+    botAuthors: bots.map(name => name.endsWith('[bot]') ? name : `${name}[bot]`),
     // Authors whose drafts the merge gate marks ready: everyone listed except outside contributors.
     trustedAuthors: maintainers.length ? [...maintainers, ...bots] : [],
     // Without a maintainer list, GitHub's roles on the repository decide whose PRs get worked.

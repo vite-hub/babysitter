@@ -17,7 +17,7 @@ Who and what to trust comes from the environment:
 - `BABYSITTER_MAINTAINERS`: logins whose PRs get repaired and squash-merged. Without it, the worker
   takes PRs from the repositories' owners, members and collaborators, and ignores the two lists below.
 - `BABYSITTER_CONTRIBUTORS`: outside contributors. Their PRs get the same repairs, but merge only
-  after a maintainer approves the current head.
+  after someone with write access approves the current head.
 - `BABYSITTER_BOT_AUTHORS` (default `renovate,dependabot`): bots whose PRs get worked. Add your
   GitHub App's name if it opens PRs.
 - `BABYSITTER_REVIEW_CHECKS` (default none): the check names an automated reviewer posts.
