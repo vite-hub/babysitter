@@ -34,6 +34,10 @@ export function babysitterConfig(env: Env = process.env) {
     // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail the
     // same way on the base branch.
     bypassInheritedChecks: JSON.parse(env.BABYSITTER_BYPASS_INHERITED_CHECKS || '{}') as Record<string, string[]>,
+    // Repositories whose default branch gets a repair PR when one of the workflows fails on it.
+    mainRepair: list(env.BABYSITTER_MAIN_REPAIR_REPOS).length
+      ? { repositories: list(env.BABYSITTER_MAIN_REPAIR_REPOS), workflows: list(env.BABYSITTER_MAIN_REPAIR_WORKFLOWS).length ? list(env.BABYSITTER_MAIN_REPAIR_WORKFLOWS) : ['ci'] }
+      : false as const,
     concurrency: count(env, 'BABYSITTER_MAX_OWNERS') ?? 16,
     modelConcurrency: count(env, 'BABYSITTER_MODEL_CONCURRENCY'),
     inputTokens: {

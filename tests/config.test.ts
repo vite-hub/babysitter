@@ -10,6 +10,7 @@ test('an empty environment names no organization', () => {
   assert.deepEqual(config.reviewChecks, [])
   assert.deepEqual(config.trustedAuthors, [])
   assert.deepEqual(config.bypassInheritedChecks, {})
+  assert.equal(config.mainRepair, false)
   assert.deepEqual(config.authorFilter, { authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] } })
   assert.equal(config.model, 'gpt-6.1-sol')
   assert.equal(config.reasoningEffort, 'medium')
@@ -43,4 +44,10 @@ test('counts must be non-negative integers', () => {
   assert.deepEqual(babysitterConfig({ BABYSITTER_HOURLY_INPUT_TOKENS: '0', BABYSITTER_DAILY_INPUT_TOKENS: ' ' }).inputTokens, { hourly: 0, daily: undefined })
   assert.equal(babysitterConfig({ BABYSITTER_MODEL_CONCURRENCY: '20' }).modelConcurrency, 20)
   assert.throws(() => babysitterConfig({ BABYSITTER_DAILY_INPUT_TOKENS: '-1' }), /BABYSITTER_DAILY_INPUT_TOKENS must be a non-negative integer/)
+})
+
+test('main repair watches the listed repositories, on ci unless workflows are named', () => {
+  assert.deepEqual(babysitterConfig({ BABYSITTER_MAIN_REPAIR_REPOS: 'a/b' }).mainRepair, { repositories: ['a/b'], workflows: ['ci'] })
+  assert.deepEqual(babysitterConfig({ BABYSITTER_MAIN_REPAIR_REPOS: 'a/b', BABYSITTER_MAIN_REPAIR_WORKFLOWS: 'ci,pkg.pr.new' }).mainRepair, { repositories: ['a/b'], workflows: ['ci', 'pkg.pr.new'] })
+  assert.equal(babysitterConfig({ BABYSITTER_MAIN_REPAIR_WORKFLOWS: 'ci' }).mainRepair, false)
 })

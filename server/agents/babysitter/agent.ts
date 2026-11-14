@@ -35,6 +35,8 @@ export default defineAgent({
     // Add this label to a PR to have it claimed first (after main repairs) without the daily cap.
     priorityLabels: ['babysitter:priority'],
     mainRepairBranchPrefix: 'babysitter/repair-main-',
+    // PR checks run fast suites and main runs the full ones, so PRs that each pass can break main together.
+    mainRepair: config.mainRepair,
     noFindingsReviews: ['> ✅ No new issues found.', 'Codex usage limits have been reached'],
     // Preview bots post status panels, never findings. Pullfrog is the one automated reviewer.
     ignoreFeedbackAuthors: ['pkg-pr-new[bot]', 'vercel[bot]', 'cloudflare-workers-and-pages[bot]', 'netlify[bot]', 'chatgpt-codex-connector[bot]'],

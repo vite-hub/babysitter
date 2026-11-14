@@ -33,7 +33,7 @@ Fork this repository and edit `instructions.md` for your reviewer. Then:
    - Repository permissions: Contents, Pull requests, Issues and Checks read and write; Actions,
      Commit statuses and Metadata read. Add Workflows write if repairs may touch `.github/workflows`.
    - Events: Pull request, Pull request review, Pull request review comment, Pull request review
-     thread, Issue comment, Check run, Check suite, Status and Push.
+     thread, Issue comment, Check run, Check suite, Status, Push and Workflow run.
    - Generate a private key and install the App on the repositories to watch.
 2. `cp .env.example .env` and fill in the required values.
 3. Start it and log Codex in once. The login lands in the `/data` volume.
@@ -68,8 +68,14 @@ On any host, Agent State goes to `.vitehub/agent-state.db` under the working dir
 `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` too, such as `file:/srv/babysitter/.vitehub/invocations.sqlite`:
 without it, the Console journal lands in the build checkout. Run one process per data directory.
 
-`scripts/main-guardian.mjs` runs from a timer with the App's credentials. When a watched workflow fails
-on vite-hub/vitehub's main, it opens a `babysitter/repair-main-*` PR, which the worker repairs first.
+## Repair a red main
+
+PR checks run the fast suites and main runs the full ones, so PRs that each pass can break main
+together. Set `BABYSITTER_MAIN_REPAIR_REPOS` and, when a workflow in `BABYSITTER_MAIN_REPAIR_WORKFLOWS`
+(default `ci`) fails on one of those repositories' default branch, the worker opens a
+`babysitter/repair-main-*` PR and repairs it first. This is the preset's
+[`mainRepair`](https://vitehub.dev/docs/agents/babysitter#repair-a-red-default-branch); the App needs
+the Workflow run event and Actions write access.
 
 ## ViteHub version
 
