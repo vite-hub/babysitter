@@ -68,6 +68,23 @@ On any host, Agent State goes to `.vitehub/agent-state.db` under the working dir
 `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` too, such as `file:/srv/babysitter/.vitehub/invocations.sqlite`:
 without it, the Console journal lands in the build checkout. Run one process per data directory.
 
+## Run passes on another machine
+
+Set `BABYSITTER_REMOTE_HOSTS` to `user@host:slots` entries, such as `svc-fleet@servarica:2`, and a
+pass that this host's memory admission cannot take runs on that host. Without it, every pass runs here.
+The worker reaches the host over SSH (Tailscale SSH needs no key) and keeps the queue, the checkout and
+the GitHub credentials. The host gets git objects through a mirror under `~/.vitehub-fleet`, installs
+from its own pnpm store, and runs Codex there. Codex reaches cliproxy (the port in `OPENAI_BASE_URL`)
+and the worker's tool endpoint through SSH reverse tunnels, and reads the cliproxy key from
+`CLIPROXY_API_KEY` in its environment, never from a file.
+
+The host needs `git`, `codex` and `pnpm` (in `~/.local/bin` or on `PATH`), `setsid`, `flock` and `tar`.
+Before each remote pass the worker checks its free disk (4 GiB), memory pressure (10%) and memory,
+admitting `(available - 2 GiB) / 2.5 GiB` passes, where available is the smaller of `MemAvailable`
+and the user's cgroup `memory.high` headroom. The same check removes Boxes, and kills their processes,
+that no running pass owns. `BABYSITTER_REMOTE_MIN_FREE_BYTES`, `BABYSITTER_REMOTE_MAX_MEMORY_PRESSURE`,
+`BABYSITTER_REMOTE_RESERVE_BYTES` and `BABYSITTER_REMOTE_PASS_BYTES` change those limits.
+
 ## Repair a red main
 
 PR checks run the fast suites and main runs the full ones, so PRs that each pass can break main
