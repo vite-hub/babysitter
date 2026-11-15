@@ -334,7 +334,8 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
       return { runtime, release: lease.revoke }
     },
   })
-  // Stopgap until the pinned preset keeps remote passes out of its local worker queue (see the PR).
+  // Stopgap until the pin includes vite-hub/vitehub#4568, which keeps placed passes out of the local
+  // worker queue. Drop this sample with that pin bump: it would then over-admit local passes.
   // Opened Boxes are remote invocations that the queue already counts as active.
   const worker = createProcessAgentCapacity({ ...options.capacity, concurrency: options.concurrency, remoteActive: () => live.size }).adaptive!
   const capacity = {
