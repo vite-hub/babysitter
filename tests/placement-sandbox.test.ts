@@ -7,6 +7,7 @@ import test from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { SandboxRuntimeInput } from 'vite-hub/sandbox'
 import { probeScript } from '../server/agents/babysitter/placement/index.ts'
+import { parse } from 'smol-toml'
 import { createSshSandboxRuntime, loopbackPorts, readHostModelProvider, remapLoopback, remoteCodexConfig } from '../server/agents/babysitter/placement/sandbox.ts'
 import { localTransport, runScript } from '../server/agents/babysitter/placement/ssh.ts'
 
@@ -164,7 +165,7 @@ test('the remote Codex config keeps only the selected provider, without any cred
     'experimental_bearer_token = "bearer-secret"',
     'http_headers = { Authorization = "Bearer header-secret" }',
     'query_params = { key = "query-secret" }',
-    '[model_providers.cliproxy.http_headers]',
+    '[model_providers.cliproxy.env_http_headers]',
     '"CF-Access-Client-Secret" = "cf-secret"',
     '[model_providers.other]',
     'base_url = "https://other.example"',
@@ -177,23 +178,17 @@ test('the remote Codex config keeps only the selected provider, without any cred
   assert.equal(provider.baseUrl, 'http://127.0.0.1:8317/v1')
   const config = remoteCodexConfig(provider, { baseUrl: 'http://127.0.0.1:4000/v1', envKey: 'LEASE_TOKEN' })('/w')
   assert.doesNotMatch(config, /secret|other|mcp_servers|notify|8317/)
-  assert.equal(config, [
-    'model = "m"',
-    'model_provider = "cliproxy"',
-    '',
-    '[model_providers.cliproxy]',
-    'name = "CLIProxy pool"',
-    'wire_api = "responses"',
-    'base_url = "http://127.0.0.1:4000/v1"',
-    'env_key = "LEASE_TOKEN"',
-    '',
-    '[shell_environment_policy.set]',
-    'LEASE_TOKEN = ""',
-    '',
-    '[projects."/w"]',
-    'trust_level = "trusted"',
-    '',
-  ].join('\n'))
+  assert.deepEqual(JSON.parse(JSON.stringify(parse(config))), {
+    model: 'm',
+    model_provider: 'cliproxy',
+    model_providers: { cliproxy: { name: 'CLIProxy pool', wire_api: 'responses', base_url: 'http://127.0.0.1:4000/v1', env_key: 'LEASE_TOKEN' } },
+    shell_environment_policy: { set: { LEASE_TOKEN: '' } },
+    projects: { '/w': { trust_level: 'trusted' } },
+  })
+  // Comments and quoted keys are valid TOML that Codex reads.
+  const commented = readHostModelProvider('model_provider = "p" # selected provider\n[model_providers."p"] # pool\nbase_url = "http://x" # proxy\nenv_key = "P_KEY"\n', { P_KEY: 'k' })
+  assert.equal(commented?.baseUrl, 'http://x')
+  assert.equal(commented?.apiKey, 'k')
   // A provider keyed by a variable reads the key from the environment.
   assert.equal(readHostModelProvider('model_provider = "p"\n[model_providers.p]\nbase_url = "http://x"\nenv_key = "P_KEY"\n', { P_KEY: 'from-env' })?.apiKey, 'from-env')
   assert.equal(readHostModelProvider('model = "m"\n', {}), undefined)

@@ -13,6 +13,7 @@ import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import type { SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxProcess, SandboxRuntime, SandboxRuntimeInput, SandboxSession } from 'vite-hub/sandbox'
 import { exitCode, must, q, runScript, withProducer, type ScriptTransport } from './ssh.ts'
+import { parse, stringify, type TomlPrimitive } from 'smol-toml'
 
 const execFileAsync = promisify(execFile)
 
@@ -51,44 +52,34 @@ export interface HostModelProvider {
   baseUrl: string
   /** The provider's key: the variable its `env_key` names, else its `experimental_bearer_token`. */
   apiKey?: string
-  /** Allowlisted top-level and provider settings, as TOML lines. */
-  topLevel: string[]
-  settings: string[]
+  /** Allowlisted top-level and provider settings. */
+  topLevel: Record<string, TomlPrimitive>
+  settings: Record<string, TomlPrimitive>
 }
 
 const topLevelKeys = new Set(['model', 'model_provider', 'model_reasoning_effort', 'model_reasoning_summary', 'model_verbosity', 'service_tier'])
 // Headers, query parameters and token settings can all carry credentials, so none of them travel.
 const providerKeys = new Set(['name', 'wire_api', 'requires_openai_auth', 'request_max_retries', 'stream_max_retries', 'stream_idle_timeout_ms'])
-const tomlString = (value: string) => {
-  const trimmed = value.trim()
-  if (trimmed.startsWith('"')) return JSON.parse(trimmed) as string
-  if (trimmed.startsWith("'") && trimmed.endsWith("'")) return trimmed.slice(1, -1)
-  return undefined
-}
+const isTable = (value: unknown): value is Record<string, TomlPrimitive> => typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date)
+const scalar = (value: unknown): value is string | number | boolean => ['string', 'number', 'boolean'].includes(typeof value)
+const allowed = (table: Record<string, TomlPrimitive>, keys: Set<string>) =>
+  Object.fromEntries(Object.entries(table).filter(([key, value]) => keys.has(key) && scalar(value)))
 
+/** Reads the selected provider with a TOML parser, so comments, quoting and inline tables follow Codex. */
 export function readHostModelProvider(source: string, environment: Readonly<Record<string, string | undefined>>): HostModelProvider | undefined {
-  const top = new Map<string, string>()
-  const sections = new Map<string, Map<string, string>>()
-  let section: string | undefined
-  for (const line of source.split('\n')) {
-    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line)
-    if (header) { section = header[1]!.trim(); continue }
-    const entry = /^\s*([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/.exec(line)
-    if (!entry) continue
-    if (section === undefined) top.set(entry[1]!, entry[2]!)
-    else sections.set(section, (sections.get(section) ?? new Map()).set(entry[1]!, entry[2]!))
-  }
-  const id = tomlString(top.get('model_provider') ?? '')
-  const provider = id && /^[A-Za-z0-9_-]+$/.test(id) ? sections.get(`model_providers.${id}`) : undefined
-  const baseUrl = provider && tomlString(provider.get('base_url') ?? '')
-  if (!id || !provider || !baseUrl) return undefined
-  const envKey = tomlString(provider.get('env_key') ?? '')
+  const config = parse(source)
+  const id = config.model_provider
+  const providers = config.model_providers
+  const provider = typeof id === 'string' && isTable(providers) ? providers[id] : undefined
+  if (typeof id !== 'string' || !isTable(provider) || typeof provider.base_url !== 'string') return undefined
+  const envKey = typeof provider.env_key === 'string' ? provider.env_key : undefined
+  const bearer = typeof provider.experimental_bearer_token === 'string' ? provider.experimental_bearer_token : undefined
   return {
     id,
-    baseUrl,
-    apiKey: (envKey && environment[envKey]) || tomlString(provider.get('experimental_bearer_token') ?? ''),
-    topLevel: [...top].filter(([key]) => topLevelKeys.has(key)).map(([key, value]) => `${key} = ${value}`),
-    settings: [...provider].filter(([key]) => providerKeys.has(key)).map(([key, value]) => `${key} = ${value}`),
+    baseUrl: provider.base_url,
+    apiKey: (envKey && environment[envKey]) || bearer,
+    topLevel: allowed(config, topLevelKeys),
+    settings: allowed(provider, providerKeys),
   }
 }
 
@@ -97,8 +88,12 @@ export function readHostModelProvider(source: string, environment: Readonly<Reco
  * Commands that Codex runs get that variable empty, the same as ViteHub's MCP bearer.
  */
 export function remoteCodexConfig(provider: HostModelProvider, options: { baseUrl: string, envKey: string }) {
-  const base = [...provider.topLevel, '', `[model_providers.${provider.id}]`, ...provider.settings, `base_url = ${JSON.stringify(options.baseUrl)}`, `env_key = ${JSON.stringify(options.envKey)}`, '', '[shell_environment_policy.set]', `${options.envKey} = ""`].join('\n')
-  return (workDirectory: string) => `${base}\n\n[projects.${JSON.stringify(workDirectory)}]\ntrust_level = "trusted"\n`
+  const base = {
+    ...provider.topLevel,
+    model_providers: { [provider.id]: { ...provider.settings, base_url: options.baseUrl, env_key: options.envKey } },
+    shell_environment_policy: { set: { [options.envKey]: '' } },
+  }
+  return (workDirectory: string) => `${stringify({ ...base, projects: { [workDirectory]: { trust_level: 'trusted' } } })}\n`
 }
 
 const manifestNames = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', '.yarnrc.yml', 'bun.lock', 'bun.lockb'])
