@@ -17,7 +17,7 @@ function policy(overrides: Partial<PlacementPolicyOptions> & { local?: number, h
       probes.push(host.target)
       return overrides.health?.(host, active) ?? { ok: true, checkedAt: now, home: '/home/svc', admitted: active + 4 }
     },
-    runtime: (_host, _health, hooks) => { failures.push(hooks.onOpenFailure); return runtime },
+    runtime: (_host, _health, hooks) => { failures.push(hooks.onOpenFailure); return { runtime } },
     now: () => now,
     ...overrides,
   })
@@ -140,4 +140,22 @@ test('remote hosts parse from user@host:slots', () => {
   assert.deepEqual(parseRemoteHosts(undefined), [])
   assert.deepEqual(parseRemoteHosts('svc-fleet@servarica:2, box:1 other@b:0'), [{ target: 'svc-fleet@servarica', slots: 2 }, { target: 'box', slots: 1 }])
   assert.throws(() => parseRemoteHosts('servarica'), /user@host:slots/)
+})
+
+test('concurrent placements take one local slot once', async () => {
+  // The sample resolves later than the call, as a real memory sample does.
+  const { placement } = policy({ localSlots: async () => { await new Promise(resolve => setTimeout(resolve, 10)); return 1 } })
+  const leases = await Promise.all([1, 2, 3, 4].map(number => placement.place({ repository: 'o/r', number }).catch((error: Error) => error)))
+  assert.equal(leases.filter(lease => !(lease instanceof Error) && !lease.sandbox).length, 1)
+  assert.equal(placement.status().local, 1)
+  assert.equal(placement.remoteActive?.(), 2)
+})
+
+test('releasing a remote lease also releases what its runtime holds', async () => {
+  let revoked = 0
+  const { placement } = policy({ local: 0, runtime: () => ({ runtime, release: () => { revoked++ } }) })
+  const lease = await placement.place({ repository: 'o/r', number: 1 })
+  lease.release()
+  lease.release()
+  assert.equal(revoked, 1)
 })

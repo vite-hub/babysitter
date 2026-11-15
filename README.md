@@ -74,9 +74,11 @@ Set `BABYSITTER_REMOTE_HOSTS` to `user@host:slots` entries, such as `svc-fleet@s
 pass that this host's memory admission cannot take runs on that host. Without it, every pass runs here.
 The worker reaches the host over SSH (Tailscale SSH needs no key) and keeps the queue, the checkout and
 the GitHub credentials. The host gets git objects through a mirror under `~/.vitehub-fleet`, installs
-from its own pnpm store, and runs Codex there. Codex reaches cliproxy (the port in `OPENAI_BASE_URL`)
-and the worker's tool endpoint through SSH reverse tunnels, and reads the cliproxy key from
-`CLIPROXY_API_KEY` in its environment, never from a file.
+from its own pnpm store, and runs Codex there. Codex reaches the worker's tool endpoint and a model relay
+on this host through SSH reverse tunnels bound to the host's loopback. The relay accepts a random token
+per pass, swaps it for the key of the provider that the worker's Codex config selects, and refuses it once
+the pass ends, so the real key never leaves this host. The remote Codex config holds only that
+provider's allowlisted settings, and commands Codex runs see the token empty.
 
 The host needs `git`, `codex` and `pnpm` (in `~/.local/bin` or on `PATH`), `setsid`, `flock` and `tar`.
 Before each remote pass the worker checks its free disk (4 GiB), memory pressure (10%) and memory,

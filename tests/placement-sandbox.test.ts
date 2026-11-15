@@ -7,7 +7,7 @@ import test from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { SandboxRuntimeInput } from 'vite-hub/sandbox'
 import { probeScript } from '../server/agents/babysitter/placement/index.ts'
-import { createSshSandboxRuntime, loopbackPorts, remapLoopback, remoteCodexConfig } from '../server/agents/babysitter/placement/sandbox.ts'
+import { createSshSandboxRuntime, loopbackPorts, readHostModelProvider, remapLoopback, remoteCodexConfig } from '../server/agents/babysitter/placement/sandbox.ts'
 import { localTransport, runScript } from '../server/agents/babysitter/placement/ssh.ts'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim()
@@ -152,10 +152,49 @@ test('loopback URLs map to the ports their tunnel was given', () => {
   assert.equal(remapLoopback('http://127.0.0.1:8317/v1 http://localhost:41234/mcp http://127.0.0.1:9/x', new Map([[8317, 33001], [41234, 33002]])), 'http://127.0.0.1:33001/v1 http://127.0.0.1:33002/mcp http://127.0.0.1:9/x')
 })
 
-test('the remote Codex config keeps model providers and reads the bearer from the environment', () => {
-  const config = remoteCodexConfig('model = "m"\nmodel_provider = "cliproxy"\n[model_providers.cliproxy]\nbase_url = "http://127.0.0.1:8317/v1"\nexperimental_bearer_token = "secret"\n[mcp_servers.x]\ncommand = "y"\n')('/w')
-  assert.doesNotMatch(config, /secret|mcp_servers/)
-  assert.match(config, /model_provider = "cliproxy"/)
-  assert.match(config, /env_key = "CLIPROXY_API_KEY"/)
-  assert.match(config, /\[projects\."\/w"\]\ntrust_level = "trusted"/)
+test('the remote Codex config keeps only the selected provider, without any credential', () => {
+  const host = [
+    'model = "m"',
+    'model_provider = "cliproxy"',
+    'notify = ["/usr/bin/secret-notifier"]',
+    '[model_providers.cliproxy]',
+    'name = "CLIProxy pool"',
+    'base_url = "http://127.0.0.1:8317/v1"',
+    'wire_api = "responses"',
+    'experimental_bearer_token = "bearer-secret"',
+    'http_headers = { Authorization = "Bearer header-secret" }',
+    'query_params = { key = "query-secret" }',
+    '[model_providers.cliproxy.http_headers]',
+    '"CF-Access-Client-Secret" = "cf-secret"',
+    '[model_providers.other]',
+    'base_url = "https://other.example"',
+    'experimental_bearer_token = "other-secret"',
+    '[mcp_servers.x]',
+    'command = "y"',
+  ].join('\n')
+  const provider = readHostModelProvider(host, {})!
+  assert.equal(provider.apiKey, 'bearer-secret')
+  assert.equal(provider.baseUrl, 'http://127.0.0.1:8317/v1')
+  const config = remoteCodexConfig(provider, { baseUrl: 'http://127.0.0.1:4000/v1', envKey: 'LEASE_TOKEN' })('/w')
+  assert.doesNotMatch(config, /secret|other|mcp_servers|notify|8317/)
+  assert.equal(config, [
+    'model = "m"',
+    'model_provider = "cliproxy"',
+    '',
+    '[model_providers.cliproxy]',
+    'name = "CLIProxy pool"',
+    'wire_api = "responses"',
+    'base_url = "http://127.0.0.1:4000/v1"',
+    'env_key = "LEASE_TOKEN"',
+    '',
+    '[shell_environment_policy.set]',
+    'LEASE_TOKEN = ""',
+    '',
+    '[projects."/w"]',
+    'trust_level = "trusted"',
+    '',
+  ].join('\n'))
+  // A provider keyed by a variable reads the key from the environment.
+  assert.equal(readHostModelProvider('model_provider = "p"\n[model_providers.p]\nbase_url = "http://x"\nenv_key = "P_KEY"\n', { P_KEY: 'from-env' })?.apiKey, 'from-env')
+  assert.equal(readHostModelProvider('model = "m"\n', {}), undefined)
 })

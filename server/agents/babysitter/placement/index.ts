@@ -7,7 +7,8 @@ import { join } from 'node:path'
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from 'vite-hub/agent/process'
 import { BabysitterPlacementCapacityError, type BabysitterPlacement, type BabysitterPlacementLease } from 'vite-hub/presets/babysitter'
 import type { SandboxRuntime } from 'vite-hub/sandbox'
-import { createSshSandboxRuntime, remoteCodexConfig } from './sandbox.ts'
+import { startModelRelay } from './relay.ts'
+import { createSshSandboxRuntime, readHostModelProvider, remoteCodexConfig } from './sandbox.ts'
 import { q, runScript, sshTransport } from './ssh.ts'
 
 export interface RemoteHost {
@@ -31,14 +32,22 @@ export interface PlacementPolicyOptions {
   localSlots(active: { local: number, remote: number }): number | Promise<number>
   /** A fresh health and memory sample of one host. `active` passes run there now. */
   probe(host: RemoteHost, active: number): Promise<HostHealth>
-  /** The Sandbox runtime for one pass on a healthy host. `onOpenFailure` keeps new passes off the host for a while. */
-  runtime(host: RemoteHost, health: HostHealth, hooks: { onOpenFailure(error: unknown): void }): SandboxRuntime
+  /**
+   * The Sandbox runtime for one pass on a healthy host, and what to undo when the lease ends.
+   * `onOpenFailure` keeps new passes off the host for a while.
+   */
+  runtime(host: RemoteHost, health: HostHealth, hooks: { onOpenFailure(error: unknown): void }): RemoteLease | Promise<RemoteLease>
   log?(event: string, fields: Record<string, unknown>): void
   now?(): number
   /** Reuse a probe this long in `admitted()`. `place()` always probes again. */
   healthTtlMs?: number
   /** Keep a host whose Sandbox failed to open out of placement this long. */
   failureCooldownMs?: number
+}
+
+export interface RemoteLease {
+  runtime: SandboxRuntime
+  release?(): void
 }
 
 export type Placement = BabysitterPlacement & {
@@ -90,7 +99,8 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
 
   const localSlots = async () => {
     try {
-      return Math.max(localActive, await options.localSlots({ local: localActive, remote: remoteActive() }))
+      const slots = await options.localSlots({ local: localActive, remote: remoteActive() })
+      return Math.max(localActive, slots)
     }
     catch {
       return localActive
@@ -99,7 +109,9 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
 
   return {
     async place(pass) {
-      if (localActive < await localSlots()) {
+      // Read the count after the sample: concurrent placements must not all fit in the same slot.
+      const slots = await localSlots()
+      if (localActive < slots) {
         localActive++
         log('placement.placed', { ...pass, host: 'local', localActive })
         return { release: once(() => { localActive-- }) }
@@ -115,15 +127,21 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
         // Another pass may have taken the last slot while this one probed.
         if (host.active >= hostSlots(host)) { reasons.push(`${host.config.target}: full (${host.active}/${hostSlots(host)})`); continue }
         host.active++
-        const release = once(() => { host.active-- })
-        const runtime = options.runtime(host.config, health, {
-          onOpenFailure(error) {
-            host.downUntil = now() + failureCooldownMs
-            log('placement.host.cooldown', { host: host.config.target, reason: (error instanceof Error ? error.message : String(error)).slice(0, 500) })
-          },
-        })
+        let remote: RemoteLease
+        try {
+          remote = await options.runtime(host.config, health, {
+            onOpenFailure(error) {
+              host.downUntil = now() + failureCooldownMs
+              log('placement.host.cooldown', { host: host.config.target, reason: (error instanceof Error ? error.message : String(error)).slice(0, 500) })
+            },
+          })
+        }
+        catch (error) {
+          host.active--
+          throw error
+        }
         log('placement.placed', { ...pass, host: host.config.target, active: host.active, slots: host.config.slots })
-        const lease: BabysitterPlacementLease = { sandbox: { runtime }, release }
+        const lease: BabysitterPlacementLease = { sandbox: { runtime: remote.runtime }, release: once(() => { host.active--; remote.release?.() }) }
         return lease
       }
       throw new BabysitterPlacementCapacityError(['this host is full', ...reasons].join('; '))
@@ -216,31 +234,57 @@ export interface EnvironmentPlacementOptions {
   log?(event: string, fields: Record<string, unknown>): void
 }
 
+export type EnvironmentPlacement = Placement & {
+  /**
+   * The preset's `capacity` with a sample that admits reserved remote passes on top of what local
+   * memory admits. The pinned preset counts a remote pass in its local worker queue, so without this a
+   * remote pass waits for local memory it never uses.
+   */
+  capacity: EnvironmentPlacementOptions['capacity']
+}
+
+/**
+ * Reserved remote passes that have not opened their Box wait in the worker queue. Admit them on top
+ * of what local memory admits, even while local pressure pauses new local work.
+ */
+export function admitWaitingRemote(sample: { concurrency: number, reason?: string }, context: { active: number, concurrency: number }, waiting: number) {
+  return { ...sample, concurrency: Math.min(context.concurrency, Math.max(sample.concurrency, context.active) + Math.max(0, waiting)) }
+}
+
+/** Environment variable that carries a lease's relay token to the remote Codex. */
+const remoteTokenName = 'VITEHUB_PLACEMENT_MODEL_TOKEN'
+
 /**
  * Configures placement from the service environment. Returns undefined without
  * BABYSITTER_REMOTE_HOSTS, so every pass stays on this host as before.
  */
-export function placementFromEnvironment(options: EnvironmentPlacementOptions, environment: NodeJS.ProcessEnv = process.env): Placement | undefined {
+export function placementFromEnvironment(options: EnvironmentPlacementOptions, environment: NodeJS.ProcessEnv = process.env): EnvironmentPlacement | undefined {
   const hosts = parseRemoteHosts(environment.BABYSITTER_REMOTE_HOSTS)
   if (!hosts.length) return undefined
   // The agent module can load more than once in one process; its slot counts must not split.
-  const registry = globalThis as { [key: symbol]: Placement | undefined }
+  const registry = globalThis as { [key: symbol]: EnvironmentPlacement | undefined }
   return registry[registryKey] ??= createEnvironmentPlacement(hosts, options, environment)
 }
 
 const registryKey = Symbol.for('babysitter.placement')
 
-function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPlacementOptions, environment: NodeJS.ProcessEnv): Placement {
+/** Swaps the model key for a lease token everywhere in a remote environment, and points the base URL at the relay. */
+export function leaseEnvironment(value: Record<string, string>, secret: string, token: string, baseUrl: string) {
+  const result: Record<string, string> = {}
+  for (const [name, entry] of Object.entries(value)) if (!entry.includes(secret)) result[name] = entry
+  if ('OPENAI_BASE_URL' in result) result.OPENAI_BASE_URL = baseUrl
+  result[remoteTokenName] = token
+  return result
+}
+
+function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPlacementOptions, environment: NodeJS.ProcessEnv): EnvironmentPlacement {
   const log = options.log ?? ((event, fields) => console.log(`[placement] ${event} ${JSON.stringify(fields)}`))
-  const proxyPort = /^https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/.exec(environment.OPENAI_BASE_URL ?? '')?.[1]
-  const forwardPorts = (environment.BABYSITTER_REMOTE_FORWARD_PORTS ?? proxyPort ?? '').split(/[,\s]+/).filter(Boolean).map(Number)
-  let codexConfig: ((work: string) => string) | undefined
-  try {
-    codexConfig = remoteCodexConfig(readFileSync(join(environment.CODEX_HOME ?? join(environment.HOME ?? '', '.codex'), 'config.toml'), 'utf8'))
-  }
-  catch {
-    codexConfig = undefined
-  }
+  const codexHome = environment.CODEX_HOME ?? join(environment.HOME ?? '', '.codex')
+  const provider = readHostModelProvider(readFileSync(join(codexHome, 'config.toml'), 'utf8'), environment)
+  const apiKey = provider?.apiKey
+  if (!provider || !apiKey) throw new Error(`[placement] ${codexHome}/config.toml must select a model_provider with a base_url and an env_key or experimental_bearer_token; remote passes reach it through this host.`)
+  const upstream = new URL(provider.baseUrl)
+  let relay: ReturnType<typeof startModelRelay> | undefined
   const state = environment.BABYSITTER_REMOTE_STATE ?? join(process.cwd(), '.vitehub', 'placement')
   mkdirSync(state, { recursive: true, mode: 0o700 })
   // Unix sockets allow about 108 bytes and TMPDIR can be deep; ssh appends a random suffix.
@@ -253,7 +297,7 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
     maxMemoryPressure: positive(environment.BABYSITTER_REMOTE_MAX_MEMORY_PRESSURE, 10),
   }
   const transports = new Map(hosts.map(host => [host.target, sshTransport({ target: host.target, controlDirectory, knownHosts: join(state, 'known_hosts') })]))
-  // Box ids of passes that run now. A probe removes every other Box under the root.
+  // Box ids of passes whose Sandbox is open. A probe removes every other Box under the root.
   const live = new Set<string>()
   // The fleet's directory: its git mirrors and pnpm store are warm.
   const remoteRoot = '.vitehub-fleet'
@@ -262,7 +306,7 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
     hosts,
     log,
     async localSlots(active) {
-      // The preset's worker queue samples the same way: remote passes count toward concurrency but hold no local memory.
+      // Remote passes count toward concurrency but hold no local memory.
       const sample = await local.sample({ active: active.local + active.remote, concurrency: options.concurrency, pending: 0, signal: AbortSignal.timeout(5_000) })
       return sample.concurrency - active.remote
     },
@@ -270,22 +314,36 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
       const result = await runScript(transports.get(host.target)!, probeScript(remoteRoot, [...live]), { timeout: 60_000 })
       return readProbe(result.stdout.toString('utf8'), result.code, result.stderr, active, limits, Date.now())
     },
-    runtime(host, health, hooks) {
-      return createSshSandboxRuntime({
+    async runtime(host, health, hooks) {
+      const { port } = await (relay ??= startModelRelay({ upstream: upstream.origin, apiKey }))
+      const lease = (await relay).issue()
+      const baseUrl = `http://127.0.0.1:${port}${upstream.pathname}${upstream.search}`
+      const runtime = createSshSandboxRuntime({
         host: host.target,
         transport: transports.get(host.target)!,
         root: `${health.home}/${remoteRoot}`,
         path: `${health.home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
-        forwardPorts,
-        codexConfig,
+        forwardPorts: [port],
+        codexConfig: remoteCodexConfig(provider, { baseUrl, envKey: remoteTokenName }),
+        environment: value => leaseEnvironment(value, apiKey, lease.token, baseUrl),
         log,
         onOpen: id => live.add(id),
         onOpenFailure: hooks.onOpenFailure,
         onClose: id => live.delete(id),
       })
+      return { runtime, release: lease.revoke }
     },
   })
-  return policy
+  // Stopgap until the pinned preset keeps remote passes out of its local worker queue (see the PR).
+  // Opened Boxes are remote invocations that the queue already counts as active.
+  const worker = createProcessAgentCapacity({ ...options.capacity, concurrency: options.concurrency, remoteActive: () => live.size }).adaptive!
+  const capacity = {
+    ...options.capacity,
+    async sample(context: Parameters<typeof worker.sample>[0]) {
+      return admitWaitingRemote(await worker.sample(context), context, (policy.remoteActive?.() ?? 0) - live.size)
+    },
+  }
+  return Object.assign(policy, { capacity })
 }
 
 function positive(value: string | undefined, fallback: number) {

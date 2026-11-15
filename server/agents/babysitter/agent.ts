@@ -16,6 +16,8 @@ const capacity = {
   cpu: { pausePressure: 0.5, resumePressure: 0.3 },
   fallbackConcurrency: 2,
 }
+// With BABYSITTER_REMOTE_HOSTS (user@host:slots), passes that this host's memory cannot take run there.
+const placement = placementFromEnvironment({ capacity, concurrency: config.concurrency, perPassBytes })
 
 export default defineAgent({
   extends: babysitter,
@@ -30,9 +32,8 @@ export default defineAgent({
     },
     concurrency: config.concurrency,
     modelConcurrency: config.modelConcurrency,
-    capacity,
-    // With BABYSITTER_REMOTE_HOSTS (user@host:slots), passes that this host's memory cannot take run there.
-    placement: placementFromEnvironment({ capacity, concurrency: config.concurrency, perPassBytes }),
+    capacity: placement?.capacity ?? capacity,
+    placement,
     admission: { inputTokens: config.inputTokens },
     warmWorkspaces: { resumeThreads: true },
     // Read CI evidence, but never ask GitHub Actions to rerun a failed run.

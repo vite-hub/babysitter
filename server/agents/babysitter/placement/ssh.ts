@@ -1,8 +1,8 @@
 // Runs shell scripts on a placement host over SSH, and reverse-forwards loopback ports of this
 // process to it. Ported from the ServaRICA fleet that babysitter 9e8791e4 removed.
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessByStdio, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { constants } from 'node:os'
-import type { Readable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 
 /** Loopback ports of this process reachable on the host, keyed by local port. */
 export interface SshTunnel {
@@ -36,8 +36,9 @@ export function sshTransport(options: { target: string, controlDirectory: string
     },
     tunnel(ports) {
       if (!ports.length) return Promise.resolve({ ports: new Map(), close() {} })
-      // A tunnel belongs to one provider process and closes with it. ssh reports each host port at INFO level.
-      const child = spawn('ssh', [...base, '-o', 'LogLevel=INFO', '-S', 'none', '-N', '-o', 'ExitOnForwardFailure=yes', ...ports.flatMap(port => ['-R', `0:127.0.0.1:${port}`]), options.target], { stdio: ['ignore', 'ignore', 'pipe'] })
+      // A tunnel belongs to one provider process and closes with it. Each forward listens on the host's
+      // loopback only, whatever GatewayPorts says. ssh reports each host port at INFO level.
+      const child = spawn('ssh', [...base, '-o', 'LogLevel=INFO', '-S', 'none', '-N', '-o', 'ExitOnForwardFailure=yes', ...ports.flatMap(port => ['-R', `127.0.0.1:0:127.0.0.1:${port}`]), options.target], { stdio: ['ignore', 'ignore', 'pipe'] })
       return new Promise((resolve, reject) => {
         const mapped = new Map<number, number>()
         let stderr = ''
@@ -102,4 +103,36 @@ export async function must(transport: ScriptTransport, script: string, what: str
   const result = await runScript(transport, script, options)
   if (result.code !== 0) throw new Error(`[placement] ${what} failed (${result.code}): ${result.stderr.trim().slice(-2000)}`)
   return result
+}
+
+/**
+ * Runs `consume` with the stdout of a local producer, such as a `tar` that feeds an SSH upload. A
+ * producer blocks on a full pipe when the remote end stops reading, so a failed `consume` kills it,
+ * and the call fails when the producer fails or has not finished `drainMs` after `consume`.
+ */
+export async function withProducer<T>(command: string, args: readonly string[], options: { input?: string, drainMs?: number }, consume: (stdout: Readable) => Promise<T>): Promise<T> {
+  const child = spawn(command, args, { stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] }) as ChildProcessByStdio<Writable | null, Readable, Readable>
+  child.stdin?.on('error', () => {})
+  child.stdin?.end(options.input)
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-2000) })
+  const exited = new Promise<number>((resolve) => {
+    child.once('error', () => resolve(127))
+    // 'close' would also wait for stdout, which stays open while a failed upload leaves it paused.
+    child.once('exit', (code, signal) => resolve(code ?? 128 + (signal ? constants.signals[signal] ?? 1 : 1)))
+  })
+  try {
+    const result = await consume(child.stdout)
+    let timer: NodeJS.Timeout | undefined
+    const code = await Promise.race([exited, new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), options.drainMs ?? 30_000) })]).finally(() => clearTimeout(timer))
+    if (code === undefined) throw new Error(`[placement] ${command} did not finish after the upload ended.`)
+    if (code !== 0) throw new Error(`[placement] ${command} exited ${code}: ${stderr.trim()}`)
+    return result
+  }
+  catch (error) {
+    child.kill('SIGKILL')
+    child.stdout.destroy()
+    await exited
+    throw error
+  }
 }

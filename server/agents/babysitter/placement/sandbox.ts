@@ -12,7 +12,7 @@ import { dirname, isAbsolute, join, posix, relative } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import type { SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxProcess, SandboxRuntime, SandboxRuntimeInput, SandboxSession } from 'vite-hub/sandbox'
-import { exitCode, must, q, runScript, type ScriptTransport } from './ssh.ts'
+import { exitCode, must, q, runScript, withProducer, type ScriptTransport } from './ssh.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -45,28 +45,59 @@ export function loopbackPorts(values: readonly string[], always: readonly number
   return [...ports].toSorted((a, b) => a - b)
 }
 
-/**
- * Codex settings for remote passes: the host's top-level settings and model providers, with the
- * provider bearer read from `apiKeyName` instead of written to the remote disk.
- */
-export function remoteCodexConfig(source: string, apiKeyName = 'CLIPROXY_API_KEY') {
-  const kept: string[] = []
+/** The model provider that this host's Codex config selects, read from an allowlist of its settings. */
+export interface HostModelProvider {
+  id: string
+  baseUrl: string
+  /** The provider's key: the variable its `env_key` names, else its `experimental_bearer_token`. */
+  apiKey?: string
+  /** Allowlisted top-level and provider settings, as TOML lines. */
+  topLevel: string[]
+  settings: string[]
+}
+
+const topLevelKeys = new Set(['model', 'model_provider', 'model_reasoning_effort', 'model_reasoning_summary', 'model_verbosity', 'service_tier'])
+// Headers, query parameters and token settings can all carry credentials, so none of them travel.
+const providerKeys = new Set(['name', 'wire_api', 'requires_openai_auth', 'request_max_retries', 'stream_max_retries', 'stream_idle_timeout_ms'])
+const tomlString = (value: string) => {
+  const trimmed = value.trim()
+  if (trimmed.startsWith('"')) return JSON.parse(trimmed) as string
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) return trimmed.slice(1, -1)
+  return undefined
+}
+
+export function readHostModelProvider(source: string, environment: Readonly<Record<string, string | undefined>>): HostModelProvider | undefined {
+  const top = new Map<string, string>()
+  const sections = new Map<string, Map<string, string>>()
   let section: string | undefined
   for (const line of source.split('\n')) {
-    const header = /^\s*\[([^\]]+)\]\s*$/.exec(line)
-    if (header) {
-      section = header[1]
-      if (section!.startsWith('model_providers.')) kept.push('', line)
-      continue
-    }
-    if (section !== undefined && !section.startsWith('model_providers.')) continue
-    if (/^\s*experimental_bearer_token\s*=/.test(line)) {
-      kept.push(`env_key = "${apiKeyName}"`)
-      continue
-    }
-    if (line.trim()) kept.push(line)
+    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line)
+    if (header) { section = header[1]!.trim(); continue }
+    const entry = /^\s*([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/.exec(line)
+    if (!entry) continue
+    if (section === undefined) top.set(entry[1]!, entry[2]!)
+    else sections.set(section, (sections.get(section) ?? new Map()).set(entry[1]!, entry[2]!))
   }
-  const base = kept.join('\n')
+  const id = tomlString(top.get('model_provider') ?? '')
+  const provider = id && /^[A-Za-z0-9_-]+$/.test(id) ? sections.get(`model_providers.${id}`) : undefined
+  const baseUrl = provider && tomlString(provider.get('base_url') ?? '')
+  if (!id || !provider || !baseUrl) return undefined
+  const envKey = tomlString(provider.get('env_key') ?? '')
+  return {
+    id,
+    baseUrl,
+    apiKey: (envKey && environment[envKey]) || tomlString(provider.get('experimental_bearer_token') ?? ''),
+    topLevel: [...top].filter(([key]) => topLevelKeys.has(key)).map(([key, value]) => `${key} = ${value}`),
+    settings: [...provider].filter(([key]) => providerKeys.has(key)).map(([key, value]) => `${key} = ${value}`),
+  }
+}
+
+/**
+ * Codex settings for a remote pass: the selected provider at `baseUrl`, keyed by the variable `envKey`.
+ * Commands that Codex runs get that variable empty, the same as ViteHub's MCP bearer.
+ */
+export function remoteCodexConfig(provider: HostModelProvider, options: { baseUrl: string, envKey: string }) {
+  const base = [...provider.topLevel, '', `[model_providers.${provider.id}]`, ...provider.settings, `base_url = ${JSON.stringify(options.baseUrl)}`, `env_key = ${JSON.stringify(options.envKey)}`, '', '[shell_environment_policy.set]', `${options.envKey} = ""`].join('\n')
   return (workDirectory: string) => `${base}\n\n[projects.${JSON.stringify(workDirectory)}]\ntrust_level = "trusted"\n`
 }
 
@@ -144,6 +175,8 @@ export interface SshSandboxRuntimeOptions {
   forwardPorts?: readonly number[]
   /** Codex config written to the Box Home when the plan does not declare one. */
   codexConfig?: (workDirectory: string) => string
+  /** Rewrites the environment of every Box command, for example to swap a host secret for a lease token. */
+  environment?: (environment: Record<string, string>) => Record<string, string>
   /** Step timings, one structured event each. */
   log?: (event: string, fields: Record<string, unknown>) => void
   /** A Box is about to be created on the host. Every open gets its own Box id. */
@@ -225,7 +258,8 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
     npm_config_cache_dir: `${options.root}/pnpm-cache`,
   }
   for (const [name, resolve] of Object.entries(input.plan.env)) base[name] = await resolve()
-  const environment = (extra?: Readonly<Record<string, string>>) => ({
+  const rewrite = options.environment ?? (value => value)
+  const environment = (extra?: Readonly<Record<string, string>>) => rewrite({
     ...base,
     ...Object.fromEntries(Object.entries(extra ?? {}).filter(([name]) => !runtimeEnvironment.has(name))),
   })
@@ -250,11 +284,12 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
   const spawnProcess = async (command: string, args: readonly string[] = [], spawnOptions: SandboxExecOptions = {}): Promise<SandboxProcess> => {
     assertOpen()
     const name = `${run}/${randomUUID()}`
-    const ports = loopbackPorts([...args, ...Object.values(spawnOptions.env ?? {})], options.forwardPorts)
+    const processEnvironment = environment(spawnOptions.env)
+    const ports = loopbackPorts([...args, ...Object.values(processEnvironment)], options.forwardPorts)
     const tunnel = transport.tunnel ? await transport.tunnel(ports) : { ports: new Map<number, number>(), close() {} }
     let child: ChildProcessWithoutNullStreams
     try {
-      const values = Object.fromEntries(Object.entries(environment(spawnOptions.env)).map(([key, value]) => [key, remapLoopback(value, tunnel.ports)]))
+      const values = Object.fromEntries(Object.entries(processEnvironment).map(([key, value]) => [key, remapLoopback(value, tunnel.ports)]))
       // Codex reads its provider URL from config, so render it for this tunnel.
       if (generatedCodexConfig && options.codexConfig) await files.write(`${home}/.codex/config.toml`, Buffer.from(remapLoopback(options.codexConfig(work), tunnel.ports)), { signal: spawnOptions.signal })
       // Secrets travel in a private file, never on a command line.
@@ -356,8 +391,10 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
       })
       if (!created) return
       const incoming = `refs/fleet/incoming/${id}`
+      const bundleStream = createReadStream(bundle)
       // Every head the bundle lists lands under an incoming namespace, is recorded as known, then dropped.
-      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; m="$1"; f="$2"; i="$3"; git bundle list-heads "$f" | awk -v i="$i" "{ print \\"+\\" \\$2 \\":\\" i \\"/\\" NR }" > "$f.refspecs"; xargs git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" < "$f.refspecs"; rm -f "$f.refspecs"; git -C "$m" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$i/" | sort -u | git -C "$m" update-ref --stdin; git -C "$m" for-each-ref --format="delete %(refname)" "$i/" | git -C "$m" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: createReadStream(bundle), signal: abortSignal })
+      await shell(`f=${q(`${run}/sync.bundle`)} && cat > "$f" && flock ${q(lock)} sh -c 'set -e; m="$1"; f="$2"; i="$3"; git bundle list-heads "$f" | awk -v i="$i" "{ print \\"+\\" \\$2 \\":\\" i \\"/\\" NR }" > "$f.refspecs"; xargs git -C "$m" fetch -q --no-tags --no-write-fetch-head "$f" < "$f.refspecs"; rm -f "$f.refspecs"; git -C "$m" for-each-ref --format="update refs/fleet/known/%(objectname) %(objectname)" "$i/" | sort -u | git -C "$m" update-ref --stdin; git -C "$m" for-each-ref --format="delete %(refname)" "$i/" | git -C "$m" update-ref --stdin' sh ${q(mirror)} "$f" ${q(incoming)}; s=$?; rm -f "$f"; exit $s`, 'git object transfer', { input: bundleStream, signal: abortSignal })
+        .finally(() => bundleStream.destroy())
     }
     finally {
       await rm(scratch, { recursive: true, force: true })
@@ -413,9 +450,8 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
   /** Copy host-side files into the Box work tree as one tarball. */
   const uploadPaths = async (checkout: string, paths: readonly string[], abortSignal?: AbortSignal) => {
     if (!paths.length) return
-    const tar = spawn('tar', ['-C', checkout, '--null', '--no-recursion', '--ignore-failed-read', '-T', '-', '-czf', '-'], { stdio: ['pipe', 'pipe', 'ignore'] })
-    tar.stdin.end(paths.map(path => `${path}\0`).join(''))
-    await shell(`tar -C ${q(work)} --no-same-owner -xzf -`, 'manifest upload', { input: tar.stdout, signal: abortSignal })
+    await withProducer('tar', ['-C', checkout, '--null', '--no-recursion', '--ignore-failed-read', '-T', '-', '-czf', '-'], { input: paths.map(path => `${path}\0`).join('') },
+      stdout => shell(`tar -C ${q(work)} --no-same-owner -xzf -`, 'file upload', { input: stdout, signal: abortSignal }))
   }
 
   const session: SshSandboxSession & { materialize(input: SandboxRuntimeInput, abortSignal?: AbortSignal): Promise<void> } = {
@@ -441,8 +477,7 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
       // host-resolved conflict stages blobs that no commit reaches yet. The Box then writes the tree
       // from its index, so only the files that differ from the index cross the network: Slimbook's
       // uplink to ServaRICA moves about 0.5 MB/s, and a whole vite-hub tree took a minute.
-      const metadata = spawn('tar', ['-C', join(checkout, '.git'), '--exclude=./objects/pack', '-czf', '-', '.'], { stdio: ['ignore', 'pipe', 'ignore'] })
-      const unpacked = await shell(`mkdir -p ${q(`${work}/.git`)} && tar -C ${q(`${work}/.git`)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} checkout-index --all --force && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: metadata.stdout, signal: abortSignal })
+      const unpacked = await withProducer('tar', ['-C', join(checkout, '.git'), '--exclude=./objects/pack', '-czf', '-', '.'], {}, metadata => shell(`mkdir -p ${q(`${work}/.git`)} && tar -C ${q(`${work}/.git`)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} checkout-index --all --force && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: metadata, signal: abortSignal }))
       if (unpacked.stdout.toString().trim() !== head) throw new Error(`[placement] Box HEAD does not match the host checkout ${head}.`)
       const listed = async (args: string[]) => (await hostGit(checkout, [...args, '-z'])).toString('utf8').split('\0').filter(Boolean)
       // Unstaged edits, conflicted files with their markers and untracked files that are not ignored.
