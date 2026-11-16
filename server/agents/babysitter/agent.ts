@@ -3,8 +3,21 @@ import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 import { usePublicEnv } from 'vite-hub/env'
 import { babysitter } from 'vite-hub/presets/babysitter'
 import { babysitterConfig } from './config.ts'
+import { placementFromEnvironment } from './placement/index.ts'
 
 const config = babysitterConfig()
+// A vite-hub pass with its install and focused tests peaks around 2.5 GB.
+// Slimbook runs about 20 other agents, so host memory pressure idles at 2–3% and CPU near 10%. The
+// defaults (pause 5%/25%, resume 1%/10%) paused admission at that baseline and never resumed it.
+// A failed sample (the main thread stuck on disk) keeps two slots instead of one.
+const perPassBytes = 2.5 * 1024 ** 3
+const capacity = {
+  memory: { perInvocationBytes: perPassBytes, serviceReserveBytes: 2 * 1024 ** 3, pausePressure: 0.1, resumePressure: 0.05 },
+  cpu: { pausePressure: 0.5, resumePressure: 0.3 },
+  fallbackConcurrency: 2,
+}
+// With BABYSITTER_REMOTE_HOSTS (user@host:slots), passes that this host's memory cannot take run there.
+const placement = placementFromEnvironment({ capacity, concurrency: config.concurrency, perPassBytes })
 
 export default defineAgent({
   extends: babysitter,
@@ -19,15 +32,8 @@ export default defineAgent({
     },
     concurrency: config.concurrency,
     modelConcurrency: config.modelConcurrency,
-    // A vite-hub pass with its install and focused tests peaks around 2.5 GB.
-    // Slimbook runs about 20 other agents, so host memory pressure idles at 2–3% and CPU near 10%. The
-    // defaults (pause 5%/25%, resume 1%/10%) paused admission at that baseline and never resumed it.
-    // A failed sample (the main thread stuck on disk) keeps two slots instead of one.
-    capacity: {
-      memory: { perInvocationBytes: 2.5 * 1024 ** 3, serviceReserveBytes: 2 * 1024 ** 3, pausePressure: 0.1, resumePressure: 0.05 },
-      cpu: { pausePressure: 0.5, resumePressure: 0.3 },
-      fallbackConcurrency: 2,
-    },
+    capacity,
+    placement,
     admission: { inputTokens: config.inputTokens },
     warmWorkspaces: { resumeThreads: true },
     // Read CI evidence, but never ask GitHub Actions to rerun a failed run.
