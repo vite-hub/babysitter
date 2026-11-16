@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import test from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { admitWaitingRemote, leaseEnvironment } from '../server/agents/babysitter/placement/index.ts'
+import { leaseEnvironment } from '../server/agents/babysitter/placement/index.ts'
 import { startModelRelay } from '../server/agents/babysitter/placement/relay.ts'
 import { withProducer } from '../server/agents/babysitter/placement/ssh.ts'
 
@@ -42,15 +42,6 @@ test('the relay swaps a lease token for the real key and refuses it once revoked
 test('a remote environment carries the lease token and never the real key', () => {
   const remote = leaseEnvironment({ CLIPROXY_API_KEY: 'real-key', OTHER: 'Bearer real-key', OPENAI_BASE_URL: 'http://127.0.0.1:8317/v1', HOME: '/h' }, 'real-key', 'lease-token', 'http://127.0.0.1:4000/v1')
   assert.deepEqual(remote, { OPENAI_BASE_URL: 'http://127.0.0.1:4000/v1', HOME: '/h', VITEHUB_PLACEMENT_MODEL_TOKEN: 'lease-token' })
-})
-
-test('reserved remote passes are admitted when local memory admits nothing', () => {
-  // Local pressure paused admission: the built-in sample reports 0 with nothing running.
-  assert.equal(admitWaitingRemote({ concurrency: 0 }, { active: 0, concurrency: 8 }, 1).concurrency, 1)
-  // Four local passes fill memory and one remote pass waits.
-  assert.equal(admitWaitingRemote({ concurrency: 4 }, { active: 4, concurrency: 8 }, 1).concurrency, 5)
-  assert.equal(admitWaitingRemote({ concurrency: 6 }, { active: 4, concurrency: 8 }, 0).concurrency, 6)
-  assert.equal(admitWaitingRemote({ concurrency: 8 }, { active: 8, concurrency: 8 }, 2).concurrency, 8)
 })
 
 // The bracket keeps pgrep from matching its own shell, whose command line holds the pattern.

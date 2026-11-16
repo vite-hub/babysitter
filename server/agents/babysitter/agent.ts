@@ -32,7 +32,7 @@ export default defineAgent({
     },
     concurrency: config.concurrency,
     modelConcurrency: config.modelConcurrency,
-    capacity: placement?.capacity ?? capacity,
+    capacity,
     placement,
     admission: { inputTokens: config.inputTokens },
     warmWorkspaces: { resumeThreads: true },

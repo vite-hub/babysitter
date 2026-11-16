@@ -234,22 +234,7 @@ export interface EnvironmentPlacementOptions {
   log?(event: string, fields: Record<string, unknown>): void
 }
 
-export type EnvironmentPlacement = Placement & {
-  /**
-   * The preset's `capacity` with a sample that admits reserved remote passes on top of what local
-   * memory admits. The pinned preset counts a remote pass in its local worker queue, so without this a
-   * remote pass waits for local memory it never uses.
-   */
-  capacity: EnvironmentPlacementOptions['capacity']
-}
-
-/**
- * Reserved remote passes that have not opened their Box wait in the worker queue. Admit them on top
- * of what local memory admits, even while local pressure pauses new local work.
- */
-export function admitWaitingRemote(sample: { concurrency: number, reason?: string }, context: { active: number, concurrency: number }, waiting: number) {
-  return { ...sample, concurrency: Math.min(context.concurrency, Math.max(sample.concurrency, context.active) + Math.max(0, waiting)) }
-}
+export type EnvironmentPlacement = Placement
 
 /** Environment variable that carries a lease's relay token to the remote Codex. */
 const remoteTokenName = 'VITEHUB_PLACEMENT_MODEL_TOKEN'
@@ -306,9 +291,9 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
     hosts,
     log,
     async localSlots(active) {
-      // Remote passes count toward concurrency but hold no local memory.
-      const sample = await local.sample({ active: active.local + active.remote, concurrency: options.concurrency, pending: 0, signal: AbortSignal.timeout(5_000) })
-      return sample.concurrency - active.remote
+      // The sampler counts every active pass it is given as local; `remoteActive` holds the remote slots.
+      const sample = await local.sample({ active: active.local, concurrency: options.concurrency, pending: 0, signal: AbortSignal.timeout(5_000) })
+      return sample.concurrency
     },
     async probe(host, active) {
       const result = await runScript(transports.get(host.target)!, probeScript(remoteRoot, [...live]), { timeout: 60_000 })
@@ -334,17 +319,7 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
       return { runtime, release: lease.revoke }
     },
   })
-  // Stopgap until the pin includes vite-hub/vitehub#4568, which keeps placed passes out of the local
-  // worker queue. Drop this sample with that pin bump: it would then over-admit local passes.
-  // Opened Boxes are remote invocations that the queue already counts as active.
-  const worker = createProcessAgentCapacity({ ...options.capacity, concurrency: options.concurrency, remoteActive: () => live.size }).adaptive!
-  const capacity = {
-    ...options.capacity,
-    async sample(context: Parameters<typeof worker.sample>[0]) {
-      return admitWaitingRemote(await worker.sample(context), context, (policy.remoteActive?.() ?? 0) - live.size)
-    },
-  }
-  return Object.assign(policy, { capacity })
+  return policy
 }
 
 function positive(value: string | undefined, fallback: number) {
