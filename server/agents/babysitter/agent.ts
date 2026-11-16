@@ -46,6 +46,9 @@ export default defineAgent({
     dailyPassBudget: 16,
     // Add this label to a PR to have it claimed first (after main repairs) without the daily cap.
     priorityLabels: ['babysitter:priority'],
+    // Stacked PRs get their own passes in parallel with the parent, so a ready child folds into the
+    // parent's branch and the whole stack lands with one CI run of the root.
+    repairStackChildren: true,
     mainRepairBranchPrefix: 'babysitter/repair-main-',
     // PR checks run fast suites and main runs the full ones, so PRs that each pass can break main together.
     mainRepair: config.mainRepair,
