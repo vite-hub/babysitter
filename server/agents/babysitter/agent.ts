@@ -1,11 +1,11 @@
 import { defineAgent } from 'vite-hub/agent'
 import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
-import { usePublicEnv } from 'vite-hub/env'
+import { usePublicEnv, useServerEnv } from 'vite-hub/env'
 import { babysitter } from 'vite-hub/presets/babysitter'
 import { babysitterConfig } from './config.ts'
 import { placementFromEnvironment } from './placement/index.ts'
 
-const config = babysitterConfig()
+const config = babysitterConfig(useServerEnv().babysitter)
 // A vite-hub pass with its install and focused tests peaks around 2.5 GB.
 // Slimbook runs about 20 other agents, so host memory pressure idles at 2–3% and CPU near 10%. The
 // defaults (pause 5%/25%, resume 1%/10%) paused admission at that baseline and never resumed it.
