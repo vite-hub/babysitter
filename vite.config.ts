@@ -14,8 +14,7 @@ export default defineConfig({
       // An empty value (compose passes one when .env leaves it unset) means no public URL.
       publicUrl: process.env.BABYSITTER_PUBLIC_URL || undefined,
       agent: {
-        // Agent State lives under the working directory. The Console journal defaults to the build
-        // checkout, so a deployment sets VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to a path beside it.
+        // Agent State lives under the working directory, and the Console journal goes next to it.
         providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } },
         routes: {
           aliases: { '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' } },

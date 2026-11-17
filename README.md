@@ -46,7 +46,7 @@ Fork this repository and edit `instructions.md` for your reviewer. Then:
 
 Expose only `/api/webhooks/github` to the internet, through a reverse proxy or tunnel. To read the
 queue and sessions in the [ViteHub Console](https://vitehub.dev/docs/development/console), link the
-app there and set the `VITEHUB_CONSOLE_KEY_<NAME>` line it shows.
+app there and set the `VITEHUB_CONSOLE_KEY_CONSOLE_<ID>` line it shows.
 
 To restart without interrupting running passes, drain first:
 
@@ -64,9 +64,8 @@ live in drop-ins under `/etc/systemd/system/babysitter-vitehub.service.d/`. Depl
 the service and restarts it. Before you run it, check that no other deploy is draining
 (`pgrep -af '^bash scripts/deploy.sh'`).
 
-On any host, Agent State goes to `.vitehub/agent-state.db` under the working directory. Set
-`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` too, such as `file:/srv/babysitter/.vitehub/invocations.sqlite`:
-without it, the Console journal lands in the build checkout. Run one process per data directory.
+On any host, Agent State goes to `.vitehub/agent-state.db` under the working directory, and the
+Console journal goes next to it in `.vitehub/agent-invocations.sqlite`. Run one process per data directory.
 
 ## Run passes on another machine
 
@@ -98,9 +97,10 @@ the Workflow run event and Actions write access.
 
 ## ViteHub version
 
-`package.json` pins a `pkg.pr.new` build of ViteHub main, and the overrides in `pnpm-workspace.yaml`
-keep every `@vite-hub/*` package on that commit. To upgrade, pick a main commit whose `ci` and
-`pkg.pr.new` runs passed, replace the SHA in both files and run `pnpm install`.
+`package.json` pins a `pkg.pr.new` build of ViteHub main for `vite-hub` and every `@vite-hub/*`
+package that the app imports. To upgrade, pick a main commit whose `ci` and `pkg.pr.new` runs passed,
+replace the SHA in `package.json` and run `pnpm update vite-hub "@vite-hub/*"`. The build stops when
+two ViteHub packages come from different commits.
 
 Fix ViteHub bugs in ViteHub and upgrade to the commit that has the fix. Don't patch the installed
 packages here.

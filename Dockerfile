@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=1
 RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 # The build bakes in the release revision and the public URL.
@@ -28,7 +28,7 @@ RUN apt-get update \
   && install -d -o node -g node /data /data/home /data/codex /data/tmp
 COPY --from=build --chown=node:node /app/.output /app/.output
 USER node
-# Agent State lives in .vitehub under the working directory, so the process runs in /data.
+# Agent State and the Console journal live in .vitehub under the working directory, so the process runs in /data.
 WORKDIR /data
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
@@ -36,7 +36,6 @@ ENV NODE_ENV=production \
   HOME=/data/home \
   CODEX_HOME=/data/codex \
   TMPDIR=/data/tmp \
-  VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/data/.vitehub/agents/babysitter/invocations.sqlite \
   COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 VOLUME /data
 EXPOSE 3000
