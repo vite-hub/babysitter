@@ -3,8 +3,19 @@
 
 type Env = Record<string, string | undefined>
 
-function list(raw: string | undefined): string[] {
-  return (raw ?? '').split(/[,\s]+/).filter(Boolean)
+/**
+ * The lists and the JSON map, parsed by the `env.server.babysitter` declarations in vite.config.ts from
+ * BABYSITTER_REPOS, BABYSITTER_MAINTAINERS and the other variables of the same names.
+ */
+export interface BabysitterLists {
+  repos: readonly string[]
+  maintainers: readonly string[]
+  contributors: readonly string[]
+  botAuthors: readonly string[]
+  reviewChecks: readonly string[]
+  mainRepairRepos: readonly string[]
+  mainRepairWorkflows: readonly string[]
+  bypassInheritedChecks: unknown
 }
 
 function count(env: Env, name: string) {
@@ -15,13 +26,13 @@ function count(env: Env, name: string) {
   return value
 }
 
-export function babysitterConfig(env: Env = process.env) {
-  const maintainers = list(env.BABYSITTER_MAINTAINERS)
-  const contributors = list(env.BABYSITTER_CONTRIBUTORS)
+export function babysitterConfig(lists: BabysitterLists, env: Env = process.env) {
+  const maintainers = [...lists.maintainers]
+  const contributors = [...lists.contributors]
   // The preset matches a bot in either spelling, `renovate` or `renovate[bot]`.
-  const bots = list(env.BABYSITTER_BOT_AUTHORS).length ? list(env.BABYSITTER_BOT_AUTHORS) : ['renovate', 'dependabot']
+  const bots = [...lists.botAuthors]
   return {
-    repositories: list(env.BABYSITTER_REPOS),
+    repositories: [...lists.repos],
     maintainers,
     contributors,
     // The merge gate trusts these bot accounts. It matches a bot only in its `[bot]` spelling.
@@ -32,13 +43,13 @@ export function babysitterConfig(env: Env = process.env) {
     authorFilter: maintainers.length
       ? { author: { allow: [...maintainers, ...contributors, ...bots] } }
       : { authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] } },
-    reviewChecks: list(env.BABYSITTER_REVIEW_CHECKS),
+    reviewChecks: [...lists.reviewChecks],
     // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail the
     // same way on the base branch.
-    bypassInheritedChecks: JSON.parse(env.BABYSITTER_BYPASS_INHERITED_CHECKS || '{}') as Record<string, string[]>,
+    bypassInheritedChecks: lists.bypassInheritedChecks as Record<string, string[]>,
     // Repositories whose default branch gets a repair PR when one of the workflows fails on it.
-    mainRepair: list(env.BABYSITTER_MAIN_REPAIR_REPOS).length
-      ? { repositories: list(env.BABYSITTER_MAIN_REPAIR_REPOS), workflows: list(env.BABYSITTER_MAIN_REPAIR_WORKFLOWS).length ? list(env.BABYSITTER_MAIN_REPAIR_WORKFLOWS) : ['ci'] }
+    mainRepair: lists.mainRepairRepos.length
+      ? { repositories: [...lists.mainRepairRepos], workflows: [...lists.mainRepairWorkflows] }
       : false as const,
     concurrency: count(env, 'BABYSITTER_MAX_OWNERS') ?? 16,
     modelConcurrency: count(env, 'BABYSITTER_MODEL_CONCURRENCY'),
