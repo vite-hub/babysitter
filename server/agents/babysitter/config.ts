@@ -58,7 +58,7 @@ export function babysitterConfig(lists: BabysitterLists, env: Env = process.env)
       daily: count(env, 'BABYSITTER_DAILY_INPUT_TOKENS'),
     },
     // Medium since 2026-11-12: xhigh spent the shared Codex quota in a day. CI verifies the repairs.
-    model: env.BABYSITTER_MODEL || 'gpt-6.1-sol',
-    reasoningEffort: env.BABYSITTER_REASONING_EFFORT || 'medium',
+    model: env.BABYSITTER_MODEL || 'gpt-6.2-sol',
+    reasoningEffort: env.BABYSITTER_REASONING_EFFORT || 'high',
   }
 }
