@@ -10,6 +10,22 @@ export default defineConfig({
       env: {
         // A Docker build has no .git, so the image passes the revision in GIT_SHA, which gitCommit() reads first.
         public: { releaseRevision: env({ mode: 'build', source: env.gitCommit() }) },
+        // Each value reads BABYSITTER_<NAME>, such as BABYSITTER_REPOS. A list takes commas or line breaks.
+        server: {
+          babysitter: {
+            repos: env.list({ default: [] }),
+            maintainers: env.list({ default: [] }),
+            contributors: env.list({ default: [] }),
+            // The preset matches a bot in either spelling, `renovate` or `renovate[bot]`.
+            botAuthors: env.list({ default: ['renovate', 'dependabot'] }),
+            reviewChecks: env.list({ default: [] }),
+            mainRepairRepos: env.list({ default: [] }),
+            mainRepairWorkflows: env.list({ default: ['ci'] }),
+            // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail
+            // the same way on the base branch.
+            bypassInheritedChecks: env.json({ default: {} }),
+          },
+        },
       },
       // An empty value (compose passes one when .env leaves it unset) means no public URL.
       publicUrl: process.env.BABYSITTER_PUBLIC_URL || undefined,
