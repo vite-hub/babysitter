@@ -42,6 +42,6 @@ VOLUME /data
 EXPOSE 3000
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:$PORT/api/_vitehub/host/health" >/dev/null || exit 1
+  CMD curl -fsS "http://127.0.0.1:$PORT/_vitehub/host/health" >/dev/null || exit 1
 ENTRYPOINT ["tini", "--"]
 CMD ["sh", "-c", "mkdir -p \"$HOME\" \"$CODEX_HOME\" \"$TMPDIR\" && exec node /app/.output/server/index.mjs"]
