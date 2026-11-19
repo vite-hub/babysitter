@@ -34,7 +34,11 @@ export default defineConfig({
         // checkout, so a deployment sets VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to a path beside it.
         providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } },
         routes: {
-          aliases: { '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' } },
+          // The GitHub App still posts to the path ViteHub served before vitehub#4923 moved it to /_vitehub.
+          aliases: {
+            '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' },
+            '/api/_vitehub/agents/babysitter/webhooks/github': { agent: 'babysitter', webhook: 'github' },
+          },
         },
       },
       observability: {
