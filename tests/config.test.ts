@@ -13,6 +13,7 @@ function lists(values: Partial<BabysitterLists> = {}): BabysitterLists {
     mainRepairRepos: [],
     mainRepairWorkflows: ['ci'],
     bypassInheritedChecks: {},
+    forkHeadBranches: {},
     ...values,
   }
 }
@@ -53,6 +54,12 @@ test('the merge gate trusts bots in their [bot] spelling', () => {
 test('inherited checks to merge past are a JSON map of repository to check names', () => {
   const config = babysitterConfig(lists({ bypassInheritedChecks: { 'vite-hub/vitehub': ['ci', 'publish preview packages'] } }), {})
   assert.deepEqual(config.bypassInheritedChecks, { 'vite-hub/vitehub': ['ci', 'publish preview packages'] })
+})
+
+test('fork head branches are a JSON map of repository to branch', () => {
+  assert.deepEqual(babysitterConfig(lists(), {}).forkHeadBranches, {})
+  const config = babysitterConfig(lists({ forkHeadBranches: { 'vite-hub/vitehub': 'preview/pr-{number}' } }), {})
+  assert.deepEqual(config.forkHeadBranches, { 'vite-hub/vitehub': 'preview/pr-{number}' })
 })
 
 test('counts must be non-negative integers', () => {

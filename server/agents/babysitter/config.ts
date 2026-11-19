@@ -16,6 +16,7 @@ export interface BabysitterLists {
   mainRepairRepos: readonly string[]
   mainRepairWorkflows: readonly string[]
   bypassInheritedChecks: unknown
+  forkHeadBranches: unknown
 }
 
 function count(env: Env, name: string) {
@@ -47,6 +48,9 @@ export function babysitterConfig(lists: BabysitterLists, env: Env = process.env)
     // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail the
     // same way on the base branch.
     bypassInheritedChecks: lists.bypassInheritedChecks as Record<string, string[]>,
+    // JSON, such as {"acme/app":"preview/pr-{number}"}: where an approved fork head goes when a required
+    // check runs only on pushes to the repository. The preset validates it.
+    forkHeadBranches: lists.forkHeadBranches as Record<string, string>,
     // Repositories whose default branch gets a repair PR when one of the workflows fails on it.
     mainRepair: lists.mainRepairRepos.length
       ? { repositories: [...lists.mainRepairRepos], workflows: [...lists.mainRepairWorkflows] }

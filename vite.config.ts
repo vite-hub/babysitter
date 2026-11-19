@@ -24,6 +24,9 @@ export default defineConfig({
             // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail
             // the same way on the base branch.
             bypassInheritedChecks: env.json({ default: {} }),
+            // JSON, such as {"acme/app":"preview/pr-{number}"}: the branch that gets an approved fork head
+            // when a required check, like pkg.pr.new, runs only on pushes to the repository.
+            forkHeadBranches: env.json({ default: {} }),
           },
         },
       },
