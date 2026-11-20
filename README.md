@@ -41,7 +41,7 @@ Fork this repository and edit `instructions.md` for your reviewer. Then:
    ```sh
    docker compose up -d --build
    docker compose exec babysitter codex login --device-auth
-   curl -fsS localhost:3000/api/_vitehub/host/health
+   curl -fsS localhost:3000/_vitehub/host/health
    ```
 
 Expose only `/api/webhooks/github` to the internet, through a reverse proxy or tunnel. To read the
@@ -52,7 +52,7 @@ To restart without interrupting running passes, drain first:
 
 ```sh
 docker compose kill -s SIGUSR2 babysitter
-until curl -s localhost:3000/api/_vitehub/host/drain | grep -q drained; do sleep 10; done
+until curl -s localhost:3000/_vitehub/host/drain | grep -q drained; do sleep 10; done
 docker compose up -d --build --force-recreate
 ```
 
@@ -64,8 +64,9 @@ live in drop-ins under `/etc/systemd/system/babysitter-vitehub.service.d/`. Depl
 the service and restarts it. Before you run it, check that no other deploy is draining
 (`pgrep -af '^bash scripts/deploy.sh'`).
 
-On any host, Agent State goes to `.vitehub/agent-state.db` under the working directory, and the
-Console journal goes next to it in `.vitehub/agent-invocations.sqlite`. Run one process per data directory.
+On any host, Agent State goes to `.vitehub/agent-state.db` under the working directory. Set
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` too, such as `file:/srv/babysitter/.vitehub/invocations.sqlite`:
+without it, the Console journal lands in the build checkout. Run one process per data directory.
 
 ## Run passes on another machine
 

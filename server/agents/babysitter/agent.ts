@@ -65,6 +65,7 @@ export default defineAgent({
       trustedAuthors: config.botAuthors,
       markDraftsReady: config.trustedAuthors,
       bypassInheritedChecks: config.bypassInheritedChecks,
+      forkHeadBranches: config.forkHeadBranches,
     },
   },
   capabilities: [diagnostics({ resources: nodeRuntimeResources() })],

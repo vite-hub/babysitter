@@ -13,6 +13,7 @@ function lists(values: Partial<BabysitterLists> = {}): BabysitterLists {
     mainRepairRepos: [],
     mainRepairWorkflows: ['ci'],
     bypassInheritedChecks: {},
+    forkHeadBranches: {},
     ...values,
   }
 }
@@ -27,8 +28,8 @@ test('an empty environment names no organization', () => {
   assert.deepEqual(config.bypassInheritedChecks, {})
   assert.equal(config.mainRepair, false)
   assert.deepEqual(config.authorFilter, { authorAssociation: { allow: ['OWNER', 'MEMBER', 'COLLABORATOR'] } })
-  assert.equal(config.model, 'gpt-6.1-sol')
-  assert.equal(config.reasoningEffort, 'medium')
+  assert.equal(config.model, 'gpt-6.2-sol')
+  assert.equal(config.reasoningEffort, 'high')
   assert.equal(config.concurrency, 16)
   assert.equal(config.modelConcurrency, undefined)
   assert.deepEqual(config.inputTokens, { hourly: undefined, daily: undefined })
@@ -53,6 +54,12 @@ test('the merge gate trusts bots in their [bot] spelling', () => {
 test('inherited checks to merge past are a JSON map of repository to check names', () => {
   const config = babysitterConfig(lists({ bypassInheritedChecks: { 'vite-hub/vitehub': ['ci', 'publish preview packages'] } }), {})
   assert.deepEqual(config.bypassInheritedChecks, { 'vite-hub/vitehub': ['ci', 'publish preview packages'] })
+})
+
+test('fork head branches are a JSON map of repository to branch', () => {
+  assert.deepEqual(babysitterConfig(lists(), {}).forkHeadBranches, {})
+  const config = babysitterConfig(lists({ forkHeadBranches: { 'vite-hub/vitehub': 'preview/pr-{number}' } }), {})
+  assert.deepEqual(config.forkHeadBranches, { 'vite-hub/vitehub': 'preview/pr-{number}' })
 })
 
 test('counts must be non-negative integers', () => {

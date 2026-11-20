@@ -28,7 +28,7 @@ RUN apt-get update \
   && install -d -o node -g node /data /data/home /data/codex /data/tmp
 COPY --from=build --chown=node:node /app/.output /app/.output
 USER node
-# Agent State and the Console journal live in .vitehub under the working directory, so the process runs in /data.
+# Agent State lives in .vitehub under the working directory, so the process runs in /data.
 WORKDIR /data
 ENV NODE_ENV=production \
   HOST=0.0.0.0 \
@@ -36,11 +36,12 @@ ENV NODE_ENV=production \
   HOME=/data/home \
   CODEX_HOME=/data/codex \
   TMPDIR=/data/tmp \
+  VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/data/.vitehub/agents/babysitter/invocations.sqlite \
   COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 VOLUME /data
 EXPOSE 3000
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:$PORT/api/_vitehub/host/health" >/dev/null || exit 1
+  CMD curl -fsS "http://127.0.0.1:$PORT/_vitehub/host/health" >/dev/null || exit 1
 ENTRYPOINT ["tini", "--"]
 CMD ["sh", "-c", "mkdir -p \"$HOME\" \"$CODEX_HOME\" \"$TMPDIR\" && exec node /app/.output/server/index.mjs"]

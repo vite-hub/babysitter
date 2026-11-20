@@ -24,16 +24,24 @@ export default defineConfig({
             // JSON, such as {"acme/app":["ci"]}: required checks the host may merge past when they fail
             // the same way on the base branch.
             bypassInheritedChecks: env.json({ default: {} }),
+            // JSON, such as {"acme/app":"preview/pr-{number}"}: the branch that gets an approved fork head
+            // when a required check, like pkg.pr.new, runs only on pushes to the repository.
+            forkHeadBranches: env.json({ default: {} }),
           },
         },
       },
       // An empty value (compose passes one when .env leaves it unset) means no public URL.
       publicUrl: process.env.BABYSITTER_PUBLIC_URL || undefined,
       agent: {
-        // Agent State lives under the working directory, and the Console journal goes next to it.
+        // Agent State lives under the working directory. The Console journal defaults to the build
+        // checkout, so a deployment sets VITEHUB_AGENT_INVOCATIONS_DATABASE_URL to a path beside it.
         providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } },
         routes: {
-          aliases: { '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' } },
+          // The GitHub App still posts to the path ViteHub served before vitehub#4923 moved it to /_vitehub.
+          aliases: {
+            '/api/webhooks/github': { agent: 'babysitter', webhook: 'github' },
+            '/api/_vitehub/agents/babysitter/webhooks/github': { agent: 'babysitter', webhook: 'github' },
+          },
         },
       },
       observability: {
