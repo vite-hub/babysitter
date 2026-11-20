@@ -110,8 +110,11 @@ export class PlacementWorkspaceError extends Error {
 
 export const isPlacementWorkspaceError = (error: unknown): error is PlacementWorkspaceError => error instanceof Error && error.name === 'PlacementWorkspaceError'
 
-/** Exit status of Box-side steps that fail on the checkout's data, as opposed to the host or SSH. */
+/** Exit status of the Box-side object restore and checkout steps. */
 const workspaceExit = 70
+/** What those steps print when the checkout names an object the Box lacks, as opposed to a full or broken disk. */
+const missingObject = /^(?:error|fatal): (?:unable to read sha1 file of |bad object |invalid object |missing (?:blob|tree) object )/m
+const diskFailure = /: (?:No space left on device|Read-only file system|Input\/output error|Disk quota exceeded)$/im
 
 async function hostGit(checkout: string, args: string[], input?: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GH_|GITHUB_|GIT_)/i.test(key)))
@@ -122,7 +125,6 @@ async function hostGit(checkout: string, args: string[], input?: string) {
   return (await child).stdout
 }
 
-/** Host checkout paths a dependency install reads: manifests, lockfiles and pnpm patches. */
 async function presentPseudoHeads(checkout: string) {
   const heads: string[] = []
   for (const head of pseudoHeads) if (await lstat(join(checkout, '.git', head)).then(() => true, () => false)) heads.push(head)
@@ -153,6 +155,7 @@ async function indexOnlyObjects(checkout: string, heads: readonly string[]) {
   return [...staged]
 }
 
+/** Host checkout paths a dependency install reads: manifests, lockfiles and pnpm patches. */
 async function dependencyInputs(checkout: string) {
   const paths = (await hostGit(checkout, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).toString('utf8').split('\0')
   return [...new Set(paths.filter(path => path && (manifestNames.has(posix.basename(path)) || path.startsWith('patches/'))))].toSorted()
@@ -259,8 +262,7 @@ export function createSshSandboxRuntime(options: SshSandboxRuntimeOptions): Sand
       }
       catch (error) {
         await session.close().catch(() => undefined)
-        // A checkout the Box cannot reproduce is that pass's problem; the caller decides where it runs next.
-      if (!openOptions.signal?.aborted) options.onOpenFailure?.(error)
+        if (!openOptions.signal?.aborted) options.onOpenFailure?.(error)
         throw error
       }
     },
@@ -532,7 +534,7 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
       finally {
         await rm(scratch, { recursive: true, force: true })
       }
-      if (unpacked.code === workspaceExit) throw new PlacementWorkspaceError(`[placement] workspace upload failed: ${unpacked.stderr.trim().slice(-2000)}`)
+      if (unpacked.code === workspaceExit && missingObject.test(unpacked.stderr) && !diskFailure.test(unpacked.stderr)) throw new PlacementWorkspaceError(`[placement] workspace upload failed: ${unpacked.stderr.trim().slice(-2000)}`)
       if (unpacked.code !== 0) throw new Error(`[placement] workspace upload failed (${unpacked.code}): ${unpacked.stderr.trim().slice(-2000)}`)
       if (unpacked.stdout.toString().trim() !== head) throw new PlacementWorkspaceError(`[placement] Box HEAD does not match the host checkout ${head}.`)
       const listed = async (args: string[]) => (await hostGit(checkout, [...args, '-z'])).toString('utf8').split('\0').filter(Boolean)
