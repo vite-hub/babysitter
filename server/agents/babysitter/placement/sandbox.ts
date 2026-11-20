@@ -6,13 +6,13 @@
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, posix, relative } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { promisify } from 'node:util'
 import type { SandboxExecOptions, SandboxExecResult, SandboxFileEntry, SandboxProcess, SandboxRuntime, SandboxRuntimeInput, SandboxSession } from 'vite-hub/sandbox'
-import { exitCode, must, q, runScript, withProducer, type ScriptTransport } from './ssh.ts'
+import { exitCode, must, q, runScript, withProducer, type RunResult, type ScriptTransport } from './ssh.ts'
 import { parse, stringify, type TomlPrimitive } from 'smol-toml'
 
 const execFileAsync = promisify(execFile)
@@ -100,6 +100,19 @@ const manifestNames = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace
 /** In-progress operation heads that no ref reaches, such as the base of a prepared merge. */
 const pseudoHeads = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD']
 
+/**
+ * The host checkout could not be reproduced in a Box, for example because its index names an object
+ * that never reached the Box. The placement host itself is fine, so it stays in rotation.
+ */
+export class PlacementWorkspaceError extends Error {
+  override name = 'PlacementWorkspaceError'
+}
+
+export const isPlacementWorkspaceError = (error: unknown): error is PlacementWorkspaceError => error instanceof Error && error.name === 'PlacementWorkspaceError'
+
+/** Exit status of Box-side steps that fail on the checkout's data, as opposed to the host or SSH. */
+const workspaceExit = 70
+
 async function hostGit(checkout: string, args: string[], input?: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GH_|GITHUB_|GIT_)/i.test(key)))
   // Messages such as the empty-bundle refusal are matched in English.
@@ -110,6 +123,36 @@ async function hostGit(checkout: string, args: string[], input?: string) {
 }
 
 /** Host checkout paths a dependency install reads: manifests, lockfiles and pnpm patches. */
+async function presentPseudoHeads(checkout: string) {
+  const heads: string[] = []
+  for (const head of pseudoHeads) if (await lstat(join(checkout, '.git', head)).then(() => true, () => false)) heads.push(head)
+  return heads
+}
+
+/**
+ * Objects the index names that no tree of HEAD or of an in-progress operation head holds: blobs that
+ * a merge wrote for cleanly merged files, staged host resolutions and virtual merge bases. No ref
+ * reaches them, so the mirror never gets them. Git also writes no loose copy of an object that a
+ * pack already holds, as when gc moved the same merge from an earlier pass into a cruft pack, so
+ * the loose objects in the metadata tarball can miss them too.
+ */
+async function indexOnlyObjects(checkout: string, heads: readonly string[]) {
+  const committed = new Set<string>()
+  for (const tip of ['HEAD', ...heads]) {
+    for (const entry of (await hostGit(checkout, ['ls-tree', '-r', '-z', '--full-tree', tip])).toString('utf8').split('\0')) {
+      const objectName = /^\d+ \w+ ([0-9a-f]+)\t/.exec(entry)?.[1]
+      if (objectName) committed.add(objectName)
+    }
+  }
+  const staged = new Set<string>()
+  for (const entry of (await hostGit(checkout, ['ls-files', '--stage', '-z'])).toString('utf8').split('\0')) {
+    // Gitlinks name commits of other repositories.
+    const match = /^(\d+) ([0-9a-f]+) \d\t/.exec(entry)
+    if (match && match[1] !== '160000' && !committed.has(match[2]!)) staged.add(match[2]!)
+  }
+  return [...staged]
+}
+
 async function dependencyInputs(checkout: string) {
   const paths = (await hostGit(checkout, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).toString('utf8').split('\0')
   return [...new Set(paths.filter(path => path && (manifestNames.has(posix.basename(path)) || path.startsWith('patches/'))))].toSorted()
@@ -216,7 +259,8 @@ export function createSshSandboxRuntime(options: SshSandboxRuntimeOptions): Sand
       }
       catch (error) {
         await session.close().catch(() => undefined)
-        if (!openOptions.signal?.aborted) options.onOpenFailure?.(error)
+        // A checkout the Box cannot reproduce is that pass's problem; the caller decides where it runs next.
+      if (!openOptions.signal?.aborted) options.onOpenFailure?.(error)
         throw error
       }
     },
@@ -366,15 +410,14 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
     const present = tips.length
       ? (await hostGit(checkout, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], `${tips.join('\n')}\n`)).toString('utf8').split('\n').filter(line => / (?:commit|tag)$/.test(line)).map(line => line.split(' ')[0]!)
       : []
-    const heads: string[] = []
-    for (const head of pseudoHeads) if (await lstat(join(checkout, '.git', head)).then(() => true, () => false)) heads.push(head)
+    const heads = await presentPseudoHeads(checkout)
     const scratch = await mkdtemp(join(tmpdir(), 'vitehub-placement-bundle-'))
     try {
       const bundle = join(scratch, 'sync.bundle')
       const exclusions = present.map(sha => `^${sha}\n`).join('')
       const create = (refs: string[]) => hostGit(checkout, ['bundle', 'create', '-q', bundle, 'HEAD', ...heads, ...refs, '--stdin'], exclusions).then(() => true, (error: { stderr?: Buffer }) => {
         if (String(error.stderr ?? '').includes('empty bundle')) return false
-        throw new Error(`[placement] git bundle failed: ${String(error.stderr ?? error)}`)
+        throw new PlacementWorkspaceError(`[placement] git bundle failed: ${String(error.stderr ?? error)}`)
       })
       // Every ref, so the pass can diff against any branch. A ref with missing objects fails the whole
       // bundle; then the pass gets its head, its local branches and the default branch.
@@ -468,12 +511,30 @@ async function createSession(input: SandboxRuntimeInput, options: SshSandboxRunt
       await syncObjects(checkout, abortSignal)
       step('mirror')
       const head = (await hostGit(checkout, ['rev-parse', 'HEAD'])).toString().trim()
-      // Git metadata without packed objects: the mirror provides those. Loose objects travel, because a
-      // host-resolved conflict stages blobs that no commit reaches yet. The Box then writes the tree
-      // from its index, so only the files that differ from the index cross the network: Slimbook's
-      // uplink to ServaRICA moves about 0.5 MB/s, and a whole vite-hub tree took a minute.
-      const unpacked = await withProducer('tar', ['-C', join(checkout, '.git'), '--exclude=./objects/pack', '-czf', '-', '.'], {}, metadata => shell(`mkdir -p ${q(`${work}/.git`)} && tar -C ${q(`${work}/.git`)} --no-same-owner -xzf - && mkdir -p ${q(`${work}/.git/objects/info`)} ${q(`${work}/.git/objects/pack`)} && printf '%s\\n' ${q(`${mirror}/objects`)} > ${q(`${work}/.git/objects/info/alternates`)} && git -C ${q(work)} checkout-index --all --force && git -C ${q(work)} rev-parse HEAD`, 'workspace upload', { input: metadata, signal: abortSignal }))
-      if (unpacked.stdout.toString().trim() !== head) throw new Error(`[placement] Box HEAD does not match the host checkout ${head}.`)
+      // Git metadata without packed objects: the mirror provides those. Loose objects travel, and so does a
+      // pack of the index objects that no commit in the mirror holds (see indexOnlyObjects). The Box then
+      // writes the tree from its index, so only the files that differ from the index cross the network:
+      // Slimbook's uplink to ServaRICA moves about 0.5 MB/s, and a whole vite-hub tree took a minute.
+      const scratch = await mkdtemp(join(tmpdir(), 'vitehub-placement-index-'))
+      let unpacked: RunResult
+      try {
+        const extra = await indexOnlyObjects(checkout, await presentPseudoHeads(checkout))
+        const pack = 'vitehub-index-objects.pack'
+        const members = ['-C', join(checkout, '.git'), '.']
+        if (extra.length) {
+          await writeFile(join(scratch, pack), await hostGit(checkout, ['pack-objects', '--stdout', '-q'], `${extra.join('\n')}\n`))
+          members.push('-C', scratch, pack)
+        }
+        const box = q(work)
+        const restore = `{ ! test -f ${box}/.git/${pack} || { git -C ${box} index-pack --stdin < ${box}/.git/${pack} >/dev/null && rm -f ${box}/.git/${pack}; } || exit ${workspaceExit}; } && { git -C ${box} checkout-index --all --force || exit ${workspaceExit}; }`
+        unpacked = await withProducer('tar', ['--exclude=./objects/pack', '-czf', '-', ...members], {}, metadata => runScript(transport, `mkdir -p ${box}/.git && tar -C ${box}/.git --no-same-owner -xzf - && mkdir -p ${box}/.git/objects/info ${box}/.git/objects/pack && printf '%s\\n' ${q(`${mirror}/objects`)} > ${box}/.git/objects/info/alternates && ${restore} && git -C ${box} rev-parse HEAD`, { input: metadata, signal: abortSignal }))
+      }
+      finally {
+        await rm(scratch, { recursive: true, force: true })
+      }
+      if (unpacked.code === workspaceExit) throw new PlacementWorkspaceError(`[placement] workspace upload failed: ${unpacked.stderr.trim().slice(-2000)}`)
+      if (unpacked.code !== 0) throw new Error(`[placement] workspace upload failed (${unpacked.code}): ${unpacked.stderr.trim().slice(-2000)}`)
+      if (unpacked.stdout.toString().trim() !== head) throw new PlacementWorkspaceError(`[placement] Box HEAD does not match the host checkout ${head}.`)
       const listed = async (args: string[]) => (await hostGit(checkout, [...args, '-z'])).toString('utf8').split('\0').filter(Boolean)
       // Unstaged edits, conflicted files with their markers and untracked files that are not ignored.
       const changed = new Set([...await listed(['ls-files', '--modified', '--others', '--exclude-standard']), ...await listed(['diff', '--name-only', '--diff-filter=U'])])

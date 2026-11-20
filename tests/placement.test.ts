@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SandboxRuntime } from 'vite-hub/sandbox'
 import { createPlacementPolicy, parseRemoteHosts, readProbe, type HostHealth, type PlacementPolicyOptions, type RemoteHost } from '../server/agents/babysitter/placement/index.ts'
+import { PlacementWorkspaceError } from '../server/agents/babysitter/placement/sandbox.ts'
 
 const GiB = 1024 ** 3
 const runtime = { name: 'fixture', prepare: async () => { throw new Error('unused') }, open: async () => { throw new Error('unused') } } as unknown as SandboxRuntime
@@ -31,8 +32,8 @@ test('passes fill this host first, then the remote host up to its slots', async 
   assert.deepEqual(probes, [])
   const second = await placement.place({ repository: 'o/r', number: 2 })
   const third = await placement.place({ repository: 'o/r', number: 3 })
-  assert.equal(second.sandbox?.runtime, runtime)
-  assert.equal(third.sandbox?.runtime, runtime)
+  assert.equal(second.sandbox?.runtime.name, runtime.name)
+  assert.equal(third.sandbox?.runtime.name, runtime.name)
   assert.deepEqual(probes, ['svc@remote', 'svc@remote'])
   assert.equal(placement.remoteActive?.(), 2)
   assert.deepEqual(placement.status().hosts[0]!.active, 2)
@@ -103,6 +104,33 @@ test('a Sandbox that fails to open keeps new passes off the host for the cooldow
   await assert.rejects(placement.place({ repository: 'o/r', number: 2 }), { name: 'BabysitterPlacementCapacityError' })
   advance(60_000)
   assert.ok((await placement.place({ repository: 'o/r', number: 3 })).sandbox)
+})
+
+test('a Box that cannot reproduce one checkout fails only that pass, which waits for this host', async () => {
+  let local = 0
+  const failing = (error: Error) => (_host: RemoteHost, _health: HostHealth, hooks: { onOpenFailure(error: unknown): void }) => ({
+    // As the SSH runtime does: report the failure, then throw it.
+    runtime: { ...runtime, open: async () => { hooks.onOpenFailure(error); throw error } } as SandboxRuntime,
+  })
+  const workspace = new PlacementWorkspaceError('[placement] workspace upload failed: error: unable to read sha1 file of packages/auth/src/vue.ts')
+  const { placement, advance } = policy({ localSlots: () => local, failureCooldownMs: 60_000, localOnlyMs: 600_000, runtime: failing(workspace) })
+  const lease = await placement.place({ repository: 'o/r', number: 4064 })
+  await assert.rejects(lease.sandbox!.runtime.open({} as never, {} as never), (error: Error) => {
+    // The preset makes a capacity error wait, without a failure or a no-progress strike.
+    assert.equal(error.name, 'BabysitterPlacementCapacityError')
+    assert.match(String((error as { why?: string }).why ?? error.message), /unable to read sha1 file/)
+    return true
+  })
+  lease.release()
+  // The host stays in rotation for other pull requests.
+  assert.ok((await placement.place({ repository: 'o/r', number: 1 })).sandbox)
+  // The failed pull request waits for a local slot, then runs here.
+  await assert.rejects(placement.place({ repository: 'o/r', number: 4064 }), { name: 'BabysitterPlacementCapacityError' })
+  local = 1
+  assert.equal((await placement.place({ repository: 'o/r', number: 4064 })).sandbox, undefined)
+  local = 0
+  advance(600_000)
+  assert.ok((await placement.place({ repository: 'o/r', number: 4064 })).sandbox)
 })
 
 test('admitted counts local and remote slots and reuses a fresh probe', async () => {
