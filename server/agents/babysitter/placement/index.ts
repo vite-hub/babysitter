@@ -8,7 +8,7 @@ import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from 'vi
 import { BabysitterPlacementCapacityError, type BabysitterPlacement, type BabysitterPlacementLease } from 'vite-hub/presets/babysitter'
 import type { SandboxRuntime } from 'vite-hub/sandbox'
 import { startModelRelay } from './relay.ts'
-import { createSshSandboxRuntime, readHostModelProvider, remoteCodexConfig } from './sandbox.ts'
+import { createSshSandboxRuntime, isPlacementWorkspaceError, readHostModelProvider, remoteCodexConfig } from './sandbox.ts'
 import { q, runScript, sshTransport } from './ssh.ts'
 
 export interface RemoteHost {
@@ -34,7 +34,8 @@ export interface PlacementPolicyOptions {
   probe(host: RemoteHost, active: number): Promise<HostHealth>
   /**
    * The Sandbox runtime for one pass on a healthy host, and what to undo when the lease ends.
-   * `onOpenFailure` keeps new passes off the host for a while.
+   * `onOpenFailure` keeps new passes off the host for a while, unless the failure was the pass's own
+   * checkout (`PlacementWorkspaceError`).
    */
   runtime(host: RemoteHost, health: HostHealth, hooks: { onOpenFailure(error: unknown): void }): RemoteLease | Promise<RemoteLease>
   log?(event: string, fields: Record<string, unknown>): void
@@ -43,6 +44,8 @@ export interface PlacementPolicyOptions {
   healthTtlMs?: number
   /** Keep a host whose Sandbox failed to open out of placement this long. */
   failureCooldownMs?: number
+  /** Run a pass whose checkout a remote Box could not reproduce only on this host, this long. */
+  localOnlyMs?: number
 }
 
 export interface RemoteLease {
@@ -60,7 +63,10 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
   const log = options.log ?? (() => {})
   const healthTtlMs = options.healthTtlMs ?? 30_000
   const failureCooldownMs = options.failureCooldownMs ?? 5 * 60_000
+  const localOnlyMs = options.localOnlyMs ?? 60 * 60_000
   let localActive = 0
+  // Passes, by `repository#number`, that wait for a local slot until the time they map to.
+  const localOnly = new Map<string, number>()
   const hosts = options.hosts.map(config => ({
     config,
     active: 0,
@@ -109,6 +115,9 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
 
   return {
     async place(pass) {
+      const key = `${pass.repository}#${pass.number}`
+      const localUntil = localOnly.get(key) ?? 0
+      if (localUntil <= now()) localOnly.delete(key)
       // Read the count after the sample: concurrent placements must not all fit in the same slot.
       const slots = await localSlots()
       if (localActive < slots) {
@@ -116,6 +125,7 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
         log('placement.placed', { ...pass, host: 'local', localActive })
         return { release: once(() => { localActive-- }) }
       }
+      if (localUntil > now()) throw new BabysitterPlacementCapacityError(`this host is full, and ${key} runs only on this host until ${new Date(localUntil).toISOString()} because a remote Box could not reproduce its checkout`)
       const candidates = hosts
         .filter(host => host.active < host.config.slots && host.downUntil <= now())
         .toSorted((left, right) => left.active / left.config.slots - right.active / right.config.slots)
@@ -131,6 +141,7 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
         try {
           remote = await options.runtime(host.config, health, {
             onOpenFailure(error) {
+              if (isPlacementWorkspaceError(error)) return
               host.downUntil = now() + failureCooldownMs
               log('placement.host.cooldown', { host: host.config.target, reason: (error instanceof Error ? error.message : String(error)).slice(0, 500) })
             },
@@ -141,7 +152,23 @@ export function createPlacementPolicy(options: PlacementPolicyOptions): Placemen
           throw error
         }
         log('placement.placed', { ...pass, host: host.config.target, active: host.active, slots: host.config.slots })
-        const lease: BabysitterPlacementLease = { sandbox: { runtime: remote.runtime }, release: once(() => { host.active--; remote.release?.() }) }
+        const runtime: SandboxRuntime = {
+          ...remote.runtime,
+          // A Box that cannot reproduce this pass's checkout fails only this pass. The pull request waits
+          // without a failure strike and runs on this host next.
+          async open(...args: Parameters<SandboxRuntime['open']>) {
+            try {
+              return await remote.runtime.open(...args)
+            }
+            catch (error) {
+              if (!isPlacementWorkspaceError(error)) throw error
+              localOnly.set(key, now() + localOnlyMs)
+              log('placement.pass.local_only', { ...pass, host: host.config.target, reason: error.message.slice(0, 500) })
+              throw new BabysitterPlacementCapacityError(`${host.config.target} could not reproduce the checkout of ${key}, which runs on this host next: ${error.message.slice(0, 500)}`)
+            }
+          },
+        }
+        const lease: BabysitterPlacementLease = { sandbox: { runtime }, release: once(() => { host.active--; remote.release?.() }) }
         return lease
       }
       throw new BabysitterPlacementCapacityError(['this host is full', ...reasons].join('; '))

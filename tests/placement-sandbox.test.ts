@@ -117,6 +117,55 @@ test('a placed Box reproduces the prepared merge, runs commands in its own Home 
   }
 })
 
+test('a placed Box gets the index blobs of a prepared merge that only a pack on the host holds', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'placement-packed-merge-'))
+  try {
+    const checkout = join(root, 'checkout')
+    mkdirSync(checkout)
+    git(checkout, 'init', '-q', '-b', 'main')
+    git(checkout, 'remote', 'add', 'origin', 'https://example.invalid/base.git')
+    const lines = (first: string, last: string) => `${first}\n${'same\n'.repeat(20)}${last}\n`
+    writeFileSync(join(checkout, 'merged.txt'), lines('a', 'z'))
+    writeFileSync(join(checkout, 'conflict.txt'), 'base\n')
+    git(checkout, 'add', '.')
+    git(checkout, 'commit', '-qm', 'base')
+    git(checkout, 'checkout', '-q', '-b', 'pr')
+    writeFileSync(join(checkout, 'merged.txt'), lines('pr', 'z'))
+    writeFileSync(join(checkout, 'conflict.txt'), 'pr\n')
+    git(checkout, 'commit', '-qam', 'pr')
+    git(checkout, 'checkout', '-q', 'main')
+    writeFileSync(join(checkout, 'merged.txt'), lines('a', 'main'))
+    writeFileSync(join(checkout, 'conflict.txt'), 'main\n')
+    git(checkout, 'commit', '-qam', 'main')
+    const base = git(checkout, 'rev-parse', 'HEAD')
+    // A fork PR: the head is a local branch, the base is reached only through MERGE_HEAD.
+    git(checkout, 'checkout', '-q', 'pr')
+    git(checkout, 'update-ref', '-d', 'refs/heads/main')
+    try { git(checkout, 'merge', '--no-commit', '-q', base) } catch {}
+    // Git writes no loose copy of an object that a pack already has, such as the same merge from an
+    // earlier pass that gc moved into a cruft pack. The merged blob then lives only in a pack.
+    git(checkout, 'repack', '-adq')
+    const merged = git(checkout, 'rev-parse', ':0:merged.txt')
+    assert.equal(existsSync(join(checkout, '.git', 'objects', merged.slice(0, 2), merged.slice(2))), false)
+
+    const runtime = createSshSandboxRuntime({ host: 'local', transport: localTransport(), root: join(root, 'remote'), path: process.env.PATH! })
+    const session = await runtime.open(input(checkout), { executionAuthority: (await runtime.prepare(input(checkout))).executionAuthority })
+    try {
+      assert.equal((await session.exec('cat', ['merged.txt'])).stdout, lines('pr', 'main'))
+      assert.equal((await session.exec('git', ['rev-parse', 'MERGE_HEAD'])).stdout.trim(), base)
+      const stages = await session.exec('git', ['cat-file', '-p', ':3:conflict.txt'])
+      assert.equal(stages.stdout, 'main\n', stages.stderr)
+      assert.equal((await session.exec('git', ['fsck', '--no-dangling', '--connectivity-only', '--cache'])).ok, true)
+    }
+    finally {
+      await session.close()
+    }
+  }
+  finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a host probe removes Boxes that no live pass owns and spares young and live ones', async () => {
   const root = mkdtempSync(join(tmpdir(), 'placement-probe-'))
   const home = join(root, 'home')
