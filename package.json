@@ -16,10 +16,10 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
-    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@db5ec49",
-    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@db5ec49",
-    "@vite-hub/presets": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/presets@db5ec49",
-    "@vite-hub/sandbox": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@db5ec49",
+    "@vite-hub/agent": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@31e28f7",
+    "@vite-hub/kv": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/kv@31e28f7",
+    "@vite-hub/presets": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/presets@31e28f7",
+    "@vite-hub/sandbox": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/sandbox@31e28f7",
     "crossws": "^0.4.17",
     "drizzle-orm": "1.0.0-rc.5",
     "evlog": "^2.29.0",
@@ -28,7 +28,7 @@
     "posthog-node": "^5.73.0",
     "smol-toml": "^1.9.1",
     "vite": "^8.2.2",
-    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@db5ec49"
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@31e28f7"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
