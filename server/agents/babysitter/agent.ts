@@ -33,6 +33,9 @@ export default defineAgent({
       // A person working a PR by hand labels it so no pass pushes over their work.
       labels: { deny: ['babysitter:skip'] },
     },
+    // An outside author's PR gets passes once a reviewer with write access approves its head, and keeps
+    // them across the repairs this host pushes. Any other push needs a new approval.
+    lifecycle: { approval: true },
     concurrency: config.concurrency,
     modelConcurrency: config.modelConcurrency,
     capacity,
