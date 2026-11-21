@@ -1,11 +1,15 @@
-# Babysitter operating contract
+# Babysitter
 
-The Babysitter is a persistent worker, not a one-shot report generator. Keep the service running and continue observing it after every change or restart.
+Ship changes as PRs to `main`. To release, check out the merged `origin/main` detached, run `pnpm install --frozen-lockfile`, and run `scripts/deploy.sh` in the background. It drains running passes before the restart, which can take 40 minutes. Check first that no other session is deploying: `pgrep -af '^bash .*scripts/deploy\.sh'`.
 
-For each open pull request, the durable queue and webhook snapshot are the source of truth. Coalesce events for the same head, claim the oldest eligible item, and let the agent repair, wait for an external check, or merge. A completed invocation without a pushed commit, merge, or explicit durable waiting state is not progress.
+To restart without a release, drain first, because a plain restart interrupts running passes:
 
-When a provider workspace is missing Git metadata, restore the source remote and exact branch ancestry before editing. Never create an orphan push. If the PR closes or another actor changes its head, cancel the old claim and release capacity. A head change proven to match the actual provider checkout HEAD is the worker’s own repair; let it finish resolving addressed threads and recording its result. Do not spend repeated agent passes polling unchanged checks; persist a wake condition and wait for the webhook.
+```sh
+sudo systemctl kill --kill-whom=main --signal=SIGUSR2 babysitter-vitehub.service
+until curl -s localhost:3028/_vitehub/host/drain | grep -q drained; do sleep 10; done
+sudo systemctl restart --no-block babysitter-vitehub.service
+```
 
-After deploying, verify the active systemd release, health endpoint, queue state, webhook intake, and at least one real PR state transition. Keep babysitting until the queue is drained or every remaining item has a recorded, reproducible external blocker.
+A release is done when `localhost:3028/_vitehub/host/health` reports the new `release`, the journal shows webhooks answered with 202, and a PR changes state on GitHub: a pass pushes, or the vite-hub App merges.
 
-For an authorized restart, use ViteHub's existing drain signal: `systemctl kill --kill-whom=main --signal=SIGUSR2 babysitter-vitehub.service`. Wait for `/_vitehub/host/drain` to report `drained` in a background shell (`until curl -s localhost:3028/api/_vitehub/host/drain | grep -q drained; do sleep 10; done`), keep giving user updates, and restart when it finishes. Do not wait for an idle gap while the host keeps admitting new work.
+Stop the service before writing `agent-state.db`. A write while it runs makes every service transaction fail with `SQLITE_BUSY_SNAPSHOT` until the next restart.
