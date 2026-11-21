@@ -2,6 +2,7 @@ import { defineAgent } from 'vite-hub/agent'
 import { diagnostics, nodeRuntimeResources } from 'vite-hub/agent/capabilities'
 import { usePublicEnv, useServerEnv } from 'vite-hub/env'
 import { babysitter } from 'vite-hub/presets/babysitter'
+import { passCgroupFromEnvironment } from './cgroup.ts'
 import { babysitterConfig } from './config.ts'
 import { placementFromEnvironment } from './placement/index.ts'
 
@@ -18,6 +19,8 @@ const capacity = {
 }
 // With BABYSITTER_REMOTE_HOSTS (user@host:slots), passes that this host's memory cannot take run there.
 const placement = placementFromEnvironment({ capacity, concurrency: config.concurrency, perPassBytes })
+// With BABYSITTER_PASS_CGROUP (and systemd's Delegate=yes, DelegateSubgroup=main), passes run in their own cgroup.
+passCgroupFromEnvironment()
 
 export default defineAgent({
   extends: babysitter,
