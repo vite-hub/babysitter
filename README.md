@@ -86,6 +86,17 @@ admitting `(available - 2 GiB) / 2.5 GiB` passes, where available is the smaller
 and the user's cgroup `memory.high` headroom. The same check removes Boxes, and kills their processes,
 that no running pass owns. `BABYSITTER_REMOTE_MIN_FREE_BYTES`, `BABYSITTER_REMOTE_MAX_MEMORY_PRESSURE`,
 `BABYSITTER_REMOTE_RESERVE_BYTES` and `BABYSITTER_REMOTE_PASS_BYTES` change those limits.
+`BABYSITTER_LOCAL_SLOTS` caps the passes this host runs, such as `1`, so the rest go remote
+while this host's disk is busy.
+
+## Keep passes out of the worker's cgroup
+
+Passes are children of the worker process, so by default they share its cgroup: their page cache
+evicts the state database's pages and their dirty pages throttle the worker's own writes. With
+`Delegate=yes` and `DelegateSubgroup=main` in the systemd unit, set `BABYSITTER_PASS_CGROUP=passes`
+and the worker moves every other process from its `main` leaf into a sibling `passes` cgroup once a
+second, enabling the memory, CPU and IO controllers on the unit. `BABYSITTER_MAIN_MEMORY_LOW`, such as
+`6G`, writes the worker's `memory.low`, so the unit's `MemoryHigh` reclaims pass pages first.
 
 ## Repair a red main
 

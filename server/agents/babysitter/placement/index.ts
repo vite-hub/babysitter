@@ -313,6 +313,9 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
   const live = new Set<string>()
   // The fleet's directory: its git mirrors and pnpm store are warm.
   const remoteRoot = '.vitehub-fleet'
+  // BABYSITTER_LOCAL_SLOTS caps passes on this host below what its memory admits, so the rest go
+  // remote: local passes slow the main thread's disk reads and writes (2026-11-21).
+  const localCap = nonNegative(environment.BABYSITTER_LOCAL_SLOTS, Number.POSITIVE_INFINITY)
   const local = createProcessAgentCapacity({ ...options.capacity, concurrency: options.concurrency, remoteActive: () => policy.remoteActive?.() ?? 0 }).adaptive!
   const policy = createPlacementPolicy({
     hosts,
@@ -320,7 +323,7 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
     async localSlots(active) {
       // The sampler counts every active pass it is given as local; `remoteActive` holds the remote slots.
       const sample = await local.sample({ active: active.local, concurrency: options.concurrency, pending: 0, signal: AbortSignal.timeout(5_000) })
-      return sample.concurrency
+      return Math.min(sample.concurrency, localCap)
     },
     async probe(host, active) {
       const result = await runScript(transports.get(host.target)!, probeScript(remoteRoot, [...live]), { timeout: 60_000 })
@@ -352,4 +355,9 @@ function createEnvironmentPlacement(hosts: RemoteHost[], options: EnvironmentPla
 function positive(value: string | undefined, fallback: number) {
   const parsed = Number(value)
   return value !== undefined && value !== '' && Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function nonNegative(value: string | undefined, fallback: number) {
+  const parsed = Number(value)
+  return value !== undefined && value !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
 }
