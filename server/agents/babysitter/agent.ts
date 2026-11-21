@@ -61,6 +61,9 @@ export default defineAgent({
     merge: {
       strategy: 'direct',
       method: 'squash',
+      // A ready stacked child merges into its parent's branch, so the stack lands with the root.
+      // The preset turns this on by default; it is set here so the choice is visible.
+      foldStacks: true,
       // Other authors without write access, such as BABYSITTER_CONTRIBUTORS, wait for a write-access reviewer to approve their head.
       trustedAuthors: config.botAuthors,
       markDraftsReady: config.trustedAuthors,
