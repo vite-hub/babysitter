@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /app
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 CI=1
 RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 # The build bakes in the release revision and the public URL.
